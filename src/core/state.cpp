@@ -25,6 +25,7 @@ bool state::can_submit() const
     return player != present_c || present != present_t;
 }
 
+template<bool UNSAFE>
 bool state::apply_move(full_move fm)
 {
     bool flag;
@@ -48,16 +49,17 @@ bool state::apply_move(full_move fm)
         {
             auto [p, d] = data;
             vec4 q = p+d;
-            std::vector<vec4> moves = m.gen_piece_move(p, player);
-            
-            // is this a viable move? (not counting checking)
-            if(!std::ranges::contains(moves, d))
+            if constexpr (!UNSAFE)
             {
-                flag = false;
-                return;
+                std::vector<vec4> moves = m.gen_piece_move(p, player);
+                // is this a viable move? (not counting checking)
+                if(!std::ranges::contains(moves, d))
+                {
+                    flag = false;
+                    return;
+                }
             }
-            // TODO: checking detection & castling passage detection
-            
+
             // physical move, no time travel
             if(d.l() == 0 && d.t() == 0)
             {
@@ -121,6 +123,9 @@ bool state::apply_move(full_move fm)
     }, fm.data);
     return flag;
 }
+
+template bool state::apply_move<false>(full_move);
+template bool state::apply_move<true>(full_move);
 
 std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> state::get_timeline_status() const
 {

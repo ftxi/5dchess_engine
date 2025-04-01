@@ -79,17 +79,24 @@ constexpr int bb_get_pos(bitboard_t b)
 }
 std::vector<int> marked_pos(bitboard_t b);
 
-static inline bitboard_t white_pawn_attack(int pos)
+inline bitboard_t white_pawn_attack(int pos)
 {
     bitboard_t z = bitboard_t(1) << pos;
     return shift_northwest(z) | shift_northeast(z);
 }
-static inline bitboard_t black_pawn_attack(int pos)
+inline bitboard_t black_pawn_attack(int pos)
 {
     bitboard_t z = bitboard_t(1) << pos;
     return shift_southwest(z) | shift_southeast(z);
 }
-bitboard_t knight_attack(int pos);
-bitboard_t king_attack(int pos);
+
+inline bitboard_t knight_attack(int pos);
+inline bitboard_t king_attack(int pos);
+
+inline bitboard_t rook_copy_mask(int pos, int n);
+inline bitboard_t bishop_copy_mask(int pos, int n);
+inline bitboard_t queen_copy_mask(int pos, int n);
+
+#include "bitboard.inl"
 
 #endif // BITBOARD_H

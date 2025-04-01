@@ -6,7 +6,14 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_compile_options(-fconstexpr-steps=100000000)
+# compiler-specific options for magic.cpp
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-fconstexpr-steps=100000000)
+elseif(MSVC)
+    # MSVC equivalent for constexpr steps (if available)
+    add_compile_options(/constexpr:steps100000000)
+endif()
+
 
 # Option for building tests
 option(TEST "Build test executable" OFF)
@@ -20,6 +27,8 @@ file(GLOB_RECURSE ENGINE_SOURCES
 file(GLOB_RECURSE ENGINE_HEADERS 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.inl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.inl"
 )
 
 

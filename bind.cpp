@@ -119,7 +119,7 @@ PYBIND11_MODULE(engine, m) {
     py::class_<state>(m, "state")
         .def_readwrite("m", &state::m)
         .def(py::init<multiverse>())
-        .def("apply_move", &state::apply_move);
+        .def("apply_move", &state::apply_move<false>);
     py::class_<game>(m, "game")
         .def(py::init<std::string>())
         .def("get_current_boards", &game::get_current_boards)

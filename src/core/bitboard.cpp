@@ -2,8 +2,6 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
-#include "utils.h"
-#include "magic.h"
 
 std::string bb_to_string(bitboard_t bb)
 {
@@ -20,7 +18,6 @@ std::string bb_to_string(bitboard_t bb)
     return ss.str();
 }
 
-
 std::vector<int> marked_pos(bitboard_t b)
 {
     std::vector<int> result;
@@ -33,7 +30,7 @@ std::vector<int> marked_pos(bitboard_t b)
     return result;
 }
 
-constexpr std::array<bitboard_t, BOARD_SIZE> knight_attack_data = generate_array(std::make_index_sequence<BOARD_SIZE>{}, [](size_t pos) -> bitboard_t
+const std::array<bitboard_t, BOARD_SIZE> knight_attack_data = generate_array(std::make_index_sequence<BOARD_SIZE>{}, [](size_t pos) -> bitboard_t
 {
     bitboard_t z = bitboard_t(1) << pos, bb = 0;
     bb |= shift_north(shift_northwest(z));
@@ -47,7 +44,7 @@ constexpr std::array<bitboard_t, BOARD_SIZE> knight_attack_data = generate_array
     return bb;
 });
 
-constexpr std::array<bitboard_t, BOARD_SIZE> king_attack_data = generate_array(std::make_index_sequence<BOARD_SIZE>{}, [](size_t pos) -> bitboard_t
+const std::array<bitboard_t, BOARD_SIZE> king_attack_data = generate_array(std::make_index_sequence<BOARD_SIZE>{}, [](size_t pos) -> bitboard_t
 {
     bitboard_t z = bitboard_t(1) << pos, bb = 0;
     bb |= shift_north(z);
@@ -60,13 +57,41 @@ constexpr std::array<bitboard_t, BOARD_SIZE> king_attack_data = generate_array(s
     bb |= shift_southeast(z);
     return bb;
 });
-                                                                        
-bitboard_t knight_attack(int pos)
-{
-    return knight_attack_data[pos];
-}
 
-bitboard_t king_attack(int pos)
+const std::array<bitboard_t, BOARD_SIZE*BOARD_LENGTH> rook_copy_mask_data = generate_array(std::make_index_sequence<BOARD_SIZE*BOARD_LENGTH>{}, [](size_t key) -> bitboard_t
 {
-    return king_attack_data[pos];
-}
+    size_t pos = key & ((1 << BOARD_LENGTH) - 1), n = key >> BOARD_BITS;
+    bitboard_t a, b, c, d, bb = 0;
+    a = b = c = d = bitboard_t(1) << pos;
+    for(int i = 1; i < n; i++)
+    {
+        a = shift_north(a);
+        b = shift_south(b);
+        c = shift_west(c);
+        d = shift_east(d);
+        bb |= a | b | c | d;
+    }
+    return bb;
+});
+
+const std::array<bitboard_t, BOARD_SIZE*BOARD_LENGTH> bishop_copy_mask_data = generate_array(std::make_index_sequence<BOARD_SIZE*BOARD_LENGTH>{}, [](size_t key) -> bitboard_t
+{
+    size_t pos = key & ((1 << BOARD_LENGTH) - 1), n = key >> BOARD_BITS;
+    bitboard_t a, b, c, d, bb = 0;
+    a = b = c = d = bitboard_t(1) << pos;
+    for(int i = 1; i < n; i++)
+    {
+        a = shift_northwest(a);
+        b = shift_northeast(b);
+        c = shift_southwest(c);
+        d = shift_southeast(d);
+        bb |= a | b | c | d;
+    }
+    return bb;
+});
+
+const std::array<bitboard_t, BOARD_SIZE*BOARD_LENGTH> queen_copy_mask_data = generate_array(std::make_index_sequence<BOARD_SIZE*BOARD_LENGTH>{}, [](size_t key) -> bitboard_t
+{
+    return rook_copy_mask_data[key] | bishop_copy_mask_data[key];
+});
+
