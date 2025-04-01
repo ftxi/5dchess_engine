@@ -1,5 +1,6 @@
 #include "multiverse.h"
 #include "utils.h"
+#include "magic.h"
 #include <regex>
 #include <sstream>
 #include <algorithm>
@@ -476,4 +477,73 @@ vector<vec4> multiverse::gen_piece_move(const vec4& p, int board_color) const
     }
     return result;
 }
+
+template<piece_t P>
+bitboard_t multiverse::gen_physical_move(const vec4& p, int board_color) const
+{
+	//int u = l_to_u(p.l()), v = tc_to_v(p.t(), board_color);
+	std::shared_ptr<board> b_ptr = get_board(p.l(), p.t(), board_color);
+	bitboard_t friendly = board_color ? b_ptr->black() : b_ptr->white();
+    bitboard_t a;
+    if constexpr (P == KING_W | P == KING_B | P == COMMON_KING_W | P == COMMON_KING_B)
+    {
+        a = king_attack(p.xy()) & ~friendly;
+    }
+    else if (P == ROOK_W | P == ROOK_B)
+    {
+		a = rook_attack(p.xy(), b_ptr->occupied()) & ~friendly;
+	}
+    else if (P == BISHOP_W | P == BISHOP_B)
+    {
+		a = bishop_attack(p.xy(), b_ptr->occupied()) & ~friendly;
+    }
+    else if (P == QUEEN_W | P == QUEEN_B | P == PRINCESS_W | P == PRINCESS_B)
+    {
+        a = queen_attack(p.xy(), b_ptr->occupied()) & ~friendly;
+	}
+    else if (P == PAWN_W | P == BRAWN_W)
+    {
+		a = white_pawn_attack(p.xy()) & ~friendly;
+    }
+	else if (P == PAWN_B | P == BRAWN_B)
+	{  
+		a = black_pawn_attack(p.xy()) & ~friendly;
+	}
+	else if (P == KNIGHT_W | P == KNIGHT_B)
+	{
+		a = knight_attack(p.xy()) & ~friendly;
+	}
+    else if (P == UNICORN_W | P == UNICORN_B | P == DRAGON_W | P == DRAGON_B)
+    {
+        a = 0;
+    }
+	else
+	{
+		std::cerr << "gen_physical_move:" << P << "not implemented" << std::endl;
+	}
+	return a;
+}
+
+template<> bitboard_t multiverse::gen_physical_move<KING_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<KING_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<COMMON_KING_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<COMMON_KING_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<ROOK_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<ROOK_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<BISHOP_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<BISHOP_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<QUEEN_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<QUEEN_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<PRINCESS_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<PRINCESS_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<PAWN_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<BRAWN_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<PAWN_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<BRAWN_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<KNIGHT_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<KNIGHT_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<UNICORN_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<UNICORN_B>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<DRAGON_W>(const vec4& p, int board_color) const;
+template<> bitboard_t multiverse::gen_physical_move<DRAGON_B>(const vec4& p, int board_color) const;
 

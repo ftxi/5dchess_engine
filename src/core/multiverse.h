@@ -54,7 +54,7 @@ public:
     std::vector<vec4> gen_piece_move(const vec4& p, int board_color) const;
     
     template<piece_t P>
-    std::vector<bitboard_t> gen_physical_move(const vec4&p, int board_color) const;
+    bitboard_t gen_physical_move(const vec4&p, int board_color) const;
     
     template<piece_t P>
     std::vector<bitboard_t> gen_superphysical_move(const vec4&p, int board_color) const;
