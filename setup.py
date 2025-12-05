@@ -65,16 +65,14 @@ setup(
     name="5dchess_engine",
     version="1.0.0",
     author="SuZero-5DChess",
-    description="A 5D Chess engine with Python bindings",
+    description="A 5D Chess engine written in C++ with Python bindings",
     long_description=Path("README.md").read_text(),
     long_description_content_type="text/markdown",
-    ext_modules=[CMakeExtension("engine")],
+    
+    # 关键修复：明确告诉 setuptools 不包含任何纯 Python 包
+    packages=[], 
+    
+    ext_modules=[CMakeExtension("5dchess_engine")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
-    python_requires=">=3.8",
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
 )
