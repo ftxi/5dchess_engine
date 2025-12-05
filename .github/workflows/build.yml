@@ -1,133 +1,92 @@
+name: Build Wheels
+
 on:
   push:
     tags:
-      - 'v*'
-  release:
-    types: [published]
+      - "v*.*.*"     # build when you push a version tag
+  workflow_dispatch:
+
 jobs:
-  build-wheels:
-    name: Build wheels on ${{ matrix.os }}
+  build:
+    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          # Ubuntu with GCC 13 (supports C++23 and std::ranges::contains)
-          #- os: ubuntu-22.04
-            #compiler: gcc-13
-            #cxx: g++-13
-            #python-version: '3.11'
-          
-          # Ubuntu with Clang 17 (supports C++23 and std::ranges::contains)
-          - os: ubuntu-22.04
-            compiler: clang-17
-            cxx: clang++-17
-            python-version: '3.12'
-          
-          # macOS with latest Xcode (Apple Clang 15+)
-          - os: macos-15
-            compiler: clang
-            cxx: clang++
-            python-version: '3.12'
-          
-          # Windows with MSVC 2022 (supports C++23)
-          - os: windows-2022
-            compiler: msvc
-            cxx: msvc
-            python-version: '3.12'
+        os: [ubuntu-22.04, macos-15, windows-2022]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      # -----------------------
+      # Install compilers
+      # -----------------------
+
+      - name: Install compiler (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13 gcc-13
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 50
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 50
+
+      # macOS 15 already provides Clang with C++23
+
+      - name: Install compiler (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          python-version: ${{ matrix.python-version }}
+          toolset: 14.40   # VS 2022 toolset (C++23)
 
-      # Linux: Install GCC 13 or Clang 17
-      - name: Install GCC 13 (Ubuntu)
-        if: runner.os == 'Linux' && matrix.compiler == 'gcc-13'
+      # -----------------------
+      # Build
+      # -----------------------
+
+      - name: Configure CMake
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # -----------------------
+      # Collect wheel / library
+      # -----------------------
+
+      - name: Find wheel output
+        id: findfile
+        shell: bash
         run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
-          sudo apt-get update
-          sudo apt-get install -y gcc-13 g++-13 cmake
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
-          pip install --upgrade pip setuptools wheel pybind11
+          FILE=$(find build -type f -name "engine*.so" -or -name "engine*.pyd" | head -n 1)
+          echo "FOUND=$FILE"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Install Clang 17 (Ubuntu)
-        if: runner.os == 'Linux' && matrix.compiler == 'clang-17'
-        run: |
-          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-17 main" -y
-          sudo apt-get update
-          sudo apt-get install -y clang-17 clang-tools-17 lld-17 cmake
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 100
-          pip install --upgrade pip setuptools wheel pybind11
-
-      # macOS: Update Xcode and install dependencies
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake
-          pip install --upgrade pip setuptools wheel pybind11
-
-      # Windows: Install dependencies
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          choco install cmake -y
-          pip install --upgrade pip setuptools wheel pybind11
-
-      # Build wheel with appropriate compiler
-      - name: Build wheel (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          pip install build
-          CC=${{ matrix.compiler }} CXX=${{ matrix.cxx }} python -m build --wheel
-        env:
-          CFLAGS: "-std=c++23"
-          CXXFLAGS: "-std=c++23"
-
-      - name: Build wheel (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          pip install build
-          python -m build --wheel
-
-      - name: Upload wheels as artifacts
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.compiler }}-py${{ matrix.python-version }}
-          path: dist/*.whl
+          name: engine-${{ matrix.os }}
+          path: ${{ steps.findfile.outputs.file }}
 
-  publish-release:
-    name: Create GitHub Release
-    needs: build-wheels
+  # -----------------------
+  # Release job
+  # -----------------------
+  release:
+    name: Upload wheels to release
+    needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all wheels
+      - name: Download artifacts
         uses: actions/download-artifact@v4
-        with:
-          path: dist
 
-      - name: Flatten directory structure
-        run: |
-          mkdir -p final_dist
-          find dist -name "*.whl" -exec cp {} final_dist/ \;
-          ls -la final_dist/
-
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: final_dist/*.whl
-          draft: false
-          prerelease: false
+          files: |
+            **/engine*.so
+            **/engine*.pyd
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
