@@ -61,6 +61,7 @@ jobs:
         shell: bash
         run: |
           FILE=$(find build -type f -name "engine*.so" -or -name "engine*.pyd" | head -n 1)
+          echo "$PWD"
           echo "FOUND=$FILE"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
