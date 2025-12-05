@@ -8,7 +8,7 @@ import sys
 import subprocess
 from pathlib import Path
 
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 from setuptools.command.build_ext import build_ext
 
 
@@ -69,8 +69,9 @@ setup(
     long_description=Path("README.md").read_text(),
     long_description_content_type="text/markdown",
     
-    # 关键修复：明确告诉 setuptools 不包含任何纯 Python 包
-    packages=[], 
+    # 关键修复：使用 find_packages() 自动发现并包含 5dchess_engine 目录作为 Python 包
+    # 这样，编译好的 5dchess_engine.so 就会被安装到这个包的根目录下
+    packages=find_packages(), 
     
     ext_modules=[CMakeExtension("5dchess_engine")],
     cmdclass={"build_ext": CMakeBuild},
