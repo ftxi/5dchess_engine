@@ -162,7 +162,7 @@ def suggest_action():
     display()
 
 @socketio.on('request_load')
-def suggest_action(data):
+def handle_load(data):
     print('received load:')
     print(data)
     global g
@@ -171,6 +171,77 @@ def suggest_action(data):
         display()
     except RuntimeError as e:
         emit('response_load', str(e))
+
+@socketio.on('request_perft')
+def handle_perft(data):
+    depth = int(data.get('depth', 1))
+    use_parallel = data.get('parallel', True)  # Default to parallel
+    use_tt = data.get('use_tt', True)  # Default to use transposition table
+    use_dynamic = data.get('dynamic', True)  # Default to use dynamic work-stealing
+    timeout = data.get('timeout', None)  # Timeout in seconds (None = no timeout)
+    num_threads = int(data.get('threads', 0))  # 0 = auto-detect
+    tt_size_mb = int(data.get('tt_size_mb', 256))  # Default 256 MB
+    print(f'received perft request with depth={depth}, parallel={use_parallel}, use_tt={use_tt}, dynamic={use_dynamic}, timeout={timeout}, threads={num_threads}')
+    try:
+        import time
+        start_time = time.time()
+        completed = True
+        
+        # If timeout is specified, use perft_timed
+        if timeout is not None and timeout > 0:
+            count, completed = g.perft_timed(depth, float(timeout), num_threads)
+            mode = 'timed'
+        elif depth > 1:
+            if use_dynamic:
+                count = g.perft_dynamic(depth, num_threads)
+                mode = 'dynamic'
+            elif use_tt:
+                count = g.perft_with_tt(depth, num_threads, tt_size_mb)
+                mode = 'TT'
+            elif use_parallel:
+                count = g.perft_parallel(depth, num_threads)
+                mode = 'parallel'
+            else:
+                count = g.perft(depth)
+                mode = 'single'
+        else:
+            count = g.perft(depth)
+            mode = 'single'
+        elapsed = time.time() - start_time
+        result = {
+            'count': count,
+            'depth': depth,
+            'time': round(elapsed, 3),
+            'rate': round(count / elapsed, 0) if elapsed > 0 else 0,
+            'mode': mode,
+            'completed': completed
+        }
+        status_str = '' if completed else ' (TIMEOUT - partial result)'
+        print(f'perft({depth}) [{mode}] = {count} in {elapsed:.3f}s ({result["rate"]:.0f} nodes/s){status_str}')
+        emit('response_perft', result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        emit('response_perft', {'error': str(e)})
+
+@socketio.on('request_count_actions')
+def handle_count_actions():
+    print('received count_actions request')
+    try:
+        import time
+        start_time = time.time()
+        count = g.count_actions()
+        elapsed = time.time() - start_time
+        result = {
+            'count': count,
+            'depth': 1,
+            'time': round(elapsed, 3),
+            'rate': round(count / elapsed, 0) if elapsed > 0 else 0
+        }
+        print(f'count_actions() = {count} in {elapsed:.3f}s')
+        emit('response_perft', result)
+    except Exception as e:
+        emit('response_perft', {'error': str(e)})
 
 def convert_boards_data(boards):
     def convert_board(board):

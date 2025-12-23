@@ -5,6 +5,12 @@
 #include <algorithm>
 #include <cassert>
 #include <variant>
+#include <thread>
+#include <future>
+#include <atomic>
+#include <mutex>
+#include <queue>
+#include <chrono>
 #include "pgnparser.h"
 #include "hypercuboid.h"
 
@@ -310,6 +316,946 @@ bool game::suggest_action()
         }
     }
     return false;
+}
+
+uint64_t game::count_actions() const
+{
+    const state &s = current_node->get_state();
+    // Check if game is over
+    auto ms = s.can_submit();
+    if(ms.has_value())
+    {
+        // Current player can submit without making moves (game continues)
+        // This means we have exactly 1 action: submit
+        return 1;
+    }
+    
+    auto [w, ss] = HC_info::build_HC(s);
+    uint64_t count = 0;
+    for([[maybe_unused]] moveseq mvs : w.search(ss))
+    {
+        ++count;
+    }
+    return count;
+}
+
+// Helper function for recursive perft
+static uint64_t perft_recursive(const state &s, int depth, uint64_t &progress, uint64_t total, 
+                                std::function<void(uint64_t, uint64_t)> callback)
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Check if current player can submit (meaning the turn ends without additional moves)
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        // Player must submit, which transitions to next player's turn
+        if(depth == 1)
+        {
+            return 1;
+        }
+        return perft_recursive(*submit_state, depth - 1, progress, total, callback);
+    }
+    
+    auto [w, ss] = HC_info::build_HC(s);
+    uint64_t count = 0;
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        if(depth == 1)
+        {
+            ++count;
+        }
+        else
+        {
+            // Apply action to get new state
+            std::vector<ext_move> emvs;
+            std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+                return ext_move(m);
+            });
+            action act = action::from_vector(emvs, s);
+            auto new_state_opt = s.can_apply(act);
+            if(new_state_opt.has_value())
+            {
+                // Check if this new state requires a submit
+                auto submitted = new_state_opt->can_submit();
+                if(submitted.has_value())
+                {
+                    count += perft_recursive(*submitted, depth - 1, progress, total, callback);
+                }
+                else
+                {
+                    count += perft_recursive(*new_state_opt, depth - 1, progress, total, callback);
+                }
+            }
+        }
+        
+        // Report progress for depth 1 enumeration at root
+        if(callback && depth > 1)
+        {
+            ++progress;
+            callback(progress, total);
+        }
+    }
+    
+    return count;
+}
+
+uint64_t game::perft(int depth, std::function<void(uint64_t, uint64_t)> callback) const
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    const state &s = current_node->get_state();
+    
+    // First, count total actions at depth 1 for progress tracking
+    uint64_t total = 0;
+    if(callback && depth > 1)
+    {
+        total = const_cast<game*>(this)->count_actions();
+    }
+    
+    uint64_t progress = 0;
+    return perft_recursive(s, depth, progress, total, callback);
+}
+
+// Single-threaded perft worker (no callback, for use in threads)
+static uint64_t perft_worker(const state &s, int depth)
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Check if current player can submit
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        if(depth == 1)
+        {
+            return 1;
+        }
+        return perft_worker(*submit_state, depth - 1);
+    }
+    
+    auto [w, ss] = HC_info::build_HC(s);
+    uint64_t count = 0;
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        if(depth == 1)
+        {
+            ++count;
+        }
+        else
+        {
+            std::vector<ext_move> emvs;
+            std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+                return ext_move(m);
+            });
+            action act = action::from_vector(emvs, s);
+            auto new_state_opt = s.can_apply(act);
+            if(new_state_opt.has_value())
+            {
+                auto submitted = new_state_opt->can_submit();
+                if(submitted.has_value())
+                {
+                    count += perft_worker(*submitted, depth - 1);
+                }
+                else
+                {
+                    count += perft_worker(*new_state_opt, depth - 1);
+                }
+            }
+        }
+    }
+    
+    return count;
+}
+
+// Task structure for work stealing
+struct PerftTask {
+    state s;
+    int depth;
+};
+
+uint64_t game::perft_parallel(int depth, unsigned int num_threads) const
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Auto-detect number of threads if not specified
+    if(num_threads == 0)
+    {
+        num_threads = std::thread::hardware_concurrency();
+        if(num_threads == 0) num_threads = 4; // fallback
+    }
+    
+    const state &s = current_node->get_state();
+    
+    // For depth 1, just count directly (no benefit from parallelism)
+    if(depth == 1)
+    {
+        return count_actions();
+    }
+    
+    // Check if current player can submit
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        // Create a temporary game-like context for recursive call
+        return perft_worker(*submit_state, depth - 1);
+    }
+    
+    // Collect all first-level actions to distribute among threads
+    std::vector<PerftTask> tasks;
+    auto [w, ss] = HC_info::build_HC(s);
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        std::vector<ext_move> emvs;
+        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+            return ext_move(m);
+        });
+        action act = action::from_vector(emvs, s);
+        auto new_state_opt = s.can_apply(act);
+        if(new_state_opt.has_value())
+        {
+            auto submitted = new_state_opt->can_submit();
+            if(submitted.has_value())
+            {
+                tasks.push_back({*submitted, depth - 1});
+            }
+            else
+            {
+                tasks.push_back({*new_state_opt, depth - 1});
+            }
+        }
+    }
+    
+    if(tasks.empty())
+    {
+        return 0;
+    }
+    
+    // Use a thread pool approach with work stealing
+    std::atomic<uint64_t> total_count{0};
+    std::atomic<size_t> task_index{0};
+    
+    auto worker = [&]() {
+        uint64_t local_count = 0;
+        while(true)
+        {
+            size_t idx = task_index.fetch_add(1, std::memory_order_relaxed);
+            if(idx >= tasks.size())
+            {
+                break;
+            }
+            local_count += perft_worker(tasks[idx].s, tasks[idx].depth);
+        }
+        total_count.fetch_add(local_count, std::memory_order_relaxed);
+    };
+    
+    // Limit threads to task count
+    unsigned int actual_threads = std::min(num_threads, static_cast<unsigned int>(tasks.size()));
+    
+    std::vector<std::thread> threads;
+    threads.reserve(actual_threads);
+    
+    for(unsigned int i = 0; i < actual_threads; ++i)
+    {
+        threads.emplace_back(worker);
+    }
+    
+    for(auto& t : threads)
+    {
+        t.join();
+    }
+    
+    return total_count.load();
+}
+
+//////////////////////////////////////////////
+// Perft with Transposition Table (TT)
+//////////////////////////////////////////////
+
+// Simple hash function for state - combines board hashes
+static uint64_t compute_state_hash(const state& s)
+{
+    uint64_t hash = 0;
+    auto boards = s.get_boards();
+    
+    // FNV-1a hash
+    const uint64_t FNV_PRIME = 0x100000001b3;
+    const uint64_t FNV_OFFSET = 0xcbf29ce484222325;
+    
+    hash = FNV_OFFSET;
+    
+    // Hash the present and player
+    auto [present_t, player] = s.get_present();
+    hash ^= static_cast<uint64_t>(present_t);
+    hash *= FNV_PRIME;
+    hash ^= static_cast<uint64_t>(player);
+    hash *= FNV_PRIME;
+    
+    // Hash all boards
+    for(const auto& [l, t, c, fen] : boards)
+    {
+        hash ^= static_cast<uint64_t>(l);
+        hash *= FNV_PRIME;
+        hash ^= static_cast<uint64_t>(t);
+        hash *= FNV_PRIME;
+        hash ^= static_cast<uint64_t>(c);
+        hash *= FNV_PRIME;
+        
+        // Hash the FEN string
+        for(char ch : fen)
+        {
+            hash ^= static_cast<uint64_t>(ch);
+            hash *= FNV_PRIME;
+        }
+    }
+    
+    return hash;
+}
+
+// Transposition table entry
+struct TTEntry {
+    uint64_t hash;      // Full hash for verification
+    uint64_t count;     // Perft count
+    int depth;          // Depth at which this was computed
+    bool valid;         // Entry validity flag
+    
+    TTEntry() : hash(0), count(0), depth(0), valid(false) {}
+};
+
+// Thread-local transposition table to avoid lock contention
+class TranspositionTable {
+    std::vector<TTEntry> table;
+    size_t mask;
+    std::atomic<uint64_t> hits{0};
+    std::atomic<uint64_t> misses{0};
+    
+public:
+    TranspositionTable(size_t size_mb) {
+        // Calculate number of entries
+        size_t num_entries = (size_mb * 1024 * 1024) / sizeof(TTEntry);
+        // Round down to power of 2
+        size_t power = 1;
+        while(power * 2 <= num_entries) power *= 2;
+        num_entries = power;
+        mask = num_entries - 1;
+        table.resize(num_entries);
+    }
+    
+    bool probe(uint64_t hash, int depth, uint64_t& count) {
+        size_t idx = hash & mask;
+        TTEntry& entry = table[idx];
+        if(entry.valid && entry.hash == hash && entry.depth == depth) {
+            hits.fetch_add(1, std::memory_order_relaxed);
+            count = entry.count;
+            return true;
+        }
+        misses.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    
+    void store(uint64_t hash, int depth, uint64_t count) {
+        size_t idx = hash & mask;
+        TTEntry& entry = table[idx];
+        // Always replace (could use more sophisticated replacement policy)
+        entry.hash = hash;
+        entry.depth = depth;
+        entry.count = count;
+        entry.valid = true;
+    }
+    
+    std::pair<uint64_t, uint64_t> get_stats() const {
+        return {hits.load(), misses.load()};
+    }
+};
+
+// Perft worker with transposition table
+static uint64_t perft_worker_tt(const state& s, int depth, TranspositionTable& tt)
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Compute hash for this state
+    uint64_t hash = compute_state_hash(s);
+    
+    // Try to find in transposition table
+    uint64_t cached_count;
+    if(tt.probe(hash, depth, cached_count))
+    {
+        return cached_count;
+    }
+    
+    // Check if current player can submit
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        if(depth == 1)
+        {
+            tt.store(hash, depth, 1);
+            return 1;
+        }
+        uint64_t count = perft_worker_tt(*submit_state, depth - 1, tt);
+        tt.store(hash, depth, count);
+        return count;
+    }
+    
+    auto [w, ss] = HC_info::build_HC(s);
+    uint64_t count = 0;
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        if(depth == 1)
+        {
+            ++count;
+        }
+        else
+        {
+            std::vector<ext_move> emvs;
+            std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+                return ext_move(m);
+            });
+            action act = action::from_vector(emvs, s);
+            auto new_state_opt = s.can_apply(act);
+            if(new_state_opt.has_value())
+            {
+                auto submitted = new_state_opt->can_submit();
+                if(submitted.has_value())
+                {
+                    count += perft_worker_tt(*submitted, depth - 1, tt);
+                }
+                else
+                {
+                    count += perft_worker_tt(*new_state_opt, depth - 1, tt);
+                }
+            }
+        }
+    }
+    
+    tt.store(hash, depth, count);
+    return count;
+}
+
+uint64_t game::perft_with_tt(int depth, unsigned int num_threads, size_t tt_size_mb) const
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Auto-detect number of threads if not specified
+    if(num_threads == 0)
+    {
+        num_threads = std::thread::hardware_concurrency();
+        if(num_threads == 0) num_threads = 4;
+    }
+    
+    const state& s = current_node->get_state();
+    
+    // For depth 1, just count directly
+    if(depth == 1)
+    {
+        return count_actions();
+    }
+    
+    // Check if current player can submit
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        TranspositionTable tt(tt_size_mb);
+        return perft_worker_tt(*submit_state, depth - 1, tt);
+    }
+    
+    // Collect all first-level actions
+    std::vector<PerftTask> tasks;
+    auto [w, ss] = HC_info::build_HC(s);
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        std::vector<ext_move> emvs;
+        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+            return ext_move(m);
+        });
+        action act = action::from_vector(emvs, s);
+        auto new_state_opt = s.can_apply(act);
+        if(new_state_opt.has_value())
+        {
+            auto submitted = new_state_opt->can_submit();
+            if(submitted.has_value())
+            {
+                tasks.push_back({*submitted, depth - 1});
+            }
+            else
+            {
+                tasks.push_back({*new_state_opt, depth - 1});
+            }
+        }
+    }
+    
+    if(tasks.empty())
+    {
+        return 0;
+    }
+    
+    // Each thread gets its own transposition table to avoid lock contention
+    // The trade-off is less sharing, but no synchronization overhead
+    std::atomic<uint64_t> total_count{0};
+    std::atomic<size_t> task_index{0};
+    
+    size_t per_thread_tt_size = tt_size_mb / num_threads;
+    if(per_thread_tt_size < 16) per_thread_tt_size = 16; // Minimum 16 MB per thread
+    
+    auto worker = [&]() {
+        TranspositionTable local_tt(per_thread_tt_size);
+        uint64_t local_count = 0;
+        
+        while(true)
+        {
+            size_t idx = task_index.fetch_add(1, std::memory_order_relaxed);
+            if(idx >= tasks.size())
+            {
+                break;
+            }
+            local_count += perft_worker_tt(tasks[idx].s, tasks[idx].depth, local_tt);
+        }
+        total_count.fetch_add(local_count, std::memory_order_relaxed);
+    };
+    
+    unsigned int actual_threads = std::min(num_threads, static_cast<unsigned int>(tasks.size()));
+    
+    std::vector<std::thread> threads;
+    threads.reserve(actual_threads);
+    
+    for(unsigned int i = 0; i < actual_threads; ++i)
+    {
+        threads.emplace_back(worker);
+    }
+    
+    for(auto& t : threads)
+    {
+        t.join();
+    }
+    
+    return total_count.load();
+}
+
+//////////////////////////////////////////////
+// Dynamic Work-Stealing Perft
+//////////////////////////////////////////////
+
+// Thread-safe task queue for dynamic work distribution
+class TaskQueue {
+    std::queue<std::shared_ptr<PerftTask>> tasks;
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::atomic<bool> done{false};
+    std::atomic<int> active_workers{0};
+    
+public:
+    void push(state s, int depth) {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            tasks.push(std::make_shared<PerftTask>(PerftTask{std::move(s), depth}));
+        }
+        cv.notify_one();
+    }
+    
+    void push_batch(std::vector<PerftTask>& batch) {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            for(auto& task : batch) {
+                tasks.push(std::make_shared<PerftTask>(std::move(task)));
+            }
+        }
+        cv.notify_all();
+    }
+    
+    std::shared_ptr<PerftTask> try_pop() {
+        std::lock_guard<std::mutex> lock(mtx);
+        if(tasks.empty()) {
+            return nullptr;
+        }
+        auto task = tasks.front();
+        tasks.pop();
+        return task;
+    }
+    
+    void finish() {
+        done.store(true);
+        cv.notify_all();
+    }
+    
+    bool is_done() const {
+        return done.load();
+    }
+    
+    void worker_start() {
+        active_workers.fetch_add(1, std::memory_order_relaxed);
+    }
+    
+    void worker_end() {
+        active_workers.fetch_sub(1, std::memory_order_relaxed);
+    }
+    
+    bool all_idle_and_empty() {
+        std::lock_guard<std::mutex> lock(mtx);
+        return tasks.empty() && active_workers.load() == 0;
+    }
+};
+
+// Dynamic perft worker that can spawn subtasks
+static uint64_t perft_worker_dynamic(const state& s, int depth, int split_depth, TaskQueue& queue)
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Check if current player can submit
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        if(depth == 1)
+        {
+            return 1;
+        }
+        return perft_worker_dynamic(*submit_state, depth - 1, split_depth, queue);
+    }
+    
+    auto [w, ss] = HC_info::build_HC(s);
+    uint64_t count = 0;
+    
+    // If we're at split depth and have remaining depth, create parallel tasks
+    bool should_split = (depth >= split_depth && depth > 1);
+    std::vector<PerftTask> subtasks;
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        if(depth == 1)
+        {
+            ++count;
+        }
+        else
+        {
+            std::vector<ext_move> emvs;
+            std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+                return ext_move(m);
+            });
+            action act = action::from_vector(emvs, s);
+            auto new_state_opt = s.can_apply(act);
+            if(new_state_opt.has_value())
+            {
+                state next_state = *new_state_opt;
+                auto submitted = next_state.can_submit();
+                if(submitted.has_value())
+                {
+                    next_state = *submitted;
+                }
+                
+                if(should_split)
+                {
+                    // Push to task queue for other threads to pick up
+                    subtasks.push_back({next_state, depth - 1});
+                }
+                else
+                {
+                    // Process locally
+                    count += perft_worker(next_state, depth - 1);
+                }
+            }
+        }
+    }
+    
+    if(!subtasks.empty())
+    {
+        // Push all subtasks at once
+        queue.push_batch(subtasks);
+    }
+    
+    return count;
+}
+
+uint64_t game::perft_dynamic(int depth, unsigned int num_threads, int split_depth) const
+{
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Auto-detect number of threads if not specified
+    if(num_threads == 0)
+    {
+        num_threads = std::thread::hardware_concurrency();
+        if(num_threads == 0) num_threads = 4;
+    }
+    
+    const state& s = current_node->get_state();
+    
+    // For depth 1, just count directly
+    if(depth == 1)
+    {
+        return count_actions();
+    }
+    
+    // Task queue for dynamic work distribution
+    TaskQueue queue;
+    std::atomic<uint64_t> total_count{0};
+    std::atomic<bool> all_done{false};
+    
+    // Initial task
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        queue.push(*submit_state, depth - 1);
+    }
+    else
+    {
+        queue.push(s, depth);
+    }
+    
+    auto worker = [&]() {
+        uint64_t local_count = 0;
+        
+        while(!all_done.load(std::memory_order_relaxed))
+        {
+            auto task_ptr = queue.try_pop();
+            if(task_ptr)
+            {
+                queue.worker_start();
+                local_count += perft_worker_dynamic(task_ptr->s, task_ptr->depth, split_depth, queue);
+                queue.worker_end();
+            }
+            else
+            {
+                // No task available, check if we should exit
+                if(queue.all_idle_and_empty())
+                {
+                    all_done.store(true, std::memory_order_relaxed);
+                    break;
+                }
+                // Yield to other threads
+                std::this_thread::yield();
+            }
+        }
+        
+        total_count.fetch_add(local_count, std::memory_order_relaxed);
+    };
+    
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+    
+    for(unsigned int i = 0; i < num_threads; ++i)
+    {
+        threads.emplace_back(worker);
+    }
+    
+    for(auto& t : threads)
+    {
+        t.join();
+    }
+    
+    return total_count.load();
+}
+
+// Helper for perft_timed: worker with stop flag
+static uint64_t perft_worker_timed(const state& s, int depth, const std::atomic<bool>& stop_flag)
+{
+    if(stop_flag.load(std::memory_order_relaxed))
+    {
+        return 0; // Early exit if stopped
+    }
+    
+    if(depth <= 0)
+    {
+        return 1;
+    }
+    
+    // Check if current player can submit
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        if(depth == 1)
+        {
+            return 1;
+        }
+        return perft_worker_timed(*submit_state, depth - 1, stop_flag);
+    }
+    
+    auto [w, ss] = HC_info::build_HC(s);
+    uint64_t count = 0;
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        if(stop_flag.load(std::memory_order_relaxed))
+        {
+            break; // Check periodically and exit early if stopped
+        }
+        
+        if(depth == 1)
+        {
+            ++count;
+        }
+        else
+        {
+            std::vector<ext_move> emvs;
+            std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+                return ext_move(m);
+            });
+            action act = action::from_vector(emvs, s);
+            auto new_state_opt = s.can_apply(act);
+            if(new_state_opt.has_value())
+            {
+                auto submitted = new_state_opt->can_submit();
+                if(submitted.has_value())
+                {
+                    count += perft_worker_timed(*submitted, depth - 1, stop_flag);
+                }
+                else
+                {
+                    count += perft_worker_timed(*new_state_opt, depth - 1, stop_flag);
+                }
+            }
+        }
+    }
+    
+    return count;
+}
+
+std::pair<uint64_t, bool> game::perft_timed(int depth, double timeout_seconds, unsigned int num_threads) const
+{
+    if(depth <= 0)
+    {
+        return {1, true};
+    }
+    
+    // Auto-detect number of threads if not specified
+    if(num_threads == 0)
+    {
+        num_threads = std::thread::hardware_concurrency();
+        if(num_threads == 0) num_threads = 4;
+    }
+    
+    const state& s = current_node->get_state();
+    
+    // For depth 1, just count directly (always completes quickly)
+    if(depth == 1)
+    {
+        return {count_actions(), true};
+    }
+    
+    // Get the starting state (after submit if possible)
+    state start_state = s;
+    int start_depth = depth;
+    auto submit_state = s.can_submit();
+    if(submit_state.has_value())
+    {
+        start_state = *submit_state;
+        start_depth = depth - 1;
+    }
+    
+    // Generate first-level tasks for parallel distribution
+    std::vector<PerftTask> tasks;
+    auto [w, ss] = HC_info::build_HC(start_state);
+    
+    for(moveseq mvs : w.search(ss))
+    {
+        std::vector<ext_move> emvs;
+        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+            return ext_move(m);
+        });
+        action act = action::from_vector(emvs, start_state);
+        auto new_state_opt = start_state.can_apply(act);
+        if(new_state_opt.has_value())
+        {
+            auto submitted = new_state_opt->can_submit();
+            if(submitted.has_value())
+            {
+                tasks.push_back({*submitted, start_depth - 1});
+            }
+            else
+            {
+                tasks.push_back({*new_state_opt, start_depth - 1});
+            }
+        }
+    }
+    
+    if(tasks.empty())
+    {
+        return {0, true};
+    }
+    
+    // Atomic counters and stop flag
+    std::atomic<uint64_t> total_count{0};
+    std::atomic<size_t> next_task_idx{0};
+    std::atomic<bool> stop_flag{false};
+    std::atomic<bool> completed{true};
+    
+    // Start time
+    auto start_time = std::chrono::steady_clock::now();
+    auto timeout_duration = std::chrono::duration<double>(timeout_seconds);
+    
+    // Timer thread to check timeout
+    std::thread timer_thread([&]() {
+        while(!stop_flag.load(std::memory_order_relaxed))
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            auto elapsed = std::chrono::steady_clock::now() - start_time;
+            if(elapsed >= timeout_duration)
+            {
+                completed.store(false, std::memory_order_relaxed);
+                stop_flag.store(true, std::memory_order_relaxed);
+                break;
+            }
+        }
+    });
+    
+    auto worker = [&]() {
+        while(!stop_flag.load(std::memory_order_relaxed))
+        {
+            size_t idx = next_task_idx.fetch_add(1, std::memory_order_relaxed);
+            if(idx >= tasks.size())
+            {
+                break;
+            }
+            
+            const auto& task = tasks[idx];
+            uint64_t count = perft_worker_timed(task.s, task.depth, stop_flag);
+            total_count.fetch_add(count, std::memory_order_relaxed);
+        }
+    };
+    
+    std::vector<std::thread> threads;
+    threads.reserve(num_threads);
+    
+    for(unsigned int i = 0; i < num_threads; ++i)
+    {
+        threads.emplace_back(worker);
+    }
+    
+    for(auto& t : threads)
+    {
+        t.join();
+    }
+    
+    // Signal timer thread to stop and wait for it
+    stop_flag.store(true, std::memory_order_relaxed);
+    timer_thread.join();
+    
+    return {total_count.load(), completed.load()};
 }
 
 /////////////////////////////

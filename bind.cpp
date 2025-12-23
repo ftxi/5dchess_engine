@@ -165,6 +165,22 @@ PYBIND11_MODULE(engine, m) {
         .def("get_current_checks", &game::get_current_checks)
         .def("get_board_size", &game::get_board_size)
         .def("suggest_action", &game::suggest_action)
+        .def("perft", [](const game &g, int depth) {
+            return g.perft(depth);
+        }, py::arg("depth") = 1)
+        .def("perft_parallel", [](const game &g, int depth, unsigned int num_threads) {
+            return g.perft_parallel(depth, num_threads);
+        }, py::arg("depth") = 1, py::arg("num_threads") = 0)
+        .def("perft_with_tt", [](const game &g, int depth, unsigned int num_threads, size_t tt_size_mb) {
+            return g.perft_with_tt(depth, num_threads, tt_size_mb);
+        }, py::arg("depth") = 1, py::arg("num_threads") = 0, py::arg("tt_size_mb") = 256)
+        .def("perft_dynamic", [](const game &g, int depth, unsigned int num_threads, int split_depth) {
+            return g.perft_dynamic(depth, num_threads, split_depth);
+        }, py::arg("depth") = 1, py::arg("num_threads") = 0, py::arg("split_depth") = 2)
+        .def("perft_timed", [](const game &g, int depth, double timeout_seconds, unsigned int num_threads) {
+            return g.perft_timed(depth, timeout_seconds, num_threads);
+        }, py::arg("depth") = 1, py::arg("timeout_seconds") = 60.0, py::arg("num_threads") = 0)
+        .def("count_actions", &game::count_actions)
         .def("get_comments", &game::get_comments)
         .def("has_parent", &game::has_parent)
         .def("visit_parent", &game::visit_parent)
