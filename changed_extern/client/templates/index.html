@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <title>Frontend Demo</title>
+  <script>
+    const svg_file_mapping = {
+      'b':"{{ url_for('static', filename='assets/bishop-black.svg') }}",
+      'B':"{{ url_for('static', filename='assets/bishop-white.svg') }}",
+      'w':"{{ url_for('static', filename='assets/brawn-black.svg') }}",
+      'W':"{{ url_for('static', filename='assets/brawn-white.svg') }}",
+      'c':"{{ url_for('static', filename='assets/commonking-black.svg') }}",
+      'C':"{{ url_for('static', filename='assets/commonking-white.svg') }}",
+      'd':"{{ url_for('static', filename='assets/dragon-black.svg') }}",
+      'D':"{{ url_for('static', filename='assets/dragon-white.svg') }}",
+      'k':"{{ url_for('static', filename='assets/king-black.svg') }}",
+      'K':"{{ url_for('static', filename='assets/king-white.svg') }}",
+      'n':"{{ url_for('static', filename='assets/knight-black.svg') }}",
+      'N':"{{ url_for('static', filename='assets/knight-white.svg') }}",
+      'p':"{{ url_for('static', filename='assets/pawn-black.svg') }}",
+      'P':"{{ url_for('static', filename='assets/pawn-white.svg') }}",
+      's':"{{ url_for('static', filename='assets/princess-black.svg') }}",
+      'S':"{{ url_for('static', filename='assets/princess-white.svg') }}",
+      'q':"{{ url_for('static', filename='assets/queen-black.svg') }}",
+      'Q':"{{ url_for('static', filename='assets/queen-white.svg') }}",
+      'r':"{{ url_for('static', filename='assets/rook-black.svg') }}",
+      'R':"{{ url_for('static', filename='assets/rook-white.svg') }}",
+      'y':"{{ url_for('static', filename='assets/royalqueen-black.svg') }}",
+      'Y':"{{ url_for('static', filename='assets/royalqueen-white.svg') }}",
+      'u':"{{ url_for('static', filename='assets/unicorn-black.svg') }}",
+      'U':"{{ url_for('static', filename='assets/unicorn-white.svg') }}"
+    };
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.min.js"></script>
+  <link type="text/css" rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+  <script src="{{ url_for('static', filename='canvas.js') }}"></script>
+  <script src="{{ url_for('static', filename='piece.js') }}"></script>
+  <script src="{{ url_for('static', filename='draw.js') }}"></script>
+  <script src="{{ url_for('static', filename='socket.js') }}"></script>
+  <script src="{{ url_for('static', filename='parse.js') }}"></script>
+  <script src="{{ url_for('static', filename='onload.js') }}"></script>
+</head>
+<body>
+  <canvas id="display"></canvas>
+    
+  <!-- Top Buttons -->
+  <div id="top-select">
+    <select id="next-select"></select>
+  </div>
+  <div id="top-match-status">
+    <p id="match-status">match status</p>
+  </div>
+  <div id="top-buttons">
+    <button class="btn" id="prev-btn" onclick="request_prev()">Prev</button>
+    <button class="btn" id="next-btn" onclick="request_next()">Next</button>
+    <button class="btn" id="undo-btn" onclick="request_undo()">Undo</button>
+    <button class="btn" id="redo-btn" onclick="request_redo()">Redo</button>
+    <button class="btn btn-primary" id="submit-btn" onclick="request_submit()">Submit</button>
+    <button class="btn" id="hint-btn" onclick="request_hint()">Hint</button>
+  </div>
+  
+  <!-- Status Bar -->
+  <div id="status-bar">
+    <p id="camera">camera_now info</p>
+    <p id="status">status bar has nothing to say yet</p>
+  </div>
+  
+  <!-- Right Toggle Button -->
+  
+  <div id="right-buttons">
+    <button id="center-btn" class="btn">Center</button>
+    <button id="toggle-text" class="btn">Toggle Text</button>
+    <button id="load-btn" class="btn">Load PGN</button>
+    <button id="export-btn" class="btn">Export PGN</button>
+    <button id="screenshot" class="btn">Screenshot</button>
+  </div>
+  
+  <!-- Perft Section -->
+  <div id="perft-section">
+    <label for="perft-depth">Depth:</label>
+    <input type="number" id="perft-depth" min="1" max="20" value="1" style="width: 50px;">
+    <label for="perft-timeout">Timeout(s):</label>
+    <input type="number" id="perft-timeout" min="0" max="3600" value="0" style="width: 60px;" title="0 = no timeout">
+    <label for="perft-dynamic">
+      <input type="checkbox" id="perft-dynamic" checked> Dynamic
+    </label>
+    <label for="perft-tt">
+      <input type="checkbox" id="perft-tt"> TT
+    </label>
+    <label for="perft-parallel">
+      <input type="checkbox" id="perft-parallel"> Parallel
+    </label>
+    <button id="perft-btn" class="btn">Run Perft</button>
+    <span id="perft-result"></span>
+  </div>
+  
+  <!-- Floating Text Window -->
+  <div id="text-window">Text Window Content</div>
+  <!-- Load Window -->
+  <div id="txt-popup">
+    <textarea id="txt-area" placeholder="Paste 5dpgn here..."></textarea>
+    <div id="txt-popup-buttons">
+      <button id="close-popup">Close</button>
+      <button id="load-popup">Load</button>
+    </div>
+  </div>
+  <!-- Export Window-->
+  <div id="export-popup">
+    <textarea id="export-area" placeholder="Nothing to export" readonly></textarea>
+    <div id="export-popup-buttons">
+      <button id="close-export-popup">Close</button>
+  </div>
+</body>
+</html>
