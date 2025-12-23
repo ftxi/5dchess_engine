@@ -1,7 +1,1 @@
-从
-
-https://github.com/ftxi/5dchess_engine
-
-迁移
-
-请覆盖extern为changed_extern后使用
+请覆盖extern为changed_extern后按照主分支说明使用
