@@ -84,7 +84,7 @@ static std::string show_semimove(semimove loc)
 class HC_info
 {
     // local variables
-    const state s;
+    mutable state s;
     const std::map<int, int> line_to_axis; // map from timeline index to axis index
     const std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
     const HC universe;

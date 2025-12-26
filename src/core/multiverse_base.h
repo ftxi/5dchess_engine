@@ -85,6 +85,9 @@ public:
     // modifiers
     void insert_board(int l, int t, bool c, const std::shared_ptr<board>& b_ptr);
     void append_board(int l, const std::shared_ptr<board>& b_ptr);
+    // undo helpers
+    void pop_board(int l);
+    void remove_line(int l);
 
     // getters
     std::pair<int, int> get_board_size() const;

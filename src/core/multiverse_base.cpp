@@ -126,6 +126,85 @@ void multiverse::append_board(int l, const std::shared_ptr<board>& b_ptr)
     timeline_end[u]++;
 }
 
+void multiverse::pop_board(int l)
+{
+    int u = l_to_u(l);
+    auto &timeline = boards[u];
+    if(timeline.empty())
+        throw std::runtime_error("multiverse::pop_board(): timeline is empty");
+    timeline.pop_back();
+    // recompute timeline_start and timeline_end
+    int first = std::numeric_limits<int>::max();
+    int last = std::numeric_limits<int>::min();
+    for(int i = 0; i < static_cast<int>(timeline.size()); i++)
+    {
+        if(timeline[i] != nullptr)
+        {
+            first = std::min(first, i);
+            last  = std::max(last,  i);
+        }
+    }
+    timeline_start[u] = first;
+    timeline_end[u]   = last;
+
+    // recompute global line range
+    bool any = false;
+    int new_lmin = std::numeric_limits<int>::max();
+    int new_lmax = std::numeric_limits<int>::min();
+    for(int uu = 0; uu < static_cast<int>(boards.size()); uu++)
+    {
+        const auto &tl = boards[uu];
+        bool nonempty = false;
+        for(const auto &b : tl) if(b != nullptr) { nonempty = true; break; }
+        if(nonempty)
+        {
+            any = true;
+            int ll = u_to_l(uu);
+            new_lmin = std::min(new_lmin, ll);
+            new_lmax = std::max(new_lmax, ll);
+        }
+    }
+    if(any)
+    {
+        l_min = new_lmin;
+        l_max = new_lmax;
+    }
+    update_active_range();
+}
+
+void multiverse::remove_line(int l)
+{
+    int u = l_to_u(l);
+    // clear the timeline
+    boards[u].clear();
+    timeline_start[u] = std::numeric_limits<int>::max();
+    timeline_end[u] = std::numeric_limits<int>::min();
+
+    // recompute global line range
+    bool any = false;
+    int new_lmin = std::numeric_limits<int>::max();
+    int new_lmax = std::numeric_limits<int>::min();
+    for(int uu = 0; uu < static_cast<int>(boards.size()); uu++)
+    {
+        const auto &tl = boards[uu];
+        bool nonempty = false;
+        for(const auto &b : tl) if(b != nullptr) { nonempty = true; break; }
+        if(nonempty)
+        {
+            any = true;
+            int ll = u_to_l(uu);
+            new_lmin = std::min(new_lmin, ll);
+            new_lmax = std::max(new_lmax, ll);
+        }
+    }
+    if(any)
+    {
+        l_min = new_lmin;
+        l_max = new_lmax;
+    }
+    update_active_range();
+}
+
 void multiverse::insert_board_impl(int l, int t, bool c, const std::shared_ptr<board>& b_ptr)
 {
     int u = l_to_u(l);

@@ -763,25 +763,22 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
     dprint("HC_info::find_checks()");
     auto [t, c] = s.get_present();
     moveseq mvs = to_action(p);
-    state newstate = s;
-#ifdef DEBUGMSG
+    // apply moves in-place on internal state and record logs for undo
+    std::vector<state::apply_log> logs;
+    #ifdef DEBUGMSG
     std::string mvsstr;
-#endif
+    #endif
     for(full_move mv : mvs)
     {
-#ifdef DEBUGMSG
-        // !!do use flag SHOW_MATE (or expect explosion)!!
-        mvsstr += s.pretty_move<state::SHOW_NOTHING>(mv) + " ";
-#endif
-        bool flag = newstate.apply_move(mv);
-        assert(flag && "failed to apply move here");
+        #ifdef DEBUGMSG
+            mvsstr += s.pretty_move<state::SHOW_NOTHING>(mv) + " ";
+        #endif
+        logs.push_back(s.apply_move_inplace(mv));
     }
-    bool flag = newstate.submit();
-    assert(flag && "failed to submit here");
-    //dprint("after applying moves:", mvsstr, newstate.to_string());
+    auto submit_rec = s.submit_with_record();
     dprint("applied moves:", mvsstr);
     dprint("c=", c);
-    auto gen = newstate.find_checks(!c);
+    auto gen = s.find_checks(!c);
     if(auto maybe_check = gen.first())
     {
         // there is a check
@@ -789,7 +786,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         full_move check = maybe_check.value();
         dprint("found check: ", check);
         assert(check.from.tl() != check.to.tl() && "physical checks should have already removed");
-        auto [path, sliding_type] = get_move_path(newstate, check, !c);
+        auto [path, sliding_type] = get_move_path(s, check, !c);
         auto is_next = c ? [](int t1, int t2){
             return t1 + 1 == t2;
         }:[](int t1, int t2){
@@ -839,7 +836,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         not_taking.insert(i);
                     }
                 }
-                else if(newboard->get_piece(check.from.xy()) == newstate.get_piece(check.from, !c))
+                else if(newboard->get_piece(check.from.xy()) == s.get_piece(check.from, !c))
                 {
                     // non sliding pieces remains in same position
                     dprint(n1, i, sliding_type, show_semimove(loc));
@@ -983,9 +980,15 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         dprint("point:", range_to_string(p));
         dprint("problem", problem.to_string());
         assert(problem.contains(p));
+        // restore state before returning
+        s.undo_submit(submit_rec);
+        s.undo_moves_inplace(logs);
         return problem;
     }
     dprint("no checks found");
+    // restore state
+    s.undo_submit(submit_rec);
+    s.undo_moves_inplace(logs);
     return std::nullopt;
 }
 

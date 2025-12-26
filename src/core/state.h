@@ -34,6 +34,33 @@ class state
     generator<full_move> find_checks_impl(std::vector<int> lines) const;
 
 public:
+    // structures and helpers for in-place apply/undo
+    struct apply_log
+    {
+        // appended boards: pair<line, count>
+        std::vector<std::pair<int,int>> appended;
+        // inserted lines (branching moves)
+        std::vector<int> inserted_lines;
+        // present/player before the move(s)
+        int old_present;
+        bool old_player;
+    };
+
+    struct submit_log
+    {
+        int old_present;
+        bool old_player;
+    };
+
+    // apply a single move in-place and return an apply_log to undo it later
+    apply_log apply_move_inplace(full_move fm, piece_t promote_to = QUEEN_W);
+    void undo_apply_move(const apply_log &log);
+    // apply a sequence of moves in-place and collect logs in the same order
+    void apply_moves_inplace(const moveseq &mvs, std::vector<apply_log> &logs);
+    void undo_moves_inplace(const std::vector<apply_log> &logs);
+    // submit with record (to be restored by undo_submit)
+    submit_log submit_with_record();
+    void undo_submit(const submit_log &rec);
     state(multiverse &mtv) noexcept;
     state(const pgnparser_ast::game &g);
     virtual ~state() = default;

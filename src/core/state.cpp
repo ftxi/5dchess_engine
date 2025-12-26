@@ -409,6 +409,166 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     return true;
 }
 
+state::apply_log state::apply_move_inplace(full_move fm, piece_t promote_to)
+{
+    apply_log log;
+    log.old_present = present;
+    log.old_player = player;
+
+    vec4 p = fm.from;
+    vec4 q = fm.to;
+    vec4 d = q - p;
+
+    // physical move
+    if(d.l() == 0 && d.t() == 0)
+    {
+        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        bitboard_t z = pmask(p.xy());
+        const auto &[size_x, size_y] = m->get_board_size();
+        // en passant
+        if((b_ptr->lpawn()&z) && d.x()!=0 && b_ptr->get_piece(q.xy()) == NO_PIECE)
+        {
+            m->append_board(p.l(), b_ptr->replace_piece(ppos(q.x(),p.y()), NO_PIECE)
+                            ->move_piece(p.xy(), q.xy()));
+            log.appended.emplace_back(p.l(), 1);
+        }
+        // promotion
+        else if((b_ptr->lpawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
+        {
+            piece_t promoted = player ? to_black(promote_to) : promote_to;
+            m->append_board(p.l(), b_ptr->replace_piece(p.xy(), NO_PIECE)
+                            ->replace_piece(q.xy(), promoted));
+            log.appended.emplace_back(p.l(), 1);
+        }
+        // castling
+        else if((b_ptr->king()&z) && abs(d.x()) > 1)
+        {
+            int rook_x1 = d.x() < 0 ? 0 : (size_x - 1);
+            int rook_x2 = q.x() + (d.x() < 0 ? 1 : -1);
+            m->append_board(p.l(),b_ptr->move_piece(ppos(rook_x1, p.y()), ppos(rook_x2,q.y()))
+                            ->move_piece(p.xy(), q.xy()));
+            log.appended.emplace_back(p.l(), 1);
+        }
+        else
+        {
+            m->append_board(p.l(), b_ptr->move_piece(p.xy(), q.xy()));
+            log.appended.emplace_back(p.l(), 1);
+        }
+    }
+    // non-branching superphysical move
+    else if (std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
+    {
+        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        const piece_t& pic = static_cast<piece_t>(piece_name(b_ptr->get_piece(p.xy())));
+        m->append_board(p.l(), b_ptr->replace_piece(p.xy(), NO_PIECE));
+        log.appended.emplace_back(p.l(), 1);
+
+        bitboard_t z = pmask(p.xy());
+        const auto &[size_x, size_y] = m->get_board_size();
+        const std::shared_ptr<board>& c_ptr = m->get_board(q.l(), q.t(), player);
+
+        if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
+        {
+            piece_t promoted = player ? to_black(promote_to) : promote_to;
+            m->append_board(q.l(), c_ptr->replace_piece(q.xy(), promoted));
+            log.appended.emplace_back(q.l(), 1);
+        }
+        else
+        {
+            m->append_board(q.l(), c_ptr->replace_piece(q.xy(), pic));
+            log.appended.emplace_back(q.l(), 1);
+        }
+    }
+    // branching move
+    else
+    {
+        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        const piece_t& pic = static_cast<piece_t>(piece_name(b_ptr->get_piece(p.xy())));
+        m->append_board(p.l(), b_ptr->replace_piece(p.xy(), NO_PIECE));
+        log.appended.emplace_back(p.l(), 1);
+        const std::shared_ptr<board>& x_ptr = m->get_board(q.l(), q.t(), player);
+        auto [t, c] = next_turn({q.t(), player});
+
+        bitboard_t z = pmask(p.xy());
+        const auto &[size_x, size_y] = m->get_board_size();
+
+        if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
+        {
+            piece_t promoted = player ? to_black(promote_to) : promote_to;
+            int lnew = new_line();
+            m->insert_board(lnew, t, c, x_ptr->replace_piece(q.xy(), promoted));
+            log.inserted_lines.push_back(lnew);
+        }
+        else
+        {
+            int lnew = new_line();
+            m->insert_board(lnew, t, c, x_ptr->replace_piece(q.xy(), pic));
+            log.inserted_lines.push_back(lnew);
+        }
+        auto [new_present, _] = m->get_present();
+        if(new_present < present)
+        {
+            present = new_present;
+        }
+    }
+    return log;
+}
+
+void state::undo_apply_move(const apply_log &log)
+{
+    // restore present/player made before the move
+    present = log.old_present;
+    player = log.old_player;
+
+    // remove inserted lines (reverse order)
+    for(auto it = log.inserted_lines.rbegin(); it != log.inserted_lines.rend(); ++it)
+    {
+        m->remove_line(*it);
+    }
+
+    // pop appended boards (reverse order)
+    for(auto it = log.appended.rbegin(); it != log.appended.rend(); ++it)
+    {
+        int l = it->first;
+        int cnt = it->second;
+        for(int k = 0; k < cnt; k++)
+        {
+            m->pop_board(l);
+        }
+    }
+}
+
+void state::apply_moves_inplace(const moveseq &mvs, std::vector<apply_log> &logs)
+{
+    for(const auto &mv : mvs)
+    {
+        logs.push_back(apply_move_inplace(mv));
+    }
+}
+
+void state::undo_moves_inplace(const std::vector<apply_log> &logs)
+{
+    // undo in reverse order
+    for(auto it = logs.rbegin(); it != logs.rend(); ++it)
+    {
+        undo_apply_move(*it);
+    }
+}
+
+state::submit_log state::submit_with_record()
+{
+    submit_log rec{present, player};
+    bool flag = submit<true>();
+    (void)flag; // we assume caller knows it's legal in this context
+    return rec;
+}
+
+void state::undo_submit(const submit_log &rec)
+{
+    present = rec.old_present;
+    player = rec.old_player;
+}
+
 template <bool UNSAFE>
 bool state::submit()
 {

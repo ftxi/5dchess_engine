@@ -203,10 +203,10 @@ def handle_perft(data):
                 mode = 'parallel'
             else:
                 count = g.perft(depth)
-                mode = 'single'
+                mode = 'parallel'
         else:
             count = g.perft(depth)
-            mode = 'single'
+            mode = 'parallel'
         elapsed = time.time() - start_time
         result = {
             'count': count,
