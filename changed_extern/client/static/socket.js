@@ -57,6 +57,72 @@ function request_hint() {
     }
 }
 
+// Bot-related functions
+function request_bot_move() {
+    if(request_bot_move.enabled)
+    {
+        const config = get_bot_config();
+        document.getElementById('bot-status').innerText = 'Thinking...';
+        document.getElementById('bot-status').style.color = '#ff8';
+        socket.emit('request_bot_move', config);
+    }
+}
+request_bot_move.enabled = true; // Always enabled
+
+function get_bot_config() {
+    return {
+        max_depth: parseInt(document.getElementById('bot-depth').value) || 3,
+        time_limit_ms: parseInt(document.getElementById('bot-time').value) || 5000,
+        max_nodes: parseInt(document.getElementById('bot-nodes').value) || 100000,
+        max_actions_per_ply: parseInt(document.getElementById('bot-actions').value) || 200,
+        num_threads: parseInt(document.getElementById('bot-threads').value) || 0,
+        tt_size_mb: parseInt(document.getElementById('bot-tt-size').value) || 128,
+        use_iterative_deepening: document.getElementById('bot-iterative').checked,
+        use_transposition_table: document.getElementById('bot-tt').checked,
+        use_late_move_reduction: document.getElementById('bot-lmr').checked,
+        use_action_sampling: document.getElementById('bot-sampling').checked,
+        use_parallel_search: document.getElementById('bot-parallel').checked
+    };
+}
+
+function get_play_mode() {
+    const radios = document.getElementsByName('play-mode');
+    for (const radio of radios) {
+        if (radio.checked) {
+            return radio.value;
+        }
+    }
+    return 'human';
+}
+
+socket.on('response_bot_move', function(data) {
+    const statusSpan = document.getElementById('bot-status');
+    const statsSpan = document.getElementById('bot-stats');
+    
+    if (data.error) {
+        statusSpan.innerText = 'Error: ' + data.error;
+        statusSpan.style.color = '#f44';
+        statsSpan.innerText = '';
+    } else if (data.no_move) {
+        statusSpan.innerText = 'No move available';
+        statusSpan.style.color = '#888';
+        statsSpan.innerText = '';
+    } else {
+        statusSpan.innerText = 'Move found!';
+        statusSpan.style.color = '#4f4';
+        statsSpan.innerText = `Depth: ${data.depth} | Nodes: ${data.nodes.toLocaleString()} | Score: ${data.score} | Time: ${data.time_ms}ms`;
+        
+        // Request fresh data after bot move
+        request_data();
+    }
+});
+
+socket.on('response_bot_progress', function(data) {
+    const statusSpan = document.getElementById('bot-status');
+    statusSpan.innerText = `Searching depth ${data.depth}...`;
+    statusSpan.style.color = '#ff8';
+});
+
 function request_load() {
     let pgn = document.getElementById('txt-area').value;
     socket.emit('request_load', pgn);
@@ -180,6 +246,33 @@ socket.on('response_data', function(data) {
     {
         ms.style.display = 'block';
         ms.innerText = data['match-status'];
+        
+        // Check for auto-bot mode
+        const playMode = get_play_mode();
+        const matchStatus = data['match-status'];
+        
+        // Check if game is still in progress and bot should make a move
+        if (matchStatus.includes("move") && !matchStatus.includes("wins") && !matchStatus.includes("Stalemate")) {
+            const isWhiteTurn = matchStatus.includes("White");
+            const isBlackTurn = matchStatus.includes("Black");
+            
+            // Determine if bot should play
+            let shouldBotPlay = false;
+            if (playMode === 'bot-black' && isBlackTurn) {
+                shouldBotPlay = true;
+            } else if (playMode === 'bot-white' && isWhiteTurn) {
+                shouldBotPlay = true;
+            } else if (playMode === 'bot-both') {
+                shouldBotPlay = true;
+            }
+            
+            if (shouldBotPlay) {
+                // Delay bot move slightly to let UI update
+                setTimeout(() => {
+                    request_bot_move();
+                }, 500);
+            }
+        }
     }
     else
     {

@@ -15,6 +15,37 @@ template_dir = os.path.join(base_dir, 'templates')
 app = Flask(__name__, static_folder=static_dir, template_folder=template_dir)
 socketio = SocketIO(app)
 
+# Global bot instance for reuse
+bot_instance = None
+
+def get_bot(config_dict=None):
+    """Get or create a bot instance with the specified configuration."""
+    global bot_instance
+    
+    if config_dict is None:
+        config_dict = {}
+    
+    config = engine.BotConfig()
+    config.max_depth = config_dict.get('max_depth', 3)
+    config.time_limit_ms = config_dict.get('time_limit_ms', 5000)
+    config.max_nodes = config_dict.get('max_nodes', 100000)
+    config.max_actions_per_ply = config_dict.get('max_actions_per_ply', 200)
+    config.num_threads = config_dict.get('num_threads', 0)  # 0 = auto-detect
+    config.tt_size_mb = config_dict.get('tt_size_mb', 128)
+    config.use_iterative_deepening = config_dict.get('use_iterative_deepening', True)
+    config.use_transposition_table = config_dict.get('use_transposition_table', True)
+    config.use_late_move_reduction = config_dict.get('use_late_move_reduction', True)
+    config.use_action_sampling = config_dict.get('use_action_sampling', True)
+    config.use_parallel_search = config_dict.get('use_parallel_search', True)
+    config.use_move_ordering = True
+    config.verbose = True
+    
+    bot_instance = engine.Bot(config)
+    return bot_instance
+
+app = Flask(__name__, static_folder=static_dir, template_folder=template_dir)
+socketio = SocketIO(app)
+
 t0_fen = """
 [Size "8x8"]
 [Board "custom"]
@@ -160,6 +191,69 @@ def suggest_action():
     no_more_hint = not flag
     print(' ---', 'success' if flag else 'failed')
     display()
+
+@socketio.on('request_bot_move')
+def handle_bot_move(data):
+    """Handle bot move request with configuration."""
+    print('received bot move request with config:', data)
+    global g, no_more_hint
+    
+    try:
+        import time
+        start_time = time.time()
+        
+        # Create bot with specified configuration
+        bot = get_bot(data)
+        
+        # Find best action
+        action = bot.find_best_action(g)
+        
+        if action is None:
+            emit('response_bot_move', {'no_move': True})
+            return
+        
+        # Apply the action
+        moves = action.get_moves()
+        for move in moves:
+            fm = engine.ext_move(move.get_from(), move.get_to(), move.get_promote())
+            flag = g.apply_move(fm)
+            if not flag:
+                print(f'Failed to apply bot move: {fm}')
+                emit('response_bot_move', {'error': 'Failed to apply move'})
+                return
+        
+        # Submit the turn
+        flag = g.submit()
+        if not flag:
+            print('Failed to submit bot turn')
+            emit('response_bot_move', {'error': 'Failed to submit turn'})
+            return
+        
+        no_more_hint = False
+        
+        # Get stats
+        stats = bot.get_stats()
+        elapsed = time.time() - start_time
+        
+        result = {
+            'success': True,
+            'depth': stats.depth_reached,
+            'nodes': stats.nodes_searched,
+            'score': stats.best_score,
+            'time_ms': round(elapsed * 1000),
+            'tt_hits': stats.tt_hits,
+            'complete': stats.search_complete
+        }
+        
+        print(f'Bot move completed: depth={stats.depth_reached}, nodes={stats.nodes_searched}, score={stats.best_score}, time={elapsed:.2f}s')
+        
+        emit('response_bot_move', result)
+        display()
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        emit('response_bot_move', {'error': str(e)})
 
 @socketio.on('request_load')
 def handle_load(data):

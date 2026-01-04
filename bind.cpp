@@ -2,8 +2,10 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
+#include <pybind11/functional.h>
 #include <ostream>
 #include "game.h"
+#include "bot/bot.h"
 
 namespace py = pybind11;
 
@@ -193,4 +195,87 @@ PYBIND11_MODULE(engine, m) {
              py::arg("action")
         )
         .def("show_pgn", &game::show_pgn);
+    
+    // Bot configuration
+    py::class_<bot::BotConfig>(m, "BotConfig")
+        .def(py::init<>())
+        .def_readwrite("max_depth", &bot::BotConfig::max_depth)
+        .def_readwrite("max_nodes", &bot::BotConfig::max_nodes)
+        .def_readwrite("time_limit_ms", &bot::BotConfig::time_limit_ms)
+        .def_readwrite("use_iterative_deepening", &bot::BotConfig::use_iterative_deepening)
+        .def_readwrite("use_transposition_table", &bot::BotConfig::use_transposition_table)
+        .def_readwrite("use_move_ordering", &bot::BotConfig::use_move_ordering)
+        .def_readwrite("use_late_move_reduction", &bot::BotConfig::use_late_move_reduction)
+        .def_readwrite("use_action_sampling", &bot::BotConfig::use_action_sampling)
+        .def_readwrite("max_actions_per_ply", &bot::BotConfig::max_actions_per_ply)
+        .def_readwrite("beam_width", &bot::BotConfig::beam_width)
+        .def_readwrite("tt_size_mb", &bot::BotConfig::tt_size_mb)
+        .def_readwrite("num_threads", &bot::BotConfig::num_threads)
+        .def_readwrite("use_parallel_search", &bot::BotConfig::use_parallel_search)
+        .def_readwrite("verbose", &bot::BotConfig::verbose)
+        .def("__repr__", [](const bot::BotConfig& c) {
+            return "<BotConfig depth=" + std::to_string(c.max_depth) 
+                   + " nodes=" + std::to_string(c.max_nodes)
+                   + " threads=" + std::to_string(c.num_threads)
+                   + " time=" + std::to_string(c.time_limit_ms) + "ms>";
+        });
+    
+    // Search statistics
+    py::class_<bot::SearchStats>(m, "SearchStats")
+        .def(py::init<>())
+        .def_property_readonly("nodes_searched", &bot::SearchStats::get_nodes_searched)
+        .def_property_readonly("tt_hits", &bot::SearchStats::get_tt_hits)
+        .def_property_readonly("tt_cutoffs", &bot::SearchStats::get_tt_cutoffs)
+        .def_readonly("depth_reached", &bot::SearchStats::depth_reached)
+        .def_readonly("time_elapsed_ms", &bot::SearchStats::time_elapsed_ms)
+        .def_readonly("best_score", &bot::SearchStats::best_score)
+        .def_readonly("search_complete", &bot::SearchStats::search_complete)
+        .def("__repr__", [](const bot::SearchStats& s) {
+            return "<SearchStats nodes=" + std::to_string(s.get_nodes_searched())
+                   + " depth=" + std::to_string(s.depth_reached)
+                   + " score=" + std::to_string(s.best_score)
+                   + " time=" + std::to_string(s.time_elapsed_ms) + "ms>";
+        });
+    
+    // Bot class
+    py::class_<bot::Bot>(m, "Bot")
+        .def(py::init<>())
+        .def(py::init<bot::BotConfig>(), py::arg("config"))
+        .def("find_best_action", [](bot::Bot& b, const game& g) {
+            state s = g.get_current_state();
+            return b.find_best_action(s);
+        }, py::arg("game"))
+        .def("find_best_action_from_state", &bot::Bot::find_best_action, py::arg("state"))
+        .def("search_with_callback", [](bot::Bot& b, const game& g, 
+                                         std::function<void(int, int32_t, std::vector<std::tuple<int,int,int,int,int,int,int,int>>)> callback) {
+            state s = g.get_current_state();
+            std::function<void(int, bot::score_t, const moveseq&)> cpp_callback = nullptr;
+            if (callback) {
+                cpp_callback = [callback](int depth, bot::score_t score, const moveseq& pv) {
+                    std::vector<std::tuple<int,int,int,int,int,int,int,int>> pv_tuples;
+                    for (const auto& m : pv) {
+                        pv_tuples.push_back(std::make_tuple(
+                            m.from.x(), m.from.y(), m.from.t(), m.from.l(),
+                            m.to.x(), m.to.y(), m.to.t(), m.to.l()
+                        ));
+                    }
+                    callback(depth, score, pv_tuples);
+                };
+            }
+            return b.search_with_callback(s, cpp_callback);
+        }, py::arg("game"), py::arg("callback") = py::none())
+        .def("get_stats", &bot::Bot::get_stats, py::return_value_policy::reference)
+        .def("get_config", py::overload_cast<>(&bot::Bot::get_config), py::return_value_policy::reference)
+        .def("stop", &bot::Bot::stop)
+        .def("__repr__", [](const bot::Bot& b) {
+            const auto& stats = b.get_stats();
+            return "<Bot nodes=" + std::to_string(stats.nodes_searched)
+                   + " depth=" + std::to_string(stats.depth_reached) + ">";
+        });
+    
+    // Evaluator (static methods)
+    m.def("evaluate_state", [](const game& g) {
+        state s = g.get_current_state();
+        return bot::Evaluator::evaluate(s);
+    }, py::arg("game"), "Evaluate the current game state");
 }

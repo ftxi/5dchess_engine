@@ -235,3 +235,111 @@ select {
     min-width: 200px;
     color: #4f4;
 }
+
+/* Bot Section Styles */
+#bot-section {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(30, 30, 50, 0.9);
+    padding: 15px 25px;
+    border-radius: 10px;
+    font-family: sans-serif;
+    color: #fff;
+    border: 2px solid #6a5acd;
+    max-width: 700px;
+}
+
+#bot-section h4 {
+    margin: 0 0 10px 0;
+    color: #ffd700;
+    font-size: 16px;
+}
+
+.bot-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.bot-controls label {
+    font-size: 13px;
+    color: #ccc;
+}
+
+.bot-controls input[type="number"] {
+    padding: 4px 8px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #333;
+    color: #fff;
+    font-size: 13px;
+    text-align: center;
+}
+
+.bot-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 8px;
+}
+
+.bot-options label {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.bot-options input[type="checkbox"] {
+    accent-color: #6a5acd;
+}
+
+.bot-play-mode {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 8px;
+    padding: 8px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 5px;
+}
+
+.bot-play-mode label {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+}
+
+.bot-play-mode input[type="radio"] {
+    accent-color: #ffd700;
+}
+
+.bot-info {
+    display: flex;
+    gap: 20px;
+    font-size: 12px;
+}
+
+#bot-status {
+    color: #4f4;
+    font-weight: bold;
+}
+
+#bot-stats {
+    color: #aaf;
+}
+
+.btn-bot {
+    background-color: #6a5acd;
+}
+
+.btn-bot:hover {
+    background-color: #8a7aed;
+}

@@ -36,11 +36,13 @@ option(TEST "Build test executable" OFF)
 file(GLOB_RECURSE ENGINE_SOURCES 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bot/*.cpp"
 )
 # Find all header files
 file(GLOB_RECURSE ENGINE_HEADERS 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/bot/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.inl"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.inl"
 )
@@ -55,6 +57,7 @@ target_include_directories(5dchess_engine_core
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/misc
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/bot
 )
 
 # Check if this is being built as a submodule
