@@ -48,7 +48,7 @@ jobs:
       # Install compilers
       # -----------------------
 
-      - name: Setup GCC 14 (Linux)
+      - name: Setup GCC 13 (Linux)
         if: matrix.compiler == 'gcc'
         uses: aminya/setup-cpp@v1
         with:
