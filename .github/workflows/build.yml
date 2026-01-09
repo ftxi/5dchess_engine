@@ -52,7 +52,7 @@ jobs:
         if: matrix.compiler == 'gcc'
         uses: aminya/setup-cpp@v1
         with:
-          compiler: ${{ matrix.compiler }}
+          compiler: ${{ matrix.cc }}
           cmake: true
 
       - name: Setup MSVC (Windows)
