@@ -16,12 +16,12 @@ jobs:
       matrix:
         include:
           # -----------------------
-          # Linux / GCC 14
+          # Linux / GCC 13
           # -----------------------
           - os: ubuntu-22.04
             compiler: gcc
-            cc: gcc-14
-            cxx: g++-14
+            cc: gcc-13
+            cxx: g++-13
 
           # -----------------------
           # macOS / Apple Clang
