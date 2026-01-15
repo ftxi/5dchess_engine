@@ -2,6 +2,18 @@
 template<uint16_t FLAGS>
 std::string state::pretty_move(full_move fm, piece_t pt) const
 {
+    char check_symbol = 0;
+    if constexpr(FLAGS & SHOW_MATE)
+    {
+        state::move_info mi = get_move_info(fm, pt);
+        check_symbol = mi.checking_opponent && '+';
+    }
+    return pretty_move_impl<FLAGS>(fm, pt, check_symbol);
+}
+
+template<uint16_t FLAGS>
+std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol) const
+{
     static_assert((FLAGS & ~SHOW_ALL) == 0, "Invalid FLAGS for pretty_move");
     std::ostringstream oss;
     vec4 p = fm.from, q = fm.to;
@@ -78,22 +90,60 @@ std::string state::pretty_move(full_move fm, piece_t pt) const
             oss << "=" << pt;
         }
     }
+    if constexpr(FLAGS & SHOW_MATE)
+    {
+        /* display all checks here */
+        /* if this is not a check, pretty_move/pretty_action will set the
+        check symbol to 0 */ 
+        if(check_symbol)
+        {
+            oss << check_symbol;
+        }
+    }
     return oss.str();
 }
 
 template<uint16_t FLAGS>
 std::string state::pretty_action(action act) const
 {
+    state t = *this;
+    std::vector<ext_move> mvs = act.get_moves();
+    size_t last_check_pos = mvs.size();
+    for(size_t i = 0; i < mvs.size(); i++)
+    {
+        auto [m, pt] = mvs[i];
+        state::move_info mi = t.get_move_info(m, pt);
+        if(!mi.new_state)
+            return "---INVALID ACTION---";
+        if(mi.checking_opponent)
+            last_check_pos = i;
+        t = *mi.new_state;
+    }
+    char mate_symbol;
+    switch (get_mate_type()) {
+        case mate_type::NONE:
+            mate_symbol = '+';
+            break;
+        case mate_type::SOFTMATE:
+            mate_symbol = '*';
+            break;
+        case mate_type::CHECKMATE:
+            mate_symbol = '#';
+        default:
+            break;
+    }
     state s = *this;
-    std::string ans = "";
-    for(auto [m, pt] : act.get_moves())
+    std::string pgn = "";
+    for(size_t i = 0; i < mvs.size(); i++)
     {
-        ans += s.pretty_move<state::SHOW_CAPTURE>(m) + " ";
-        s.apply_move(m, pt);
+        auto [m, pt] = mvs[i];
+        char check_symbol = (i==last_check_pos) ? mate_symbol : '+';
+        pgn += s.pretty_move_impl<state::SHOW_CAPTURE>(m, pt, check_symbol) + " ";
+        s.apply_move<true>(m, pt);
     }
-    if(!ans.empty())
+    if(!pgn.empty())
     {
-        ans.pop_back();
+        pgn.pop_back();
     }
-    return ans;
+    return pgn;
 }

@@ -32,8 +32,7 @@ int main()
     std::cout << s.get_piece(p, 1) << "\n";
     for(vec4 q : s.gen_piece_move(p))
     {
-        std::cout << full_move(p, q) << "\n";
+        std::cout << s.pretty_move<state::SHOW_ALL>(full_move(p, q)) << "\n";
     }
-//    s.gen_piece_move(<#vec4 p#>)
     return 0;
 }

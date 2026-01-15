@@ -4,6 +4,7 @@
 #include <functional>
 #include "utils.h"
 #include "pgnparser.h"
+#include "hypercuboid.h"
 
 //#define DEBUGMSG
 #include "debug.h"
@@ -246,7 +247,7 @@ std::optional<state> state::can_apply(full_move fm, piece_t promote_to) const
     bool flag = new_state.apply_move<false>(fm, promote_to);
     if(flag)
     {
-        return std::optional<state>(new_state);
+        return std::make_optional<state>(new_state);
     }
     else
     {
@@ -270,7 +271,7 @@ std::optional<state> state::can_apply(const action &act) const
     {
         return std::nullopt;
     }
-    return std::optional<state>(new_state);
+    return std::make_optional<state>(new_state);
 }
 
 template<bool UNSAFE>
@@ -407,6 +408,103 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         }
     }
     return true;
+}
+
+state::move_info state::get_move_info(full_move fm, piece_t pt) const
+{
+    dprint("get_move_info", fm);
+    std::optional<state> new_state = can_apply(fm, pt).and_then([](state s){
+        const auto [l_min, l_max] = s.get_lines_range();
+        for(int l = l_min; l <= l_max; l++)
+        {
+            auto [t,c] = s.get_timeline_end(l);
+            if(c == !s.player)
+            {
+                s.m->append_board(l, s.m->get_board(l, t, c));
+            }
+        }
+        return s;
+    });
+    vec4 new_pos(0,0,0,0);
+    
+    if(new_state)
+    {
+        vec4 p = fm.from;
+        vec4 q = fm.to;
+        vec4 d = q - p;
+        
+        /* WARNING: similiar logic used in hypercuboid.cpp for applying semimoves
+         If some move logic needs to be changed here, make sure also perform change
+         in HC_info::build_HC()
+         */
+        // physical move, no time travel
+        if(d.l() == 0 && d.t() == 0)
+        {
+            const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+            bitboard_t z = pmask(p.xy());
+            const auto &[size_x, size_y] = m->get_board_size();
+            
+            // castling
+            if((b_ptr->king()&z) && abs(d.x()) > 1)
+            {
+                dprint(" ... castling");
+                int rook_x2 = q.x() + (d.x() < 0 ? 1 : -1); //rook's new x coordinate
+                //            m->append_board(p.l(),b_ptr
+                //                            ->move_piece(ppos(rook_x1, p.y()), ppos(rook_x2,q.y()))
+                //                            ->move_piece(p.xy(), q.xy()));
+                new_pos = q + vec4(0,0,1,0);
+                vec4 rook_pos = vec4(rook_x2, q.y(), q.t()+1, q.l());
+                //find rook checks
+                auto moves = player ? new_state->m->gen_moves<true>(rook_pos) : new_state->m->gen_moves<false>(rook_pos);
+                for (const auto& [q0, bb] : moves)
+                {
+                    std::shared_ptr<board> b1_ptr = new_state->m->get_board(q0.l(), q0.t(), player);
+                    if (bb)
+                    {
+                        bitboard_t c_pieces = bb & b1_ptr->royal();
+                        if (c_pieces)
+                        {
+                            return {new_state, new_pos, true};
+                        }
+                    }
+                }
+            }
+            // other kinds of move
+            else
+            {
+                dprint(" ... other physical move");
+                //            m->append_board(p.l(), b_ptr->move_piece(p.xy(), q.xy()));
+                new_pos = q + vec4(0,0,1,0);
+            }
+        }
+        // non-branching superphysical move
+        else if (std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
+        {
+            dprint(" ... non-branching superphysical move");
+            new_pos = q + vec4(0,0,1,0);
+        }
+        //branching move
+        else
+        {
+            dprint(" ... branching superphysical move");
+            new_pos = vec4(q.x(), q.y(), q.t()+1, new_line());
+        }
+        //find checks
+        auto moves = player ? new_state->m->gen_moves<true>(new_pos) : new_state->m->gen_moves<false>(new_pos);
+        for (const auto& [q0, bb] : moves)
+        {
+            std::shared_ptr<board> b1_ptr = new_state->m->get_board(q0.l(), q0.t(), player);
+            if (bb)
+            {
+                bitboard_t c_pieces = bb & b1_ptr->royal();
+                if (c_pieces)
+                {
+                    return {new_state, new_pos, true};
+                }
+            }
+        }
+    }
+    return {new_state, new_pos, false};
 }
 
 template <bool UNSAFE>
@@ -599,6 +697,42 @@ std::vector<vec4> state::gen_movable_pieces_impl(std::vector<int> lines) const
     }
     dprint(range_to_string(result));
     return result;
+}
+
+state::mate_type state::get_mate_type() const
+{
+    auto [w, ss] = HC_info::build_HC(*this);
+    auto hc = ss.hcs.back();
+    search_space ss1 {{hc}};
+    ss.hcs.pop_back();
+    if(w.search(ss1).first().has_value())
+    {
+        return mate_type::NONE;
+    }
+    bool soft = false;
+    for(moveseq mvs : w.search(ss))
+    {
+        soft = true;
+        for(full_move fm : mvs)
+        {
+            if((fm.to-fm.from).t() < 0)
+            {
+                return mate_type::NONE;
+            }
+        }
+    }
+    if(soft)
+    {
+        return mate_type::SOFTMATE;
+    }
+    if(phantom().find_checks(!player).first().has_value())
+    {
+        return mate_type::CHECKMATE;
+    }
+    else
+    {
+        return mate_type::STALEMATE;
+    }
 }
 
 std::pair<int, int> state::get_board_size() const
