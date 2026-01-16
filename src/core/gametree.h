@@ -89,7 +89,8 @@ public:
             {
                 oss << t << ". ";
             }
-            oss << parent->get_state().pretty_action(act) << " ";
+            constexpr uint16_t FLAGS = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE;
+            oss << parent->get_state().template pretty_action<FLAGS>(act) << " ";
             oss << show(info);
             start_turn = next_turn(start_turn);
             if(c && num_children > 0)

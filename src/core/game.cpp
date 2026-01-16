@@ -4,6 +4,7 @@
 #include <ranges>
 #include <algorithm>
 #include <cassert>
+#include <optional>
 #include <variant>
 #include "pgnparser.h"
 #include "hypercuboid.h"
@@ -25,7 +26,7 @@ std::string show_comments(std::vector<std::string> const& comments)
 game::game(std::unique_ptr<gnode<comments_t>> gt)
 : gametree{std::move(gt)}, current_node{gametree.get()}, cached{}
 {
-    cached.push_back(std::make_pair(current_node->get_state(), std::nullopt));
+    cached.push_back(std::make_pair(current_node->get_state(), std::optional<ext_move>()));
     now = cached.begin();
 }
 
@@ -112,7 +113,7 @@ game game::from_pgn(std::string input)
 void game::fresh()
 {
     cached.clear();
-    cached.push_back(std::make_pair(current_node->get_state(), std::nullopt));
+    cached.push_back(std::make_pair(current_node->get_state(), std::optional<ext_move>()));
     now = cached.begin();
 }
 
