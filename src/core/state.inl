@@ -6,7 +6,10 @@ std::string state::pretty_move(full_move fm, piece_t pt) const
     if constexpr(FLAGS & SHOW_MATE)
     {
         state::move_info mi = get_move_info(fm, pt);
-        check_symbol = mi.checking_opponent && '+';
+        if(mi.checking_opponent)
+        {
+            check_symbol = '+';
+        }
     }
     return pretty_move_impl<FLAGS>(fm, pt, check_symbol);
 }
@@ -108,37 +111,54 @@ std::string state::pretty_action(action act) const
 {
     state t = *this;
     std::vector<ext_move> mvs = act.get_moves();
-    size_t last_check_pos = mvs.size();
-    for(size_t i = 0; i < mvs.size(); i++)
+    std::vector<char> check_symbols(mvs.size(), 0);
+    mate_type mt = mate_type::NONE;
+    if constexpr (FLAGS & SHOW_MATE)
     {
-        auto [m, pt] = mvs[i];
-        state::move_info mi = t.get_move_info(m, pt);
-        if(!mi.new_state)
+        for(size_t i = 0; i < mvs.size(); i++)
+        {
+            auto [m, pt] = mvs[i];
+            state::move_info mi = t.get_move_info(m, pt);
+            if(!mi.new_state)
+                return "---INVALID ACTION---";
+            if(mi.checking_opponent)
+            {
+                check_symbols[i] = '+';
+            }
+            t = std::move(*mi.new_state);
+        }
+        bool flag = t.submit();
+        if(!flag)
             return "---INVALID ACTION---";
-        if(mi.checking_opponent)
-            last_check_pos = i;
-        t = *mi.new_state;
-    }
-    char mate_symbol;
-    switch (get_mate_type()) {
-        case mate_type::NONE:
-            mate_symbol = '+';
-            break;
-        case mate_type::SOFTMATE:
-            mate_symbol = '*';
-            break;
-        case mate_type::CHECKMATE:
-            mate_symbol = '#';
-        default:
-            break;
+        char mate_symbol;
+        mt = t.get_mate_type();
+        switch (mt)
+        {
+            case mate_type::NONE:
+                mate_symbol = '+';
+                break;
+            case mate_type::SOFTMATE:
+                mate_symbol = '*';
+                break;
+            case mate_type::CHECKMATE:
+                mate_symbol = '#';
+                break;
+            default:
+                mate_symbol = '?';
+                break;
+        }
+        auto it = std::find(check_symbols.rbegin(), check_symbols.rend(), '+');
+        if (it != check_symbols.rend())
+        {
+            *it = mate_symbol;
+        }
     }
     state s = *this;
     std::string pgn = "";
     for(size_t i = 0; i < mvs.size(); i++)
     {
         auto [m, pt] = mvs[i];
-        char check_symbol = (i==last_check_pos) ? mate_symbol : '+';
-        pgn += s.pretty_move_impl<state::SHOW_CAPTURE>(m, pt, check_symbol) + " ";
+        pgn += s.pretty_move_impl<FLAGS>(m, pt, check_symbols[i]) + " ";
         s.apply_move<true>(m, pt);
     }
     if(!pgn.empty())

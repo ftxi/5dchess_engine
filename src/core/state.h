@@ -76,7 +76,7 @@ public:
      In a castling move, it is considered as check if the moved rook checks opponent king
      */
     struct move_info {
-        std::optional<state> new_state;
+        std::unique_ptr<state> new_state;
         vec4 new_pos;
         bool checking_opponent;
     };

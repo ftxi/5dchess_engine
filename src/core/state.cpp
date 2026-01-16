@@ -413,22 +413,57 @@ bool state::apply_move(full_move fm, piece_t promote_to)
 state::move_info state::get_move_info(full_move fm, piece_t pt) const
 {
     dprint("get_move_info", fm);
-    std::optional<state> new_state = can_apply(fm, pt).and_then([](state s){
+    std::optional<state> new_state_opt = can_apply(fm, pt);
+    vec4 new_pos(0,0,0,0);
+    std::unique_ptr<state> new_state;
+    bool checking_opponent = false;
+    
+    auto find_board_check = [](const state &s, int l) -> bool {
+        auto [t,c] = s.get_timeline_end(l);
+        assert(c==s.player);
+        //find checks on the source board
+        std::shared_ptr<board> b = s.get_board(l, t, c);
+        bitboard_t friendly = c ? b->black() : b->white();
+        // for each friendly piece on this board
+        for (int src_pos : marked_pos(friendly))
+        {
+            vec4 p = vec4(src_pos, vec4(0,0,t,l));
+            // generate the aviliable moves
+            auto moves = c ? s.m->gen_moves<true>(p) : s.m->gen_moves<false>(p);
+            // for each destination board and bit location
+            for (const auto& [q0, bb] : moves)
+            {
+                std::shared_ptr<board> b1_ptr = s.m->get_board(q0.l(), q0.t(), c);
+                if (bb)
+                {
+                    // if the destination square is royal, this is a check
+                    bitboard_t c_pieces = bb & b1_ptr->royal();
+                    if (c_pieces)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+    
+    if(new_state_opt)
+    {
+        new_state = std::make_unique<state>(*new_state_opt);
+        
+        state s = *new_state_opt;
         const auto [l_min, l_max] = s.get_lines_range();
         for(int l = l_min; l <= l_max; l++)
         {
             auto [t,c] = s.get_timeline_end(l);
             if(c == !s.player)
             {
+                dprint("duplicated board on line", l, "turn", t, c?"b":"w");
                 s.m->append_board(l, s.m->get_board(l, t, c));
             }
         }
-        return s;
-    });
-    vec4 new_pos(0,0,0,0);
-    
-    if(new_state)
-    {
+        
         vec4 p = fm.from;
         vec4 q = fm.to;
         vec4 d = q - p;
@@ -440,71 +475,27 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
         // physical move, no time travel
         if(d.l() == 0 && d.t() == 0)
         {
-            const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
-            bitboard_t z = pmask(p.xy());
-            const auto &[size_x, size_y] = m->get_board_size();
-            
-            // castling
-            if((b_ptr->king()&z) && abs(d.x()) > 1)
-            {
-                dprint(" ... castling");
-                int rook_x2 = q.x() + (d.x() < 0 ? 1 : -1); //rook's new x coordinate
-                //            m->append_board(p.l(),b_ptr
-                //                            ->move_piece(ppos(rook_x1, p.y()), ppos(rook_x2,q.y()))
-                //                            ->move_piece(p.xy(), q.xy()));
-                new_pos = q + vec4(0,0,1,0);
-                vec4 rook_pos = vec4(rook_x2, q.y(), q.t()+1, q.l());
-                //find rook checks
-                auto moves = player ? new_state->m->gen_moves<true>(rook_pos) : new_state->m->gen_moves<false>(rook_pos);
-                for (const auto& [q0, bb] : moves)
-                {
-                    std::shared_ptr<board> b1_ptr = new_state->m->get_board(q0.l(), q0.t(), player);
-                    if (bb)
-                    {
-                        bitboard_t c_pieces = bb & b1_ptr->royal();
-                        if (c_pieces)
-                        {
-                            return {new_state, new_pos, true};
-                        }
-                    }
-                }
-            }
-            // other kinds of move
-            else
-            {
-                dprint(" ... other physical move");
-                //            m->append_board(p.l(), b_ptr->move_piece(p.xy(), q.xy()));
-                new_pos = q + vec4(0,0,1,0);
-            }
+            dprint(" ... physical move");
+            new_pos = q + vec4(0,0,1,0);
+            checking_opponent = find_board_check(s, q.l());
         }
         // non-branching superphysical move
         else if (std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
         {
             dprint(" ... non-branching superphysical move");
             new_pos = q + vec4(0,0,1,0);
+            checking_opponent = find_board_check(s, q.l()) || find_board_check(s, p.l());
         }
         //branching move
         else
         {
             dprint(" ... branching superphysical move");
             new_pos = vec4(q.x(), q.y(), q.t()+1, new_line());
-        }
-        //find checks
-        auto moves = player ? new_state->m->gen_moves<true>(new_pos) : new_state->m->gen_moves<false>(new_pos);
-        for (const auto& [q0, bb] : moves)
-        {
-            std::shared_ptr<board> b1_ptr = new_state->m->get_board(q0.l(), q0.t(), player);
-            if (bb)
-            {
-                bitboard_t c_pieces = bb & b1_ptr->royal();
-                if (c_pieces)
-                {
-                    return {new_state, new_pos, true};
-                }
-            }
+            checking_opponent = find_board_check(s, new_line()) || find_board_check(s, p.l());
         }
     }
-    return {new_state, new_pos, false};
+    dprint(checking_opponent ? "checking" : "not checking");
+    return {std::move(new_state), new_pos, checking_opponent};
 }
 
 template <bool UNSAFE>
@@ -586,15 +577,12 @@ std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> state::get_time
 
 generator<full_move> state::find_checks(bool c) const
 {
-    // cannot use get_timeline_status() directly because it only works for current player
     auto [l_min, l_max] = m->get_lines_range();
-    auto [active_min, active_max] = m->get_active_range();
     std::vector<int> lines;
-    auto [p_min, p_max] = c ? std::make_pair(active_min, l_max) : std::make_pair(l_min, active_max);
-    for(int i = p_min; i <= p_max; i++)
+    for(int i = l_min; i <= l_max; i++)
     {
-        auto [t, col] = m->get_timeline_end(i);
-        if(col == c)
+        auto [t, color] = m->get_timeline_end(i);
+        if(color == c)
         {
             lines.push_back(i);
         }
@@ -701,37 +689,60 @@ std::vector<vec4> state::gen_movable_pieces_impl(std::vector<int> lines) const
 
 state::mate_type state::get_mate_type() const
 {
+    dprint("state::get_mate_type()");
     auto [w, ss] = HC_info::build_HC(*this);
+//    std::cerr << ss.to_string();
     auto hc = ss.hcs.back();
     search_space ss1 {{hc}};
     ss.hcs.pop_back();
-    if(w.search(ss1).first().has_value())
+//    std::cerr << "\n\n" << ss1.to_string();
+//    std::cerr << "\n\n" << ss.to_string();
+    if(auto x = w.search(ss1).first())
     {
+        dprint("has non-branching action");
         return mate_type::NONE;
     }
     bool soft = false;
     for(moveseq mvs : w.search(ss))
     {
         soft = true;
+        state s = *this;
         for(full_move fm : mvs)
         {
-            if((fm.to-fm.from).t() < 0)
-            {
-                return mate_type::NONE;
-            }
+            s.apply_move<true>(fm);
+        }
+        s.submit();
+        if(s.get_present() > this->get_present())
+        {
+            dprint("has non-returning action");
+            return mate_type::NONE;
         }
     }
     if(soft)
     {
-        return mate_type::SOFTMATE;
-    }
-    if(phantom().find_checks(!player).first().has_value())
-    {
-        return mate_type::CHECKMATE;
+        if(phantom().find_checks(!player).first().has_value())
+        {
+            dprint("softmate");
+            return mate_type::SOFTMATE;
+        }
+        else
+        {
+            dprint("almost softmate except for not checking opponent");
+            return mate_type::NONE;
+        }
     }
     else
     {
-        return mate_type::STALEMATE;
+        if(phantom().find_checks(!player).first().has_value())
+        {
+            dprint("checkmate");
+            return mate_type::CHECKMATE;
+        }
+        else
+        {
+            dprint("stalemate");
+            return mate_type::STALEMATE;
+        }
     }
 }
 
