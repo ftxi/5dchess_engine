@@ -3,18 +3,40 @@ name: Build Wheels
 on:
   push:
     tags:
-      - "v*"     # build when a version tag is pushed
+      - "v*"
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build on ${{ matrix.os }} with ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15, windows-2022]
+        include:
+          # -----------------------
+          # Linux / GCC 13
+          # -----------------------
+          - os: ubuntu-22.04
+            compiler: gcc
+            cc: gcc-13
+            cxx: g++-13
+
+          # -----------------------
+          # macOS / Apple Clang
+          # -----------------------
+          - os: macos-15
+            compiler: apple-clang
+            cc: clang
+            cxx: clang++
+
+          # -----------------------
+          # Windows / MSVC
+          # -----------------------
+          - os: windows-2022
+            compiler: msvc
+            msvc_toolset: 14.40
 
     steps:
       - name: Checkout source
@@ -26,54 +48,69 @@ jobs:
       # Install compilers
       # -----------------------
 
-      - name: Setup C++ (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Setup GCC 13 (Linux)
+        if: matrix.compiler == 'gcc'
         uses: aminya/setup-cpp@v1
         with:
-          compiler: gcc
-          version: 14.x   # or 14.2.0 if you want a specific release
+          compiler: ${{ matrix.cc }}
           cmake: true
 
-      # macOS 15 already provides Clang with C++23
-
-      - name: Install compiler (Windows)
-        if: matrix.os == 'windows-2022'
+      - name: Setup MSVC (Windows)
+        if: matrix.compiler == 'msvc'
         uses: ilammy/msvc-dev-cmd@v1
         with:
-          toolset: 14.40   # VS 2022 toolset (C++23)
+          toolset: ${{ matrix.msvc_toolset }}
+
+      # macOS uses system Apple Clang — no setup needed
+
+      # -----------------------
+      # Configure
+      # -----------------------
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          if [ "${{ matrix.compiler }}" != "msvc" ]; then
+            export CC=$(which ${{ matrix.cc }})
+            export CXX=$(which ${{ matrix.cxx }})
+          fi
+
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
       # -----------------------
       # Build
       # -----------------------
 
-      - name: Configure CMake
-        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-
       - name: Build
         run: cmake --build build --config Release --parallel
 
       # -----------------------
-      # Collect wheel / library
+      # Collect artifacts
       # -----------------------
 
-      - name: Find wheel output
+      - name: Find engine artifact
         id: findfile
         shell: bash
         run: |
-          FILE=$(find build -type f -name "engine*.so" -or -name "engine*.pyd" | head -n 1)
-          echo "$PWD"
-          echo "FOUND=$FILE"
+          FILE=$(find build -type f \( -name "engine*.so" -o -name "engine*.pyd" \) | head -n 1)
+
+          if [ -z "$FILE" ]; then
+            echo "❌ No engine artifact found"
+            exit 1
+          fi
+
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: engine-${{ matrix.os }}
+          name: engine-${{ matrix.os }}-${{ matrix.compiler }}
           path: ${{ steps.findfile.outputs.file }}
 
   # -----------------------
   # Release job
   # -----------------------
+
   release:
     name: Upload wheels to release
     needs: build

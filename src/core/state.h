@@ -71,6 +71,18 @@ public:
     bool submit();
     
     /*
+     move_info: given a move, apply it and return the new state, new position of the moved
+     piece, and whether the moved piece(s) checks the opponent.
+     In a castling move, it is considered as check if the moved rook checks opponent king
+     */
+    struct move_info {
+        std::unique_ptr<state> new_state;
+        vec4 new_pos;
+        bool checking_opponent;
+    };
+    move_info get_move_info(full_move fm, piece_t promote_to = QUEEN_W) const;
+    
+    /*
      phantom: state used for deciding whether the current is a checkmate or stalemate
      */
     state phantom() const;
@@ -104,6 +116,8 @@ public:
     Return a pretty string representation of the move `fm` from the perspective of player with color `c`.
     (This is the inverse of parse_move())
     FLAGS is a bitmask that controls what information to show.
+
+    If SHOW_MATE is set, display a '+' if this move is a check.
     */
     constexpr static uint16_t SHOW_NOTHING = 0;
     constexpr static uint16_t SHOW_RELATIVE = 1 << 0;
@@ -115,8 +129,22 @@ public:
     constexpr static uint16_t SHOW_ALL = SHOW_RELATIVE | SHOW_PAWN | SHOW_CAPTURE | SHOW_PROMOTION | SHOW_MATE | SHOW_LCOMMENT;
     template<uint16_t FLAGS=SHOW_CAPTURE | SHOW_PROMOTION>
     std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W) const;
+private:
+    template<uint16_t FLAGS>
+    std::string pretty_move_impl(full_move fm, piece_t promote_to, char check_symbol) const;
+public:
+    /*
+    pretty_action<FLAGS>(action act)
+
+    Display all moves in the actions.
+
+    If SHOW_MATE is set and the action is softmate or checkmate, the last check symbol will be replaced to * or # respectively
+    */
     template<uint16_t FLAGS=SHOW_CAPTURE | SHOW_PROMOTION>
     std::string pretty_action(action act) const;
+    
+    enum class mate_type {NONE, CHECKMATE, SOFTMATE, STALEMATE};
+    mate_type get_mate_type() const;
 
     // wrappers for low-level functions
     std::pair<int, int> get_board_size() const;

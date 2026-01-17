@@ -685,7 +685,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
         if(reactivated)
         {
             const auto [newline_t, newline_c] = s.get_timeline_end(*reactivated);
-            if(newline_t < mint && newline_c == c)
+            if(newline_t <= mint && newline_c == c)
             {
                 mint = newline_t;
                 // could be a problem if played a pass on reactivated line

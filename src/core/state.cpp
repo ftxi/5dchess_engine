@@ -4,6 +4,7 @@
 #include <functional>
 #include "utils.h"
 #include "pgnparser.h"
+#include "hypercuboid.h"
 
 //#define DEBUGMSG
 #include "debug.h"
@@ -246,7 +247,7 @@ std::optional<state> state::can_apply(full_move fm, piece_t promote_to) const
     bool flag = new_state.apply_move<false>(fm, promote_to);
     if(flag)
     {
-        return std::optional<state>(new_state);
+        return std::make_optional<state>(new_state);
     }
     else
     {
@@ -270,7 +271,7 @@ std::optional<state> state::can_apply(const action &act) const
     {
         return std::nullopt;
     }
-    return std::optional<state>(new_state);
+    return std::make_optional<state>(new_state);
 }
 
 template<bool UNSAFE>
@@ -409,6 +410,94 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     return true;
 }
 
+state::move_info state::get_move_info(full_move fm, piece_t pt) const
+{
+    dprint("get_move_info", fm);
+    std::optional<state> new_state_opt = can_apply(fm, pt);
+    vec4 new_pos(0,0,0,0);
+    std::unique_ptr<state> new_state;
+    bool checking_opponent = false;
+    
+    auto find_board_check = [](const state &s, int l) -> bool {
+        auto [t,c] = s.get_timeline_end(l);
+        assert(c==s.player);
+        //find checks on the source board
+        std::shared_ptr<board> b = s.get_board(l, t, c);
+        bitboard_t friendly = c ? b->black() : b->white();
+        // for each friendly piece on this board
+        for (int src_pos : marked_pos(friendly))
+        {
+            vec4 p = vec4(src_pos, vec4(0,0,t,l));
+            // generate the aviliable moves
+            auto moves = c ? s.m->gen_moves<true>(p) : s.m->gen_moves<false>(p);
+            // for each destination board and bit location
+            for (const auto& [q0, bb] : moves)
+            {
+                std::shared_ptr<board> b1_ptr = s.m->get_board(q0.l(), q0.t(), c);
+                if (bb)
+                {
+                    // if the destination square is royal, this is a check
+                    bitboard_t c_pieces = bb & b1_ptr->royal();
+                    if (c_pieces)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    };
+    
+    if(new_state_opt)
+    {
+        new_state = std::make_unique<state>(*new_state_opt);
+        
+        state s = *new_state_opt;
+        const auto [l_min, l_max] = s.get_lines_range();
+        for(int l = l_min; l <= l_max; l++)
+        {
+            auto [t,c] = s.get_timeline_end(l);
+            if(c == !s.player)
+            {
+                dprint("duplicated board on line", l, "turn", t, c?"b":"w");
+                s.m->append_board(l, s.m->get_board(l, t, c));
+            }
+        }
+        
+        vec4 p = fm.from;
+        vec4 q = fm.to;
+        vec4 d = q - p;
+        
+        /* WARNING: similiar logic used in hypercuboid.cpp for applying semimoves
+         If some move logic needs to be changed here, make sure also perform change
+         in HC_info::build_HC()
+         */
+        // physical move, no time travel
+        if(d.l() == 0 && d.t() == 0)
+        {
+            dprint(" ... physical move");
+            new_pos = q + vec4(0,0,1,0);
+            checking_opponent = find_board_check(s, q.l());
+        }
+        // non-branching superphysical move
+        else if (std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
+        {
+            dprint(" ... non-branching superphysical move");
+            new_pos = q + vec4(0,0,1,0);
+            checking_opponent = find_board_check(s, q.l()) || find_board_check(s, p.l());
+        }
+        //branching move
+        else
+        {
+            dprint(" ... branching superphysical move");
+            new_pos = vec4(q.x(), q.y(), q.t()+1, new_line());
+            checking_opponent = find_board_check(s, new_line()) || find_board_check(s, p.l());
+        }
+    }
+    dprint(checking_opponent ? "checking" : "not checking");
+    return {std::move(new_state), new_pos, checking_opponent};
+}
+
 template <bool UNSAFE>
 bool state::submit()
 {
@@ -488,15 +577,12 @@ std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> state::get_time
 
 generator<full_move> state::find_checks(bool c) const
 {
-    // cannot use get_timeline_status() directly because it only works for current player
     auto [l_min, l_max] = m->get_lines_range();
-    auto [active_min, active_max] = m->get_active_range();
     std::vector<int> lines;
-    auto [p_min, p_max] = c ? std::make_pair(active_min, l_max) : std::make_pair(l_min, active_max);
-    for(int i = p_min; i <= p_max; i++)
+    for(int i = l_min; i <= l_max; i++)
     {
-        auto [t, col] = m->get_timeline_end(i);
-        if(col == c)
+        auto [t, color] = m->get_timeline_end(i);
+        if(color == c)
         {
             lines.push_back(i);
         }
@@ -599,6 +685,65 @@ std::vector<vec4> state::gen_movable_pieces_impl(std::vector<int> lines) const
     }
     dprint(range_to_string(result));
     return result;
+}
+
+state::mate_type state::get_mate_type() const
+{
+    dprint("state::get_mate_type()");
+    auto [w, ss] = HC_info::build_HC(*this);
+//    std::cerr << ss.to_string();
+    auto hc = ss.hcs.back();
+    search_space ss1 {{hc}};
+    ss.hcs.pop_back();
+//    std::cerr << "\n\n" << ss1.to_string();
+//    std::cerr << "\n\n" << ss.to_string();
+    if(auto x = w.search(ss1).first())
+    {
+        dprint("has non-branching action");
+        return mate_type::NONE;
+    }
+    bool soft = false;
+    for(moveseq mvs : w.search(ss))
+    {
+        soft = true;
+        state s = *this;
+        for(full_move fm : mvs)
+        {
+            s.apply_move<true>(fm);
+        }
+        s.submit();
+        if(s.get_present() > this->get_present())
+        {
+            dprint("has non-returning action");
+            return mate_type::NONE;
+        }
+    }
+    if(soft)
+    {
+        if(phantom().find_checks(!player).first().has_value())
+        {
+            dprint("softmate");
+            return mate_type::SOFTMATE;
+        }
+        else
+        {
+            dprint("almost softmate except for not checking opponent");
+            return mate_type::NONE;
+        }
+    }
+    else
+    {
+        if(phantom().find_checks(!player).first().has_value())
+        {
+            dprint("checkmate");
+            return mate_type::CHECKMATE;
+        }
+        else
+        {
+            dprint("stalemate");
+            return mate_type::STALEMATE;
+        }
+    }
 }
 
 std::pair<int, int> state::get_board_size() const
