@@ -121,7 +121,7 @@ std::pair<int,bool> game::get_current_present() const
     return get_current_state().get_present();
 }
 
-state game::get_current_state() const
+const state &game::get_current_state() const
 {
     return now->first;
 }
@@ -319,6 +319,11 @@ bool game::suggest_action()
 game::comments_t game::get_comments() const
 {
     return current_node->get_info();
+}
+
+void game::set_comments(const comments_t &c) const
+{
+    current_node->set_info(c);
 }
 
 bool game::has_parent() const

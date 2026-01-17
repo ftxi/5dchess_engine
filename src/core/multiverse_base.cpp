@@ -94,12 +94,14 @@ std::pair<int, int> multiverse::get_active_range() const
 
 turn_t multiverse::get_timeline_start(int l) const
 {
-    return v_to_tc(timeline_start[l_to_u(l)]);
+    return v_to_tc(timeline_start.at(l_to_u(l)));
+    //return v_to_tc(timeline_start[l_to_u(l)]);
 }
 
 turn_t multiverse::get_timeline_end(int l) const
 {
-    return v_to_tc(timeline_end[l_to_u(l)]);
+    return v_to_tc(timeline_end.at(l_to_u(l)));
+    //return v_to_tc(timeline_end[l_to_u(l)]);
 }
 
 std::shared_ptr<board> multiverse::get_board(int l, int t, bool c) const

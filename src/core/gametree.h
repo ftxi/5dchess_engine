@@ -27,6 +27,16 @@ public:
     {
         return std::unique_ptr<gnode<T>>(new gnode<T>(parent, s, act, info));
     }
+    std::unique_ptr<gnode<T>> clone(gnode<T>* new_parent = nullptr) const
+    {
+        auto node = std::unique_ptr<gnode<T>>(
+            new gnode<T>(new_parent, s, act, info)
+        );
+        for (const auto& child : children) {
+            node->children.push_back(child->clone(node.get()));
+        }
+        return node;
+    }
     state get_state()
     {
         if(s)
@@ -48,6 +58,14 @@ public:
     }
     const T& get_info() const {
         return info;
+    }
+    void set_info(const T &x)
+    {
+        info = x;
+    }
+    void set_info(T &&x)
+    {
+        info = x;
     }
     gnode<T>* get_parent() const {
         return parent;

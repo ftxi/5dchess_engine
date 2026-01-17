@@ -27,7 +27,7 @@ public:
     
     static game from_pgn(std::string str);
     
-    state get_current_state() const;
+    const state &get_current_state() const;
     std::pair<int, bool> get_current_present() const;
     std::vector<std::tuple<int,int,bool,std::string>> get_current_boards() const;
     std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> get_current_timeline_status() const;
@@ -51,7 +51,7 @@ public:
     bool suggest_action();
 
     comments_t get_comments() const;
-    //TODO: implement comment editing functions
+    void set_comments(const comments_t &c) const;
     bool has_parent() const;
     void visit_parent();
     std::vector<std::tuple<action, std::string>> get_child_moves() const;
