@@ -7,14 +7,14 @@
 using namespace emscripten;
 
 // Safe wrapper that returns JavaScript object with success/error
-emscripten::val create_game_from_pgn(const std::string& pgn) 
+val create_game_from_pgn(const std::string& pgn) 
 {
-    emscripten::val result = emscripten::val::object();
+    val result = val::object();
     
     try {
         auto game_ptr = std::make_shared<game>(game::from_pgn(pgn));
         result.set("success", true);
-        result.set("game", emscripten::val(game_ptr));
+        result.set("game", val(game_ptr));
         return result;
     }
     catch(const parse_error &e) {
@@ -54,98 +54,40 @@ emscripten::val create_game_from_pgn(const std::string& pgn)
     }
 }
 
+inline val convert_vector_int_to_js(const std::vector<int>& v) {
+    val arr = val::array();
+    for (size_t i = 0; i < v.size(); ++i) {
+        arr.set(i, v[i]);
+    }
+    return arr;
+}
+
+inline val convert_vec4_to_js(const vec4& v) {
+    val js_vec4 = val::object();
+    js_vec4.set("l", v.l());
+    js_vec4.set("t", v.t());
+    js_vec4.set("y", v.y());
+    js_vec4.set("x", v.x());
+    return js_vec4;
+}
+
+inline val convert_vector_vec4_to_js(const std::vector<vec4>& vec) {
+    val js_array = val::array();
+    for (size_t i = 0; i < vec.size(); ++i) {
+        js_array.set(i, convert_vec4_to_js(vec[i]));
+    }
+    return js_array;
+}
+
+inline vec4 convert_js_to_vec4(const val& js_vec4) {
+    int l = js_vec4["l"].as<int>();
+    int t = js_vec4["t"].as<int>();
+    int y = js_vec4["y"].as<int>();
+    int x = js_vec4["x"].as<int>();
+    return vec4(x, y, t, l);
+}
+
 EMSCRIPTEN_BINDINGS(engine) {
-    // Enum: piece_t
-    enum_<piece_t>("Piece")
-        .value("NO_PIECE", NO_PIECE)
-        .value("WALL_PIECE", WALL_PIECE)
-        .value("KING_UW", KING_UW)
-        .value("ROOK_UW", ROOK_UW)
-        .value("PAWN_UW", PAWN_UW)
-        .value("KING_UB", KING_UB)
-        .value("ROOK_UB", ROOK_UB)
-        .value("PAWN_UB", PAWN_UB)
-        .value("KING_W", KING_W)
-        .value("QUEEN_W", QUEEN_W)
-        .value("BISHOP_W", BISHOP_W)
-        .value("KNIGHT_W", KNIGHT_W)
-        .value("ROOK_W", ROOK_W)
-        .value("PAWN_W", PAWN_W)
-        .value("UNICORN_W", UNICORN_W)
-        .value("DRAGON_W", DRAGON_W)
-        .value("BRAWN_W", BRAWN_W)
-        .value("PRINCESS_W", PRINCESS_W)
-        .value("ROYAL_QUEEN_W", ROYAL_QUEEN_W)
-        .value("COMMON_KING_W", COMMON_KING_W)
-        .value("KING_B", KING_B)
-        .value("QUEEN_B", QUEEN_B)
-        .value("BISHOP_B", BISHOP_B)
-        .value("KNIGHT_B", KNIGHT_B)
-        .value("ROOK_B", ROOK_B)
-        .value("PAWN_B", PAWN_B)
-        .value("UNICORN_B", UNICORN_B)
-        .value("DRAGON_B", DRAGON_B)
-        .value("BRAWN_B", BRAWN_B)
-        .value("PRINCESS_B", PRINCESS_B)
-        .value("ROYAL_QUEEN_B", ROYAL_QUEEN_B)
-        .value("COMMON_KING_B", COMMON_KING_B)
-        ;
-
-    // Enum: match_status_t
-    enum_<match_status_t>("match_status_t")
-        .value("PLAYING", match_status_t::PLAYING)
-        .value("WHITE_WINS", match_status_t::WHITE_WINS)
-        .value("BLACK_WINS", match_status_t::BLACK_WINS)
-        .value("STALEMATE", match_status_t::STALEMATE)
-        ;
-
-    // vec4 class with operator wrappers
-    // class_<vec4>("vec4")
-    //     .constructor<int, int, int, int>()
-    //     .function("l", &vec4::l)
-    //     .function("t", &vec4::t)
-    //     .function("y", &vec4::y)
-    //     .function("x", &vec4::x)
-    //     .function("equals", &vec4::operator==)
-    //     .function("add", &vec4::operator+)
-    //     .function("subtract", &vec4::operator-)
-    //     .function("negate", &vec4::operator-)
-    //     .function("dot", &vec4::operator*)
-    //     // For JavaScript toString()
-    //     .function("toString", &vec4::to_string);
-    class_<vec4>("vec4")
-        .constructor<int, int, int, int>()
-        .function("l", &vec4::l)
-        .function("t", &vec4::t)
-        .function("y", &vec4::y)
-        .function("x", &vec4::x)
-        .function("toString", &vec4::to_string)
-        ;
-
-    // ext_move class
-    class_<ext_move>("ext_move")
-        .constructor<vec4, vec4, piece_t>()
-        .function("get_from", &ext_move::get_from)
-        .function("get_to", &ext_move::get_to)
-        .function("get_promote", &ext_move::get_promote)
-        .function("to_string", &ext_move::to_string)
-        .function("equals", &ext_move::operator==)
-        .function("toString", select_overload<std::string() const>(&ext_move::to_string))
-        ;
-
-    // Class: action
-    class_<action>("action")
-        // Don't define any constructors → JavaScript cannot construct instances
-        // (they can only receive instances returned from C++)
-        .function("get_moves", &action::get_moves)
-        // Comparison operator
-        .function("equals", &action::operator==)
-        // String representation
-        .function("toString", optional_override([](const action &a) {
-            return "<action with " + std::to_string(a.get_moves().size()) + " moves>";
-        }))
-        ;
-
     // Factory function for creating games
     function("from_pgn", &create_game_from_pgn);
 
@@ -153,36 +95,125 @@ EMSCRIPTEN_BINDINGS(engine) {
     class_<game>("game")
         .smart_ptr<std::shared_ptr<game>>("game")
         .property("metadata", &game::metadata)
-        .function("get_current_state", &game::get_current_state)
-        .function("get_current_present", &game::get_current_present)
-        .function("get_current_boards", &game::get_current_boards)
-        .function("get_current_timeline_status", &game::get_current_timeline_status)
-        .function("gen_move_if_playable", &game::gen_move_if_playable)
+        .function("get_current_present", optional_override([](const game& self) {
+                const auto [t, c] = self.get_current_present();
+                val obj = val::object();
+                obj.set("t", t);
+                obj.set("c", c);
+                return obj;
+        }))
+        .function("get_current_boards", optional_override([](const game &self) {
+            val result = val::array();
+            auto boards = self.get_current_boards();
+            for (size_t i = 0; i < boards.size(); ++i) 
+            {
+                const auto &[l, t, c, fen] = boards[i];
+                val board_info = val::object();
+                board_info.set("l", l);
+                board_info.set("t", t);
+                board_info.set("c", c);
+                board_info.set("fen", fen);
+                result.set(i, board_info);
+            }
+            return result;
+        }))
+        .function("get_current_timeline_status", optional_override([](const game& self) {
+                const auto& [mandatory, optional, unplayable] =
+                    self.get_current_timeline_status();
+                val obj = val::object();
+                obj.set("mandatory_timelines", convert_vector_int_to_js(mandatory));
+                obj.set("optional_timelines", convert_vector_int_to_js(optional));
+                obj.set("unplayable_timelines", convert_vector_int_to_js(unplayable));
+                return obj;
+        }))
+        .function("gen_move_if_playable", optional_override([](const game& self, val obj) {
+                auto vec = self.gen_move_if_playable(convert_js_to_vec4(obj));
+                return convert_vector_vec4_to_js(vec);
+        }))
         .function("get_match_status", &game::get_match_status)
-        .function("get_movable_pieces", &game::get_movable_pieces)
-        .function("is_playable", &game::is_playable)
+        .function("get_movable_pieces", optional_override([](const game& self) {
+                auto vec = self.get_movable_pieces();
+                return convert_vector_vec4_to_js(vec);
+        }))
+        .function("is_playable", optional_override([](const game& self, val obj) {
+                return self.is_playable(convert_js_to_vec4(obj));
+        }))
         .function("can_undo", &game::can_undo)
         .function("can_redo", &game::can_redo)
         .function("can_submit", &game::can_submit)
         .function("undo", &game::undo)
         .function("redo", &game::redo)
-        .function("apply_move", &game::apply_move)
+        .function("apply_move", optional_override([](game &g, val obj) {
+            piece_t pt = obj.hasOwnProperty("promote_to") ? static_cast<piece_t>(obj["promote_to"].as<int>()) : QUEEN_W;
+            ext_move m(
+                convert_js_to_vec4(obj["from"]),
+                convert_js_to_vec4(obj["to"]),
+                pt
+            );
+            return g.apply_move(m);
+        }))
         .function("submit", &game::submit)
         .function("currently_check", &game::currently_check)
-        .function("get_current_checks", &game::get_current_checks)
-        .function("get_board_size", &game::get_board_size)
+        .function("get_current_checks", optional_override([](const game &self) {
+            val result = val::array();
+            auto checks = self.get_current_checks();
+            for (size_t i = 0; i < checks.size(); ++i) 
+            {
+                const auto& [from, to] = checks[i];
+                val check_info = val::object();
+                check_info.set("from", convert_vec4_to_js(from));
+                check_info.set("to", convert_vec4_to_js(to));
+                result.set(i, check_info);
+            }
+            return result;
+        }))
+        .function("get_board_size", optional_override([](const game &self) {
+            const auto& [x, y] = self.get_board_size();
+            val obj = val::object();
+            obj.set("x", x);
+            obj.set("y", y);
+            return obj;
+        }))
         .function("suggest_action", &game::suggest_action)
-        .function("get_comments", &game::get_comments)
+        .function("get_comments", optional_override([](const game &self) {
+            val result = val::array();
+            auto comments = self.get_comments();
+            for (size_t i = 0; i < comments.size(); ++i) 
+            {
+                result.set(i, comments[i]);
+            }
+            return result;
+        }))
+        .function("set_comments", optional_override([](game &self, val js_comments) {
+            std::vector<std::string> comments;
+            unsigned length = js_comments["length"].as<unsigned>();
+            for (unsigned i = 0; i < length; ++i) {
+                comments.push_back(js_comments[i].as<std::string>());
+            }
+            self.set_comments(comments);
+        }))
         .function("has_parent", &game::has_parent)
         .function("visit_parent", &game::visit_parent)
-        .function("get_child_moves", &game::get_child_moves)
-        .function("visit_child", optional_override([](game &g, const action &a) {
-            return g.visit_child(a);
+        .function("get_child_moves", optional_override([](const game &self) {
+            val result = val::array();
+            auto child_moves = self.get_child_moves();
+            for (size_t i = 0; i < child_moves.size(); ++i) 
+            {
+                const auto& [act, txt] = child_moves[i];
+                result.set(i, txt);
+            }
+            return result;
         }))
-        .function("show_pgn", &game::show_pgn)
-        ;
-
-    // Register std::vector types for automatic conversion
-    register_vector<ext_move>("VectorExtMove");
-    register_vector<std::string>("StringVector");
+        .function("visit_child", optional_override([](game &g, val js_action) {
+            std::string a = js_action.as<std::string>();
+            for (const auto &[act, txt] : g.get_child_moves()) 
+            {
+                if (txt == a) 
+                {
+                    return g.visit_child(act);
+                }
+            }
+            return false;
+        }))
+        .function("show_pgn", &game::show_pgn);
 }

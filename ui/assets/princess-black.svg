@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="45" height="45">
+  <g style="opacity:1; fill:#000000; fill-opacity:1; fill-rule:evenodd; stroke:#000000; stroke-width:1.5; stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:4; stroke-dasharray:none; stroke-opacity:1;">
+    <g style="fill:#000000; stroke:none;">
+      <circle cx="9.65" cy="15" r="2.5"/>
+      <circle cx="17.5" cy="12" r="2.5"/>
+      <circle cx="27.5" cy="12" r="2.5"/>
+      <circle cx="35.35" cy="15" r="2.5"/>
+    </g>
+    <path d="M 12,26 C 17.5,24.5 27.5,24.5 33,26 L 34.6,17 L 28.5,25 L 27.25,14 L 22.5,24.5 L 17.75,14 L 16.5,25 L 10.4,17 L 12,26 z " style="stroke-linecap:butt; stroke:#000000;"/>
+    <path d="M 12,26 C 9,28 10.5,28 11.5,30 C 12.5,31.5 12.5,31 12,33.5 C 10.5,34.5 11,36 11,36 C 9.5,37.5 11,38.5 11,38.5 C 17.5,39.5 27.5,39.5 34,38.5 C 34,38.5 35.5,37.5 34,36 C 34,36 34.5,34.5 33,33.5 C 32.5,31 32.5,31.5 33.5,30 C 34.5,28 36,28 33,26 C 27.5,24.5 17.5,24.5 12,26 z" style="stroke-linecap:butt;"/>
+    <path d="M 11,38.5 A 35,35 1 0 0 34,38.5" style="fill:none; stroke:#000000; stroke-linecap:butt;"/>
+    <path d="M 11.25,28.7 A 35,35 1 0 1 33.75,28.7" style="fill:none; stroke:#ffffff; stroke-width: 1.25" transform="translate(0.0, -0.5)" />
+    <path d="M 13,31.5 L 32,31.5" style="fill:none; stroke:#ffffff;"/>
+    <path d="M 11.5,35.2 A 40,35 1 0 0 33.5,35.2" style="fill:none; stroke:#ffffff; stroke-width: 1.25;"/>
+    <!-- <path d="M 10.5,37.5 A 35,35 1 0 0 34.5,37.5" style="fill:none; stroke:#ffffff;"/> -->
+  </g>
+</svg>

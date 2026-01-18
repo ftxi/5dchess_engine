@@ -137,7 +137,7 @@ std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> game::get_curre
     return get_current_state().get_timeline_status();
 }
 
-std::vector<vec4> game::gen_move_if_playable(vec4 p)
+std::vector<vec4> game::gen_move_if_playable(vec4 p) const
 {
     if(is_playable(p))
     {

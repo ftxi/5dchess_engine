@@ -29,9 +29,9 @@ public:
     
     const state &get_current_state() const;
     std::pair<int, bool> get_current_present() const;
-    std::vector<std::tuple<int,int,bool,std::string>> get_current_boards() const;
+    std::vector<boards_info_t> get_current_boards() const;
     std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> get_current_timeline_status() const;
-    std::vector<vec4> gen_move_if_playable(vec4 p);
+    std::vector<vec4> gen_move_if_playable(vec4 p) const;
     
     match_status_t get_match_status() const;
     std::vector<vec4> get_movable_pieces() const;

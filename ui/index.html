@@ -3,9 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <title>HUD Canvas</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="styles/panels.css">
+    <link rel="stylesheet" href="styles/popup.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="onload.js"></script>
+    <script type="text/javascript">
+        const svg_file_mapping = {
+            'b': 'assets/bishop-black.svg',
+            'B': 'assets/bishop-white.svg',
+            'w': 'assets/brawn-black.svg',
+            'W': 'assets/brawn-white.svg',
+            'c': 'assets/commonking-black.svg',
+            'C': 'assets/commonking-white.svg',
+            'd': 'assets/dragon-black.svg',
+            'D': 'assets/dragon-white.svg',
+            'k': 'assets/king-black.svg',
+            'K': 'assets/king-white.svg',
+            'n': 'assets/knight-black.svg',
+            'N': 'assets/knight-white.svg',
+            'p': 'assets/pawn-black.svg',
+            'P': 'assets/pawn-white.svg',
+            's': 'assets/princess-black.svg',
+            'S': 'assets/princess-white.svg',
+            'q': 'assets/queen-black.svg',
+            'Q': 'assets/queen-white.svg',
+            'r': 'assets/rook-black.svg',
+            'R': 'assets/rook-white.svg',
+            'y': 'assets/royalqueen-black.svg',
+            'Y': 'assets/royalqueen-white.svg',
+            'u': 'assets/unicorn-black.svg',
+            'U': 'assets/unicorn-white.svg'
+        };
+    </script>
+    <script src="scripts/ui.js" defer></script>
+    <script src="scripts/piece.js"></script>
+    <script src="scripts/parse.js" type="module"></script>
+    <script src="scripts/canvas.js"></script>
+    <script src="scripts/draw.js"></script>
+    
 </head>
 
 <body>
@@ -105,6 +140,11 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
             Settings panel coming soon...
         </div>
     </div>
+</div>
+
+<div class="debug-window">
+    <p id="camera">camera</p>
+    <p id="status">status</p>
 </div>
 
 </body>

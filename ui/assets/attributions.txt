@@ -1,0 +1,52 @@
+The files in this directory are all (re-)distributed under the BSD 3-Clause license (BSD-3).
+You will find a copy of this license at the end of this document
+
+These files are downloaded from: https://github.com/adri326/5dchess-designer
+
+The following files are pieces by © Colin M.L. Burnett, distributed under the BSD-3 licence:
+
+- `pawn-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_plt45.svg
+- `pawn-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_pdt45.svg
+- `knight-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_nlt45.svg
+- `knight-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_ndt45.svg
+- `bishop-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_blt45.svg
+- `bishop-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_bdt45.svg
+- `rook-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_rlt45.svg
+- `rook-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_rdt45.svg
+- `queen-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_qlt45.svg
+- `queen-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_qdt45.svg
+- `knight-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_klt45.svg
+- `knight-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_kdt45.svg
+- `dragon-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_Dlt45.svg
+- `dragon-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_Ddt45.svg
+
+The following files are pieces by Colin M.L. Burnett, modified and redistributed under BSD-3 by © Francois-Pier:
+
+- `unicorn-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_Ult45.svg
+- `unicorn-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_Udt45.svg
+
+The following files are pieces by Colin M.L. Burnett, modified and redistributed under BSD-3 by Wikimedia User "NikNaks93":
+
+- `brawn-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_hlt45.svg
+- `brawn-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_hdt45.svg
+- `commonking-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_flt45.svg
+- `commonking-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_fdt45.svg
+- `royalqueen-white.svg`: https://commons.wikimedia.org/wiki/File:Chess_glt45.svg
+- `royalqueen-black.svg`: https://commons.wikimedia.org/wiki/File:Chess_gdt45.svg
+
+The following files are pieces by Colin M.L Burnett, modified and redistributed under BSD-3 by Discord user AverageHuman and © Adrien Burgun:
+
+- `princess-white.svg`: based off https://commons.wikimedia.org/wiki/File:Chess_Blt45.svg
+- `princess-black.svg`: based off https://commons.wikimedia.org/wiki/File:Chess_Bdt45.svg
+
+Following is the BSD 3-Clause license, where "The author" refers to the aforementionned copyright holders.
+
+  Copyright © The author
+
+  Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+  Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+  Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+  Neither the name of The author nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+  This software is provided by The author and contributors "as is" and any express or implied warranties, including, but not limited to, the implied warranties of merchantability and fitness for a particular purpose are disclaimed. In no event shall The author and contributors be liable for any direct, indirect, incidental, special, exemplary, or consequential damages (including, but not limited to, procurement of substitute goods or services; loss of use, data, or profits; or business interruption) however caused and on any theory of liability, whether in contract, strict liability, or tort (including negligence or otherwise) arising in any way out of the use of this software, even if advised of the possibility of such damage.

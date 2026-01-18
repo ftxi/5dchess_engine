@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(5dchess_engine VERSION 0.1.7 LANGUAGES CXX)
+project(5dchess_engine VERSION 0.2.0 LANGUAGES CXX)
 
 # Make all targets PIC by default (needed for Python .so on github actions)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -148,15 +148,13 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         #     $<TARGET_FILE_DIR:engine_wasm>
         # )
 
-        # Copy .kl scripts to build directory (for testing)
-        file(GLOB UI_SRC "${CMAKE_SOURCE_DIR}/ui/*")
-
         add_custom_target(copy_files ALL
-            COMMAND ${CMAKE_COMMAND} -E copy ${UI_SRC} "${CMAKE_BINARY_DIR}"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/ui" "${CMAKE_BINARY_DIR}/ui"
             COMMENT "Copying ui/ to build directory"
         )
 
         set_target_properties(engine_wasm PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/ui/wasm"
             LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS}"
             OUTPUT_NAME "engine"
             SUFFIX ".js"
