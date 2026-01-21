@@ -1,4 +1,3 @@
-"use strict";
 
 const LOD_SIZES = [64, 32, 16, 8, 4, 2];
 
@@ -52,11 +51,13 @@ async function loadAllSvgs() {
 
     await Promise.all(tasks);
 
-    console.log("All SVGs + LODs loaded:", svgImages);
+    // console.log("All SVGs + LODs loaded:", svgImages);
     return svgImages;
 }
 
-function chooseLOD(svgImages, pixelSize) {
+const svgImages = await loadAllSvgs();
+
+export function chooseLOD(pixelSize) {
     if (pixelSize >= 48) return svgImages.img;
     if (pixelSize >= 24) return svgImages.lod[64];
     if (pixelSize >= 12) return svgImages.lod[32];

@@ -1,10 +1,12 @@
-'use strict';
+import { InfiniteScrollableCanvas } from 'canvas';
+import { parse_FEN } from 'parse';
+import { chooseLOD } from 'piece';
 
 // ============================================================================
 // CHESS BOARD SPECIFIC IMPLEMENTATION
 // ============================================================================
 
-class ChessBoardCanvas 
+export class ChessBoardCanvas 
 {
     constructor(canvasId, centerButtonId) {
         this.statusElement = document.getElementById('status');
@@ -33,9 +35,6 @@ class ChessBoardCanvas
             filteredTimelineHighlight: {},
             filteredBoardHighlight: {}
         };
-        
-        // SVG images for pieces (should be set externally)
-        this.svgImages = {};
         
         // Create infinite canvas
         this.canvas = new InfiniteScrollableCanvas(canvasId, {
@@ -81,11 +80,6 @@ class ChessBoardCanvas
         this.filterCache.bounds = [null, null, null, null];
         
         this.canvas.startAnimation();
-    }
-
-    // Set SVG images for pieces (replaces global svg_images)
-    setSvgImages(images) {
-        this.svgImages = images;
     }
 
     // Filter board data based on visible bounds (with caching)
@@ -316,7 +310,7 @@ class ChessBoardCanvas
         if(squareLength > 0.7) {
             // Layer 4: Pieces
             this.cameraElement.innerText = `square length: ${squareLength}`;
-            const imgs = chooseLOD(this.svgImages, squareLength);
+            const imgs = chooseLOD(squareLength);
             for (const board of cache.filteredBoards) {
                 let l = board.l, v = board.t << 1 | board.c;
                 const shiftX = v * this.boardSkipX;

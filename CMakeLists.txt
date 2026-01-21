@@ -130,8 +130,9 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
             -sALLOW_MEMORY_GROWTH=1 \
             -sMODULARIZE=1 \
             -sEXPORT_NAME=\"createModule\" \
+            -s EXPORT_ES6=1 \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\"] \
-            -sENVIRONMENT=web,worker \
+            -sENVIRONMENT=web,worker,node \
             -sDISABLE_EXCEPTION_CATCHING=0"
         )
 

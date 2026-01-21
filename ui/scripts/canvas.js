@@ -1,10 +1,9 @@
-'use strict';
 
 // ============================================================================
 // GENERIC INFINITE SCROLLABLE CANVAS
 // ============================================================================
 
-class AnimationManager {
+export class AnimationManager {
     constructor(callback) {
         this.running = false;
         this.timeRecord = 0;
@@ -106,7 +105,7 @@ class Camera {
     }
 }
 
-class InfiniteScrollableCanvas {
+export class InfiniteScrollableCanvas {
     constructor(canvasId, options = {}) {
         this.canvas = document.getElementById(canvasId);
         if (!this.canvas) {

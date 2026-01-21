@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="styles/panels.css">
     <link rel="stylesheet" href="styles/popup.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script type="text/javascript">
-        const svg_file_mapping = {
+    <script>
+        window.svg_file_mapping = {
             'b': 'assets/bishop-black.svg',
             'B': 'assets/bishop-white.svg',
             'w': 'assets/brawn-black.svg',
@@ -34,13 +34,28 @@
             'u': 'assets/unicorn-black.svg',
             'U': 'assets/unicorn-white.svg'
         };
+        window.worker_path = 'scripts/worker.js';
+        window.engine_path = 'wasm/engine.js';
+    </script>
+    <script type="importmap">
+    {
+        "imports": {
+            "ui": "./scripts/ui.js",
+            "piece": "./scripts/piece.js",
+            "parse": "./scripts/parse.js",
+            "canvas": "./scripts/canvas.js",
+            "draw": "./scripts/draw.js",
+            "onload": "./scripts/onload.js"
+        }
+    }
     </script>
     <script src="scripts/ui.js" defer></script>
-    <script src="scripts/piece.js"></script>
+    <!-- <script src="scripts/piece.js" type="module"></script>
     <script src="scripts/parse.js" type="module"></script>
-    <script src="scripts/canvas.js"></script>
-    <script src="scripts/draw.js"></script>
-    
+    <script src="scripts/canvas.js" type="module"></script>
+    <script src="scripts/draw.js" type="module"></script>
+    <script src="scripts/onload.js"></script> -->
+    <script src="scripts/main.js" type="module" defer></script>
 </head>
 
 <body>
