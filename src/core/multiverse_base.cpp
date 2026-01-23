@@ -114,7 +114,7 @@ std::shared_ptr<board> multiverse::get_board(int l, int t, bool c) const
         std::cerr << "In this multiverse object:\n" << to_string();
         std::cerr << "Error: Out of range in multiverse::get_board("
         << l << ", " << t << ", " << c << ")"<< std::endl;
-		throw std::runtime_error("Error: Out of range in multiverse::get_board( " + std::to_string(l) + ", " + std::to_string(t) + ")");
+		throw std::runtime_error("Error: Out of range in multiverse::get_board(" + std::to_string(l) + ", " + std::to_string(t) + ", " + std::to_string(c) + ")");
         return nullptr;
     }
 }

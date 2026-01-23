@@ -77,13 +77,7 @@ std::ostream &operator<<(std::ostream &os, const full_move &fm)
 
 void action::sort(std::vector<ext_move> &mvs, const state &s)
 {
-//    std::cerr << "sorting:";
-//    for(auto m : mvs)
-//    {
-//        std::cerr << m.to_string() << " ";
-//    }
-//    std::cout << "\n";
-    auto branching_index = mvs.size();
+    size_t branching_index = 0;
     auto [present, player] = s.get_present();
     std::set<int> moved_lines;
     for(size_t i=0; i<mvs.size(); i++)
@@ -96,24 +90,21 @@ void action::sort(std::vector<ext_move> &mvs, const state &s)
         moved_lines.insert(p.l());
         if(branching)
         {
-            branching_index--;
             std::swap(mvs[i], mvs[branching_index]);
+            branching_index++;
         }
         else
         {
             moved_lines.insert(q.l());
         }
     }
-    if(branching_index > 0)
-    {
-        int sign = player ? -1 : 1;
-        std::sort(mvs.begin(), mvs.begin()+branching_index, [sign](ext_move m1, ext_move m2){
-            return sign*m1.get_to().l() < sign*m2.get_to().l();
-        });
-    }
     if(branching_index < mvs.size())
     {
-        std::reverse(mvs.begin()+branching_index+1, mvs.end());
+        int sign = player ? -1 : 1;
+        std::sort(mvs.begin()+branching_index, mvs.end(), [sign](ext_move m1, ext_move m2){
+            return sign*m1.get_to().l() < sign*m2.get_to().l();
+        });
+        std::rotate(mvs.begin(), mvs.begin()+branching_index, mvs.end());
     }
 }
 

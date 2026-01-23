@@ -27,7 +27,7 @@ public:
     
     static game from_pgn(std::string str);
     
-    state get_current_state() const;
+    const state &get_current_state() const;
     std::pair<int, bool> get_current_present() const;
     std::vector<std::tuple<int,int,bool,std::string>> get_current_boards() const;
     std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> get_current_timeline_status() const;
