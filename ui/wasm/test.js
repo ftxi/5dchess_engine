@@ -1,5 +1,6 @@
 // test.js
-// This is **not** a part of UI. Instead, it is a standalone test script
+/* This file, together with the `package.json` file in the same folder
+are **not** a part of UI. Instead, they are a standalone test script. */
 import createModule from './engine.js';
 
 async function runTest() {
@@ -20,6 +21,7 @@ async function runTest() {
     console.log(
       `moves: ${mvs.length}, first move: l=${mvs[0].l}, t=${mvs[0].t}, x=${mvs[0].x}, y=${mvs[0].y}`
     );
+    console.log(`mvs: ${JSON.stringify(mvs)}`);
 
     g.suggest_action();
     g.suggest_action();

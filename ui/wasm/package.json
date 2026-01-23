@@ -1,0 +1,8 @@
+{
+  "name": "wasm-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test.js"
+  }
+}

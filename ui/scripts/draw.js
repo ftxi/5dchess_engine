@@ -1,3 +1,5 @@
+// draw.js
+
 import { InfiniteScrollableCanvas } from 'canvas';
 import { parse_FEN } from 'parse';
 import { chooseLOD } from 'piece';
@@ -6,7 +8,7 @@ import { chooseLOD } from 'piece';
 // CHESS BOARD SPECIFIC IMPLEMENTATION
 // ============================================================================
 
-export class ChessBoardCanvas 
+export default class ChessBoardCanvas 
 {
     constructor(canvasId, centerButtonId) {
         this.statusElement = document.getElementById('status');
@@ -45,8 +47,8 @@ export class ChessBoardCanvas
         
         // Set up callbacks
         this.canvas.onRender = (ctx, bounds) => this.renderBoards(ctx, bounds);
-        this.canvas.onClick = (x, y, e) => this.handleBoardClick(x, y, false);
-        this.canvas.onRightClick = (x, y, e) => this.handleBoardClick(x, y, true);
+        this.canvas.onClick = (x, y, _e) => this.handleBoardClick(x, y, false);
+        this.canvas.onRightClick = (x, y, _e) => this.handleBoardClick(x, y, true);
         this.canvas.onHover = (x, y) => this.updateStatus(x, y);
         
         // Center button
@@ -417,7 +419,7 @@ export class ChessBoardCanvas
     worldToBoard(worldX, worldY) {
         const l = Math.floor(worldY / this.boardSkipY);
         const v = Math.floor(worldX / this.boardSkipX);
-        const c = v & 1;
+        const c = (v & 1) !== 0;
         const t = v >> 1;
         const x = Math.floor((worldX - v * this.boardSkipX) / this.squareSize);
         const y = this.boardLengthY - 1 - Math.floor((worldY - l * this.boardSkipY) / this.squareSize);
@@ -445,13 +447,13 @@ export class ChessBoardCanvas
     onClickSquare(l, t, c, x, y) {
         // Placeholder - override this method
         console.log('Left click:', { l, t, c, x, y });
-        report_click(l, t, c, x, y);
+        //report_click(l, t, c, x, y);
     }
 
     onRightClickSquare(l, t, c, x, y) {
         // Placeholder - override this method
         console.log('Right click:', { l, t, c, x, y });
-        report_right_click(l, t, c, x, y);
+        //report_right_click(l, t, c, x, y);
     }
 
     updateStatus(worldX, worldY) {

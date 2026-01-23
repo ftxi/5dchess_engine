@@ -36,7 +36,7 @@ async function loadAllSvgs() {
     }
 
     // Load all SVGs
-    const tasks = Object.entries(svg_file_mapping).map(
+    const tasks = Object.entries(window.svg_file_mapping).map(
         async ([name, filename]) => {
             const img = await loadSvgImage(filename);
             svgImages.img[name] = img;
