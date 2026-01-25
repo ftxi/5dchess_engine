@@ -13,6 +13,8 @@ export const UI = (() => {
     /* ================= HUD Toggle ================= */
     const hud = document.getElementById("hud");
     const toggle = document.getElementById("toggle");
+    const hudText = document.querySelector('.hud-text');
+    const hudTitle = document.querySelector('.hud-title');
 
     function updateToggle(expanded) {
         toggle.innerHTML = expanded ? ICON_UP : ICON_DOWN;
@@ -25,6 +27,16 @@ export const UI = (() => {
     };
 
     updateToggle(false);
+
+    /* ================= HUD Text Content ================= */
+    let hudTextChangeCallback = null;
+
+    // Listen for changes in hud-text
+    hudText.addEventListener('input', () => {
+        if (hudTextChangeCallback) {
+            hudTextChangeCallback(hudText.textContent);
+        }
+    });
     /* ================= Light Toggle ================= */
     const light = document.getElementById("light");
     light.onclick = () => {
@@ -37,6 +49,7 @@ export const UI = (() => {
     const selectContainer = document.getElementById("selectContainer");
     const selectedDisplay = document.getElementById("selectedDisplay");
     const hintBtn = document.getElementById("hintBtn");
+    let hintCallback = null;
 
     // Sample options
     const options = [
@@ -71,11 +84,7 @@ export const UI = (() => {
             optEl.onclick = () => {
                 selectedIndex = idx;
                 selectedDisplay.textContent = opt;
-                controlPanel.classList.remove('expanded');
-                controlPanel.classList.add('collapsed');
-                updatePanelToggle(false);
                 renderOptions();
-                controlPanel.style.height = calculateCollapasedPanelHeight();
             };
             selectContainer.appendChild(optEl);
         });
@@ -101,17 +110,18 @@ export const UI = (() => {
         updatePanelToggle(isExpanded);
     };
 
-    hintBtn.onclick = () => {
-        const newOption = `New entry ${options.length + 1}`;
-        options.unshift(newOption);
-        selectedIndex++;
-        renderOptions();
-    };
 
     // Initialize
     updatePanelToggle(false);
     renderOptions();
     controlPanel.style.height = calculateCollapasedPanelHeight();
+
+    hintBtn.onclick = () => {
+        if(hintCallback) {
+            hintCallback();
+        }
+    }
+
 
     /* ================= HUD Positioning ================= */
     function positionHud() {
@@ -204,12 +214,12 @@ export const UI = (() => {
         }
     };
 
-    document.getElementById('btnInfo').onclick = () => {
-        showPopup(this, 'popupInfo');
+    document.getElementById('btnInfo').onclick = (event) => {
+        showPopup(event.currentTarget, 'popupInfo');
     };
 
-    document.getElementById('btnImport').onclick = () => {
-        showPopup(this, 'popupImport');
+    document.getElementById('btnImport').onclick = (event) => {
+        showPopup(event.currentTarget, 'popupImport');
     };
 
     document.getElementById('loadButton').onclick = () => {
@@ -220,17 +230,16 @@ export const UI = (() => {
         closePopup();
     }
 
-    document.getElementById('btnExport').onclick = () => {
-        showPopup(this, 'popupExport');
+    document.getElementById('btnExport').onclick = (event) => {
+        showPopup(event.currentTarget, 'popupExport');
         // Call export callback to populate textarea
         if (exportCallback) {
-            const exportData = exportCallback();
-            document.getElementById('exportTextarea').value = exportData;
+            exportCallback();
         }
     };
 
-    document.getElementById('btnSettings').onclick = () => {
-        showPopup(this, 'popupSettings');
+    document.getElementById('btnSettings').onclick = (event) => {
+        showPopup(event.currentTarget, 'popupSettings');
     };
 
     document.getElementById('btnScreenshot').onclick = () => {
@@ -264,9 +273,7 @@ export const UI = (() => {
             next: { selector: '.remote-btn.down', callback: null },
             undo: { selector: '.remote-btn.left', callback: null },
             redo: { selector: '.remote-btn.right', callback: null },
-            // Panel buttons
             submit: { selector: '.remote-btn.ok', callback: null },
-            hint: { element: null, callback: null } // hint button is handled separately
         },
 
         // References to button elements
@@ -276,22 +283,16 @@ export const UI = (() => {
          * Initialize all button references and event listeners
          */
         init() {
-            // Initialize remote buttons
             const remoteButtons = document.querySelectorAll('.remote-btn');
             remoteButtons.forEach(btn => {
                 for (const [action, def] of Object.entries(this.buttonDefinitions)) {
-                    if (action === 'hint') continue; // Skip hint, handled separately
                     if (btn.matches(def.selector)) {
                         this.buttons[action] = btn;
                         this._attachListener(action);
                         break;
                     }
                 }
-            });
-
-            // Initialize hint button
-            this.buttons.hint = hintBtn;
-            this._attachListener('hint');
+            })
         },
 
         /**
@@ -325,7 +326,6 @@ export const UI = (() => {
          * @param {string} action - Button action name
          */
         enable(action) {
-            console.log(`enabling ${action}`);
             const btn = this.buttons[action];
             if (!btn) return;
             btn.classList.remove('inactive');
@@ -338,7 +338,6 @@ export const UI = (() => {
          * @param {string} action - Button action name
          */
         disable(action) {
-            console.log(`diabling ${action}`);
             const btn = this.buttons[action];
             if (!btn) return;
             btn.classList.remove('active');
@@ -387,7 +386,78 @@ export const UI = (() => {
     // Initialize button controls
     buttonControls.init();
 
-    /* ================= Select Options Controls ================= */
+    /* ================= Keyboard Shortcuts ================= */
+    const keyboardShortcuts = {
+        // Map of key codes to button actions
+        shortcuts: {
+            'ArrowUp': 'prev',
+            'ArrowDown': 'next',
+            'ArrowLeft': 'undo',
+            'ArrowRight': 'redo',
+            'Enter': 'submit',
+            'h': 'hint',
+            ' ': 'focus'
+        },
+
+        /**
+         * Simulate button press with visual feedback
+         * @private
+         * @param {string} action - Button action name
+         */
+        _pressButton(action) {
+            const btn = buttonControls.buttons[action];
+            if (!btn)
+            {
+                if(action === 'hint' && hintCallback)
+                {
+                    hintCallback();
+                }
+                else if(action === 'focus' && focusCallback)
+                {
+                    focusCallback();
+                }
+                return;
+            }
+
+            // Add pressed effect
+            btn.classList.add('pressed');
+            
+            // Trigger the button's callback
+            const callback = buttonControls.buttonDefinitions[action].callback;
+            if (callback && !btn.classList.contains('inactive')) {
+                callback();
+            }
+            
+            // Remove pressed effect after 100ms
+            setTimeout(() => {
+                btn.classList.remove('pressed');
+            }, 100);
+        },
+
+        /**
+         * Initialize keyboard event listener
+         */
+        init() {
+            document.addEventListener('keydown', (e) => {
+                // Check if the key is a valid shortcut
+                let key = e.key;
+                
+                // For space key, we need to prevent default scrolling
+                if (key === ' ') {
+                    e.preventDefault();
+                }
+                
+                // Check if the key matches any shortcut
+                if (Object.prototype.hasOwnProperty.call(this.shortcuts, key)) {
+                    const action = this.shortcuts[key];
+                    this._pressButton(action);
+                }
+            });
+        }
+    };
+
+    // Initialize keyboard shortcuts
+    keyboardShortcuts.init();
     const selectControls = {
         /**
          * Set the options in the select container
@@ -398,7 +468,6 @@ export const UI = (() => {
             options.push(...newOptions);
             selectedIndex = 0;
             renderOptions();
-            controlPanel.style.height = calculateCollapasedPanelHeight();
         },
 
         /**
@@ -453,6 +522,45 @@ export const UI = (() => {
         select: selectControls,
         
         /**
+         * Set the content text of hud-text element
+         * @param {string} content - The text content to set
+         */
+        setHudText(content) {
+            hudText.textContent = content;
+        },
+
+        /**
+         * Get the current content of hud-text element
+         * @returns {string} The current text content
+         */
+        getHudText() {
+            return hudText.textContent;
+        },
+                /**
+         * Set the title text of hud-title element
+         * @param {string} title - The title text to set
+         */
+        setHudTitle(title) {
+            hudTitle.textContent = title;
+        },
+
+        /**
+         * Get the current title of hud-title element
+         * @returns {string} The current title text
+         */
+        getHudTitle() {
+            return hudTitle.textContent;
+        },
+
+        /**
+         * Set the callback function for when hud-text content changes
+         * @param {Function} callback - Function that receives the new content
+         */
+        setHudTextChangeCallback(callback) {
+            hudTextChangeCallback = callback;
+        },
+        
+        /**
          * Set the callback function for when import load button is pressed
          * @param {Function} callback - Function that receives the imported data
          */
@@ -469,11 +577,23 @@ export const UI = (() => {
         },
 
         /**
+         * Set the content of exportTextarea
+         * @param {string} data 
+         */
+        setExportData (data) {
+            document.getElementById('exportTextarea').value = data;
+        },
+
+        /**
          * Set the callback function for when focus button is pressed
          * @param {Function} callback - Function to call when focus button is clicked
          */
         setFocusCallback(callback) {
             focusCallback = callback;
+        },
+
+        setHintCallback(callback) {
+            hintCallback = callback;
         }
     };
 })();

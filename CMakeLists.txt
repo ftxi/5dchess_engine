@@ -123,17 +123,21 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         # Create the WebAssembly module
         add_executable(engine_wasm emmodule.cpp)
         target_link_libraries(engine_wasm PRIVATE 5dchess_engine_core)
+        
+        # Enable WebAssembly native exception handling
+        target_compile_options(engine_wasm PRIVATE -fwasm-exceptions)
 
         set(EMSCRIPTEN_LINK_FLAGS 
-            "-lembind --bind -fexceptions \
+            "-lembind --bind -fwasm-exceptions \
             -sWASM=1 \
             -sALLOW_MEMORY_GROWTH=1 \
             -sMODULARIZE=1 \
             -sEXPORT_NAME=\"createModule\" \
-            -s EXPORT_ES6=1 \
+            -sEXPORT_ES6=1 \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\"] \
             -sENVIRONMENT=web,worker,node \
-            -sDISABLE_EXCEPTION_CATCHING=0"
+            -sSTACK_OVERFLOW_CHECK=2 \
+            -sSTACK_SIZE=4194304"
         )
 
         #Release/Debug

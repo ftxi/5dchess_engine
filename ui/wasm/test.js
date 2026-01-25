@@ -29,9 +29,10 @@ async function runTest() {
 
     const suggestions = g.get_child_moves();
     console.log('Suggested actions:', suggestions);
+    console.log(JSON.stringify(suggestions[0].action));
 
     // Visit the first suggested move
-    g.visit_child(suggestions[0]);
+    g.visit_child(suggestions[0].action);
 
     // Show PGN and boards
     console.log('PGN after suggestion:', g.show_pgn());

@@ -11,6 +11,7 @@ let clicking = false;
 let clicked_pos = null;
 let generated_moves = [];
 let present_c;
+let next_options = [];
 
 class ChessBoardCanvas extends ChessBoardCanvasBase {
     onClickSquare(l, t, c, x, y) {
@@ -77,7 +78,7 @@ function addHighlight(data, color, field, values) {
 worker.onmessage = (e) => {
     const msg = e.data;
     if (msg.type === 'ready') {
-        worker.postMessage({type: 'load', pgn: '[Board "Standard"]'});
+        worker.postMessage({type: 'load', pgn: '[Board "Standard - Turn Zero"]'});
     }
     else if (msg.type === 'alert') {
         alert('[WORKER] ' + msg.message);
@@ -102,7 +103,6 @@ worker.onmessage = (e) => {
     }
     else if (msg.type === 'update_buttons')
     {
-        console.log(msg);
         for(let key of ['undo', 'redo', 'prev', 'next', 'submit'])
         {
             if(msg[key])
@@ -115,6 +115,26 @@ worker.onmessage = (e) => {
             }
         }
     }
+    else if (msg.type === 'update_select')
+    {
+        let options = msg.options.map(obj => obj.pgn);
+        next_options = msg.options.map(obj => obj.action);
+        UI.select.setOptions(options);
+    }
+    else if (msg.type === 'update_pgn')
+    {
+        UI.setExportData(msg.pgn);
+    }
+    else if (msg.type === 'update_hud_status')
+    {
+        UI.setHudTitle(msg.hudTitle);
+        if (msg.hudText) {
+            UI.setHudText(msg.hudText);
+        }
+        else {
+            UI.setHudText('');
+        }
+    }
 }
 
 UI.buttons.setCallbacks({
@@ -122,7 +142,8 @@ UI.buttons.setCallbacks({
         worker.postMessage({type: 'prev'});
     },
     next: () => {
-        let action = UI.select.getSelectedValue();
+        let index = UI.select.getSelectedIndex();
+        let action = next_options[index];
         worker.postMessage({type: 'next', action: action});
     },
     undo: () => {
@@ -133,7 +154,22 @@ UI.buttons.setCallbacks({
     },
     submit: () => {
         worker.postMessage({type: 'submit'});
-    },
-    hint: () => { /* handle hint */ }
+    }
+});
+
+UI.setHintCallback(() => {
+    worker.postMessage({type: 'hint'});
+});
+
+UI.setFocusCallback(() => {
+    window.chessBoardCanvas.goToNextFocus();
+});
+
+UI.setImportCallback((data) => {
+    worker.postMessage({type: 'load', pgn: data});
+});
+
+UI.setExportCallback(() => {
+    worker.postMessage({type: 'export'});
 });
 

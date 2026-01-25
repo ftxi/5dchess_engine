@@ -31,15 +31,19 @@ createModule().then((engine) => {
         }
         let boards = self.game.get_current_boards();
         let present = self.game.get_current_present();
+        let timeline_status = self.game.get_current_timeline_status();
+        let focus = timeline_status.mandatory_timelines.map(l => {
+            return {
+                l: l,
+                t: present.t,
+                c: present.c
+            }
+        });
         self.postMessage({type: 'data', data: {
             boards: boards,
-            present: present
+            present: present,
+            focus: focus
         }});
-    }
-
-    function applyMove(from, to) {
-        
-        return true;
     }
 
     function genMoveIfPlayable(pos) {
@@ -52,7 +56,7 @@ createModule().then((engine) => {
     }
 
     function updateSelect() {
-        let children = self.game.get_child_moves;
+        let children = self.game.get_child_moves();
         self.has_children = children.length > 0;
         self.postMessage({
             type: 'update_select',
@@ -71,61 +75,91 @@ createModule().then((engine) => {
         });
     }
 
+    function updateHudStatus() {
+        // Get match status and comments
+        const matchStatus = self.game.get_match_status();
+        const comments = self.game.get_comments();
+        const hudText = comments && comments.length > 0 ? comments[comments.length - 1] : null;
+        
+        self.postMessage({
+            type: 'update_hud_status',
+            hudTitle: matchStatus,
+            hudText: hudText
+        });
+    }
+
 
     self.onmessage = (e) => {
         const data = e.data;
-        if(data.type === 'load')
+        if (data.type === 'load')
         {
             loadGame(data.pgn);
+            updateSelect();
             updateButtons();
+            updateHudStatus();
             viewGame();
         }
-        else if(data.type === 'view')
+        else if (data.type === 'view')
         {
             viewGame();
         }
-        else if(data.type === 'apply_move')
+        else if (data.type === 'apply_move')
         {
             self.game.apply_move({from: data.from, to: data.to});
             updateButtons();
             viewGame();
         }
-        else if(data.type === 'gen_move_if_playable')
+        else if (data.type === 'gen_move_if_playable')
         {
             const moves = genMoveIfPlayable(data.pos);
             self.postMessage({type: 'moves', moves: moves});
         }
-        else if(data.type === 'submit')
+        else if (data.type === 'submit')
         {
             self.game.submit();
+            updateSelect();
             updateButtons();
+            updateHudStatus();
             viewGame();
         }
-        else if(data.type === 'undo')
+        else if (data.type === 'undo')
         {
             self.game.undo();
             updateButtons();
             viewGame();
         }
-        else if(data.type === 'redo')
+        else if (data.type === 'redo')
         {
             self.game.redo();
             updateButtons();
             viewGame();
         }
-        // else if(data.type === 'prev')
-        // {
-        //     self.game.visit_parent();
-        //     updateButtons();
-        //     view_game();
-        // }
-        // else if(data.type === 'next')
-        // {
-        //     self.game.redo();
-        //     updateButtons();
-        //     view_game();
-        // }
+        else if (data.type === 'prev')
+        {
+            self.game.visit_parent();
+            updateSelect();
+            updateButtons();
+            updateHudStatus();
+            viewGame();
+        }
+        else if (data.type === 'next')
+        {
+            self.game.visit_child(data.action);
+            updateSelect();
+            updateButtons();
+            updateHudStatus();
+            viewGame();
+        }
+        else if (data.type === 'hint')
+        {
+            self.game.suggest_action();
+            updateSelect();
+            updateButtons();
+        }
+        else if (data.type === 'export')
+        {
+            let pgn = self.game.show_pgn();
+            self.postMessage({type: 'update_pgn', pgn: pgn});
+        }
     };
-
-    loadGame('[Board "Standard"]');
 });

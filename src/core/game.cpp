@@ -127,6 +127,11 @@ const state &game::get_current_state() const
     return now->first;
 }
 
+const state &game::get_unmoved_state() const
+{
+    return cached[0].first;
+}
+
 std::vector<std::tuple<int, int, bool, std::string>> game::get_current_boards() const
 {
     return get_current_state().get_boards();

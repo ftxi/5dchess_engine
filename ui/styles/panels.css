@@ -202,6 +202,15 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
+.remote-btn.pressed {
+    transform: translateY(1px);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.remote-btn.ok.pressed {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
 .remote-btn.up { grid-column: 2; grid-row: 1; }
 .remote-btn.left { grid-column: 1; grid-row: 2; }
 .remote-btn.ok { grid-column: 2; grid-row: 2; background: linear-gradient(135deg, #4CAF50, #45a049); color: white; border-color: #45a049; }

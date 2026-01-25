@@ -10,7 +10,7 @@ import { chooseLOD } from 'piece';
 
 export default class ChessBoardCanvas 
 {
-    constructor(canvasId, centerButtonId) {
+    constructor(canvasId) {
         this.statusElement = document.getElementById('status');
         this.cameraElement = document.getElementById('camera');
         
@@ -47,15 +47,9 @@ export default class ChessBoardCanvas
         
         // Set up callbacks
         this.canvas.onRender = (ctx, bounds) => this.renderBoards(ctx, bounds);
-        this.canvas.onClick = (x, y, _e) => this.handleBoardClick(x, y, false);
-        this.canvas.onRightClick = (x, y, _e) => this.handleBoardClick(x, y, true);
+        this.canvas.onClick = (x, y) => this.handleBoardClick(x, y, false);
+        this.canvas.onRightClick = (x, y) => this.handleBoardClick(x, y, true);
         this.canvas.onHover = (x, y) => this.updateStatus(x, y);
-        
-        // Center button
-        if (centerButtonId) {
-            document.getElementById(centerButtonId)?.addEventListener('click', 
-                () => this.goToNextFocus());
-        }
         
         this.canvas.startAnimation();
     }
