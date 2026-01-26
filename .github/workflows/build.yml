@@ -6,6 +6,12 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Add permissions for GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
 jobs:
   build:
     name: Build on ${{ matrix.os }} with ${{ matrix.compiler }}
@@ -166,6 +172,12 @@ jobs:
           name: ui-wasm
           path: ui.zip
 
+      # Upload ui folder for GitHub Pages
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'build-wasm/ui'
+
   # -----------------------
   # Release job
   # -----------------------
@@ -188,3 +200,21 @@ jobs:
             **/ui*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # -----------------------
+  # Deploy to GitHub Pages
+  # -----------------------
+
+  deploy-pages:
+    name: Deploy to GitHub Pages
+    needs: [build-wasm]
+    runs-on: ubuntu-latest
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
