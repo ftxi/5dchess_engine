@@ -89,10 +89,10 @@ For more detail, please read [this page](docs/index.md).
 - [x] checkmate display
 - [x] merge pixels
 - [ ] ~~flask static path~~
-- [ ] embind
+- [x] embind
 - [x] debug nonstandard pieces
 - [ ] editing comments
 - [ ] L/T numbers
 - [ ] documentation
-- [ ] variants loading
+- [x] variants loading
 

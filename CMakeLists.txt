@@ -136,7 +136,6 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
             -sEXPORT_ES6=1 \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\"] \
             -sENVIRONMENT=web,worker,node \
-            -sSTACK_OVERFLOW_CHECK=2 \
             -sSTACK_SIZE=4194304"
         )
 
@@ -144,7 +143,10 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         if(CMAKE_BUILD_TYPE STREQUAL "Release")
             set(EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS} -O3")
         else()
-            set(EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS} -sASSERTIONS=1")
+            set(EMSCRIPTEN_LINK_FLAGS "${EMSCRIPTEN_LINK_FLAGS} \
+                -sSTACK_OVERFLOW_CHECK=2 \
+                -sASSERTIONS=1"
+            )
         endif()
 
         # add_custom_command(TARGET engine_wasm POST_BUILD

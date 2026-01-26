@@ -1,4 +1,4 @@
-name: Build Wheels
+name: Build Wheels and WebAssembly
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           # -----------------------
@@ -75,7 +75,7 @@ jobs:
             export CXX=$(which ${{ matrix.cxx }})
           fi
 
-          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -S . -DPYMODULE=on -DCMAKE_BUILD_TYPE=Release
 
       # -----------------------
       # Build
@@ -108,12 +108,71 @@ jobs:
           path: ${{ steps.findfile.outputs.file }}
 
   # -----------------------
+  # Build WASM
+  # -----------------------
+
+  build-wasm:
+    name: Build WebAssembly module
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+          actions-cache-folder: '.emsdk-cache'
+
+      - name: Configure CMake with Emscripten
+        run: |
+          emcmake cmake . \
+            -DEMMODULE=on \
+            -DTEST=off \
+            -DPYMODULE=off \
+            -DCMAKE_BUILD_TYPE=Release \
+            -B build-wasm
+
+      - name: Build WASM module
+        run: cmake --build build-wasm
+
+      - name: Verify build output
+        run: |
+          if [ ! -d "build-wasm/ui" ]; then
+            echo "❌ build-wasm/ui directory not found"
+            exit 1
+          fi
+          if [ ! -f "build-wasm/ui/wasm/engine.js" ]; then
+            echo "❌ engine.js not found"
+            exit 1
+          fi
+          if [ ! -f "build-wasm/ui/wasm/engine.wasm" ]; then
+            echo "❌ engine.wasm not found"
+            exit 1
+          fi
+          echo "✅ Build artifacts verified"
+
+      - name: Create ui.zip
+        run: |
+          cd build-wasm
+          zip -r ../ui.zip ui/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-wasm
+          path: ui.zip
+
+  # -----------------------
   # Release job
   # -----------------------
 
   release:
     name: Upload wheels to release
-    needs: build
+    needs: [build, build-wasm]
     runs-on: ubuntu-latest
 
     steps:
@@ -126,5 +185,6 @@ jobs:
           files: |
             **/engine*.so
             **/engine*.pyd
+            **/ui*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
