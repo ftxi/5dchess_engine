@@ -15,6 +15,8 @@ Original source: https://github.com/penteract/cwmtt
 ├── standard.5dpgn
 └── wide.5dpgn
 
+Modified `9. (L1T5)Qf4>>x(L0T5)e4~` to `9. (L1T5)Qf4>>(L0T5)e4~ ` on line 14 of `futures.5dpgn`.
+
 These test cases are licensed under the GNU General Public License v3.0.
 The rest of this file is the full text of that licence.
 

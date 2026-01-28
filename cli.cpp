@@ -6,6 +6,8 @@
 
 #include "hypercuboid.h"
 #include "pgnparser.h"
+#include "game.h"
+#include "turn.h"
 
 //std::string pgn1 =
 //R"(
@@ -190,12 +192,14 @@ void diff(state s)
 
 std::string helpmsg = R"(usage: cli <option>
 where <option> is one of:
-  help: print this message
+  help: print this message (-h, --help)
+  version: print the version (-v, --version)
   print: print the final state of the game
   count [fast|naive] [<max>]: display number of avialible moves capped by <max>
   all [fast|naive] [<max>]: display all legal moves capped by <max>
   checkmate [fast|naive]: determine whether the final state is checkmate/stalemate
   diff: compare the output of two algorithms
+  perftest [fast|naive]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
 default value for <max> is 10000
 
 the game being read is input in stdin (stopped by EOF)
@@ -203,12 +207,22 @@ the game being read is input in stdin (stopped by EOF)
 
 int main(int argc, const char *argv[])
 {
-    if (argc <= 1 || std::string(argv[1]) == "help") {
+    if (argc <= 1 || std::string(argv[1]) == "help" || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
         std::cout << helpmsg;
         return 0;
     }
     
     std::string command = argv[1];
+    
+    // Handle version flag
+    if (command == "version" || command == "-v" || command == "--version") {
+#ifdef PROJECT_VERSION_STRING
+        std::cout << "5d Chess Engine version " << PROJECT_VERSION_STRING << std::endl;
+#else
+        std::cout << "5d Chess Engine version unknown" << std::endl;
+#endif
+        return 0;
+    }
     
     std::ostringstream buffer;
     buffer << std::cin.rdbuf();
@@ -329,6 +343,127 @@ int main(int argc, const char *argv[])
     else if (command == "diff")
     {
         diff(*ps);
+    }
+    else if (command == "perftest")
+    {
+        bool use_fast = true;
+        
+        for (int i = 2; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "fast") {
+                use_fast = true;
+            } else if (arg == "naive") {
+                use_fast = false;
+            }
+        }
+        pgnparser_ast::game g = *pgnparser(pgn).parse_game();
+        pgnparser_ast::gametree gt_root = std::move(g.gt);
+        g.gt = pgnparser_ast::gametree{{}};
+        pgnparser_ast::gametree *gt = &gt_root;
+        
+        state current_state = state(g);
+        turn_t turn = {1,false};
+        while (true)
+        {
+            std::optional<moveseq> mvs;
+            if(use_fast)
+            {
+                auto [w, ss] = HC_info::build_HC(current_state);
+                mvs = w.search(ss).first();
+            }
+            else
+            {
+                mvs = naive_search(current_state).first();
+            }
+            auto [t,c] = current_state.get_present();
+            if(mvs)
+            {
+                std::putchar('1');
+                if(!gt->variations.empty())
+                {
+                    const auto &[act, last_gt] = *(gt->variations.end() - 1);
+                    //std::cout << act;
+                    for(const auto& mv: act.moves)
+                    {
+                        auto [fm_opt, pt_opt, candidates] = current_state.parse_move(mv);
+                        if(!fm_opt.has_value())
+                        {
+                            if(candidates.empty())
+                            {
+                                std::ostringstream oss;
+                                oss << "state(): Invalid move: " << mv;
+                                throw std::runtime_error(oss.str());
+                            }
+                            else
+                            {
+                                std::ostringstream oss;
+                                oss << "state(): Ambiguous move: " << mv << "; candidates: ";
+                                oss << range_to_string(candidates, "", "");
+                                throw std::runtime_error(oss.str());
+                            }
+                        }
+                        else
+                        {
+                            full_move fm = fm_opt.value();
+                            bool flag;
+                            if(pt_opt.has_value())
+                            {
+                                piece_t pt = to_white(*pt_opt);
+                                flag = current_state.apply_move<false>(fm, pt);
+                            }
+                            else
+                            {
+                                flag = current_state.apply_move<false>(fm);
+                            }
+                            if(!flag)
+                            {
+                                std::ostringstream oss;
+                                oss << "state(): Illegal move: " << mv << " (parsed as: " << fm << ")";
+                                throw std::runtime_error(oss.str());
+                            }
+                        }
+                    }
+                    if(!last_gt->variations.empty())
+                    {
+                        bool flag = current_state.submit();
+                        if(!flag)
+                        {
+                            std::ostringstream oss;
+                            oss << "state(): Cannot submit after parsing these moves: " << act;
+                            throw std::runtime_error(oss.str());
+                        }
+                    }
+                    else
+                    {
+                        bool flag = current_state.submit();
+                        if(!flag)
+                        {
+                            std::cerr << "[WARNING]state(): Cannot submit after parsing these moves: " << act;
+                        }
+                    }
+                    gt = last_gt.get();
+                }
+                else
+                {
+                    break;
+                }
+            }
+            else
+            {
+                std::cout << "0\n";
+                if(current_state.phantom().find_checks(!c).first())
+                {
+                    std::cout << "Turn " << show_turn(turn) << ": Checkmate";
+                }
+                else
+                {
+                    std::cout << "Turn " << show_turn(turn) << ": Stalemate";
+                }
+                break;
+            }
+            turn = next_turn(turn);
+        }
+        std::cout << "\n";
     }
     else
     {

@@ -11,7 +11,7 @@
 6. (-1T3)Nc3 (0T6)Nc3 {AI thinks it's winning?} / (-1T3)c6
 7. (-1T4)Ke2 {Still thinks it's winning} / (-1T4)Qb6
 8. (L-1T5)Qf3>>(L-1T4)f4 / (1T4)f6
-9. (L1T5)Qf4>>x(L0T5)e4~ {The self_play example wouldn't yield anything because the pool overflew, tweaking the parameters on self_play makes it play (1T5)Qh5} / (0T6)Qd8>>(0T2)h4 (>L-2)
+9. (L1T5)Qf4>>(L0T5)e4~ {The self_play example wouldn't yield anything because the pool overflew, tweaking the parameters on self_play makes it play (1T5)Qh5} / (0T6)Qd8>>(0T2)h4 (>L-2)
 10. {Too many timelines, engine breaks, as it is unable to declare mate based on the following move:} (-2T3)Qxf7 (0T7)Qf3>>x(0T3)f7#
 
 {

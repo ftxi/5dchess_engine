@@ -279,4 +279,13 @@ EMSCRIPTEN_BINDINGS(engine) {
             return g.visit_child(act);
         }))
         .function("show_pgn", &game::show_pgn);
+    
+    // Export version information
+    function("get_version", optional_override([]() {
+#ifdef PROJECT_VERSION_STRING
+        return std::string(PROJECT_VERSION_STRING);
+#else
+        return std::string("unknown");
+#endif
+    }));
 }

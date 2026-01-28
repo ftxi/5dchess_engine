@@ -177,4 +177,20 @@ PYBIND11_MODULE(engine, m) {
              py::arg("action")
         )
         .def("show_pgn", &game::show_pgn);
+    
+    // Add version information
+    m.def("get_version", []() {
+#ifdef PROJECT_VERSION_STRING
+        return std::string(PROJECT_VERSION_STRING);
+#else
+        return std::string("unknown");
+#endif
+    });
+    
+    // Add __version__ attribute
+#ifdef PROJECT_VERSION_STRING
+    m.attr("__version__") = std::string(PROJECT_VERSION_STRING);
+#else
+    m.attr("__version__") = std::string("unknown");
+#endif
 }

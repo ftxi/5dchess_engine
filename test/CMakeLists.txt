@@ -15,4 +15,7 @@ foreach(TEST_FILE ${TEST_SOURCES})
 
     # Include necessary directories
     target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+
+    # Register test with ctest
+    add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()

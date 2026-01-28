@@ -1,5 +1,29 @@
 cmake_minimum_required(VERSION 3.20)
-project(5dchess_engine VERSION 0.2.0 LANGUAGES CXX)
+project(5dchess_engine VERSION 0.0.0 LANGUAGES CXX)
+
+# Extract version from git tags with fallback to CMake project version
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --always
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    
+    # Only use git version if we're in a git repo and got a valid tag
+    if(GIT_VERSION AND NOT GIT_VERSION STREQUAL "")
+        # Remove 'v' prefix if present
+        string(REGEX REPLACE "^v" "" GIT_VERSION "${GIT_VERSION}")
+        set(PROJECT_VERSION "${GIT_VERSION}")
+        message(STATUS "Version from git tag: ${PROJECT_VERSION}")
+    else()
+        message(STATUS "Not in a git repo or no tags found, using default version: ${PROJECT_VERSION}")
+    endif()
+else()
+    message(STATUS "Git not found, using default version: ${PROJECT_VERSION}")
+endif()
 
 # Make all targets PIC by default (needed for Python .so on github actions)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -43,6 +67,11 @@ option(TEST "Build test executable" ON)
 option(PYMODULE "Build Python module" OFF)
 option(EMMODULE "Build Emscripten/WebAssembly module" OFF)
 
+# Enable testing if TEST option is ON
+if(TEST)
+    enable_testing()
+endif()
+
 # Find all source files in src/ and src/core/ directories
 file(GLOB_RECURSE ENGINE_SOURCES 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
@@ -59,6 +88,11 @@ file(GLOB_RECURSE ENGINE_HEADERS
 
 # Create the core library target (without Python bindings)
 add_library(5dchess_engine_core OBJECT ${ENGINE_SOURCES})
+
+# Add version as compile definition for all targets using this library
+target_compile_definitions(5dchess_engine_core PUBLIC 
+    PROJECT_VERSION_STRING="${PROJECT_VERSION}"
+)
 
 # Ensure header files show up in IDEs
 target_sources(5dchess_engine_core PRIVATE ${ENGINE_HEADERS})
@@ -79,17 +113,31 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         message(STATUS ">>> Compiling test.cpp...")
         add_executable(test_exec "test.cpp")
         target_link_libraries(test_exec PRIVATE 5dchess_engine_core)
+        # Note: test_exec is not registered as a ctest (it hangs)
         
         add_subdirectory(test)  # Add test directory
         
         add_executable(cli "cli.cpp")
         target_link_libraries(cli PRIVATE 5dchess_engine_core)
+        target_compile_definitions(cli PRIVATE 
+            PROJECT_VERSION_STRING="${PROJECT_VERSION}"
+        )
         
         add_custom_command(TARGET cli POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/test/pgn
             $<TARGET_FILE_DIR:cli>/pgn
         )
+        
+        # Register perftest for each .5dpgn file
+        file(GLOB PGN_FILES "${CMAKE_SOURCE_DIR}/test/pgn/*.5dpgn")
+        foreach(PGN_FILE ${PGN_FILES})
+            get_filename_component(PGN_NAME ${PGN_FILE} NAME_WE)
+            add_test(
+                NAME perftest_${PGN_NAME}
+                COMMAND bash -c "cat ${CMAKE_SOURCE_DIR}/test/pgn/${PGN_NAME}.5dpgn | $<TARGET_FILE:cli> perftest"
+            )
+        endforeach()
     endif()
     
     if(PYMODULE)
@@ -100,6 +148,9 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         # Create the Python module
         pybind11_add_module(engine pymodule.cpp)
         target_link_libraries(engine PRIVATE 5dchess_engine_core)
+        target_compile_definitions(engine PRIVATE 
+            PROJECT_VERSION_STRING="${PROJECT_VERSION}"
+        )
         
         # Fix Visual Studio output directories on Windows
         if(WIN32)
@@ -123,6 +174,9 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         # Create the WebAssembly module
         add_executable(engine_wasm emmodule.cpp)
         target_link_libraries(engine_wasm PRIVATE 5dchess_engine_core)
+        target_compile_definitions(engine_wasm PRIVATE 
+            PROJECT_VERSION_STRING="${PROJECT_VERSION}"
+        )
         
         # Enable WebAssembly native exception handling
         target_compile_options(engine_wasm PRIVATE -fwasm-exceptions)

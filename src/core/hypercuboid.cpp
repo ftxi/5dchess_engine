@@ -322,14 +322,16 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 if(jump_indices.contains(p->m.from))
                 {
                     p->idx = jump_indices[p->m.from];
+#ifndef NDEBUG
                     assert(line_to_axis.contains(p->m.from.l()));
                     int nfrom = line_to_axis[p->m.from.l()];
                     assert(p->m.from == std::get<departing_move>(axis_coords[nfrom][p->idx]).from);
+#endif
                 }
                 else
                 {
                     dprint("ghost arrive at axis:", n, ";no:", i,";move pruned:", p->m);
-                    auto flag = universe.axes[n].erase(i);
+                    [[maybe_unused]] auto flag = universe.axes[n].erase(i);
                     assert(flag);
                 }
             }
@@ -773,10 +775,10 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         // !!do use flag SHOW_MATE (or expect explosion)!!
         mvsstr += s.pretty_move<state::SHOW_NOTHING>(mv) + " ";
 #endif
-        bool flag = newstate.apply_move(mv);
+        [[maybe_unused]] bool flag = newstate.apply_move(mv);
         assert(flag && "failed to apply move here");
     }
-    bool flag = newstate.submit();
+    [[maybe_unused]] bool flag = newstate.submit();
     assert(flag && "failed to submit here");
     //dprint("after applying moves:", mvsstr, newstate.to_string());
     dprint("applied moves:", mvsstr);

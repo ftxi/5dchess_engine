@@ -181,7 +181,7 @@ state::state(const pgnparser_ast::game &g)
                 bool flag;
                 if(pt_opt.has_value())
                 {
-                    piece_t pt = player ? to_white(*pt_opt) : *pt_opt;
+                    piece_t pt = to_white(*pt_opt);
                     flag = apply_move<false>(fm, pt);
                 }
                 else
@@ -283,8 +283,10 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     vec4 d = q - p;
     if constexpr (!UNSAFE)
     {
+#ifndef NDEBUG
         auto te = m->get_timeline_end(p.l());
         assert(std::make_pair(p.t(), player) == te && "moves must be made on an active board");
+#endif
         auto mvs = player ? m->gen_moves<true>(p) : m->gen_moves<false>(p);
         //auto it = mvbbs.find(q.tl());
         const auto &res = mvs.find([&q](const auto &pair){
@@ -423,9 +425,9 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
         assert(c==s.player);
         //find checks on the source board
         std::shared_ptr<board> b = s.get_board(l, t, c);
-        bitboard_t friendly = c ? b->black() : b->white();
+        bitboard_t pieces = c ? b->black()&~b->white() : b->white()&~b->black();
         // for each friendly piece on this board
-        for (int src_pos : marked_pos(friendly))
+        for (int src_pos : marked_pos(pieces))
         {
             vec4 p = vec4(src_pos, vec4(0,0,t,l));
             // generate the aviliable moves

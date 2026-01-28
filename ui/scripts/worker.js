@@ -5,6 +5,10 @@ createModule().then((engine) => {
     self.game = null;
     self.has_children;
 
+    // Get and post the engine version
+    const version = self.engine.get_version();
+    self.postMessage({type: 'engine_version', version: version});
+
     self.postMessage({type: 'ready'});
 
     function loadGame(pgn) {

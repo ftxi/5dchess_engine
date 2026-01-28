@@ -80,6 +80,11 @@ worker.onmessage = (e) => {
     if (msg.type === 'ready') {
         worker.postMessage({type: 'load', pgn: '[Board "Standard - Turn Zero"]'});
     }
+    else if (msg.type === 'engine_version') {
+        // Update the version in the Information popup
+        document.getElementById('versionNumber').textContent = msg.version;
+        console.log(msg.version);
+    }
     else if (msg.type === 'alert') {
         alert('[WORKER] ' + msg.message);
     }
