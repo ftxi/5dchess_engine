@@ -81,7 +81,7 @@ static std::string show_semimove(semimove loc)
     return oss.str();
 }
 
-class HC_info
+struct HC_info
 {
     // local variables
     const state s;
@@ -93,6 +93,7 @@ class HC_info
     // identity: dimension = universe.axes.size() = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
+private:
     /*
      take_point(): takes a point in hc while making sure arrives matches departures
      if it finds an arrive with its departure no longer in hc, then this arrives get

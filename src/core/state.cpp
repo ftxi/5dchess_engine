@@ -693,34 +693,48 @@ state::mate_type state::get_mate_type() const
 {
     dprint("state::get_mate_type()");
     auto [w, ss] = HC_info::build_HC(*this);
-//    std::cerr << ss.to_string();
     auto hc = ss.hcs.back();
     search_space ss1 {{hc}};
     ss.hcs.pop_back();
-//    std::cerr << "\n\n" << ss1.to_string();
-//    std::cerr << "\n\n" << ss.to_string();
-    if(auto x = w.search(ss1).first())
+    // check if there is a non-branching move
+    if(w.search(ss1).first())
     {
         dprint("has non-branching action");
         return mate_type::NONE;
     }
-    bool soft = false;
-    for(moveseq mvs : w.search(ss))
+    search_space ss2 = ss;
+    /* player can only create timeline_advantage+1 active lines */
+    const auto [l0_min, l0_max] = get_initial_lines_range();
+    const auto [l_min, l_max] = get_lines_range();
+    int whites_lines = l_max - l0_max;
+    int blacks_lines = l0_min - l_min;
+    int timeline_advantage = player ? (whites_lines - blacks_lines) : (blacks_lines - whites_lines);
+    /* Build the search space `ss2` from `ss` so that
+    1. On new lines that are active, erase all moves traveling back in time
+    2. On other lines, do nothing */
+    for(HC &hc : ss2.hcs)
     {
-        soft = true;
-        state s = *this;
-        for(full_move fm : mvs)
+        //NOTE: because most axes are the same, the following code can be optimized
+        int max_axis = std::min(w.new_axis+timeline_advantage+1, w.dimension-1);
+        for(int n = w.new_axis; n <= max_axis; n++)
         {
-            s.apply_move<true>(fm);
-        }
-        s.submit();
-        if(s.get_present() > this->get_present())
-        {
-            dprint("has non-returning action");
-            return mate_type::NONE;
+            std::erase_if(hc.axes[n], [&w, n, old_t=present](int i){
+                if(std::holds_alternative<arriving_move>(w.axis_coords[n][i]))
+                {
+                    auto am = std::get<arriving_move>(w.axis_coords[n][i]);
+                    int new_t = am.m.to.t();
+                    return new_t < old_t;
+                }
+                return false;
+            });
         }
     }
-    if(soft)
+    if(w.search(ss2).first())
+    {
+        dprint("has branching non-jump back solution");
+        return mate_type::NONE;
+    }
+    if(w.search(ss).first())
     {
         if(phantom().find_checks(!player).first().has_value())
         {

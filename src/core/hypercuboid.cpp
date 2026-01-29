@@ -457,16 +457,16 @@ std::optional<point> HC_info::take_point(HC &hc) const
         {
             assert(i != -1 && "some axis is still null");
         }
-#endif
+#endif // !NDEBUG
         dprint("final result:", range_to_string(result));
         assert(hc.contains(result));
 #ifdef DEBUGMSG
-        for(int n = 0; n < result.size(); n++)
+        for(size_t n = 0; n < result.size(); n++)
         {
             int i = result[n];
             dprint("n=",n,",i=",i,",loc=",show_semimove(axis_coords[n][i]));
         }
-#endif
+#endif // DEBUGMSG
         return std::optional<point>(result);
     }
     else

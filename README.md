@@ -129,5 +129,5 @@ For more detail, please read [this page](docs/index.md).
 - [ ] documentation
 - [x] variants loading
 - [x] ctest
-- [ ] Reduce resource usage when displaying pgn
+- [x] Reduce resource usage when displaying pgn
 - [ ] Check arrows in the new ui
