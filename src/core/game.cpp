@@ -122,6 +122,19 @@ std::pair<int,bool> game::get_current_present() const
     return get_current_state().get_present();
 }
 
+std::vector<ext_move> game::get_cached_moves() const
+{
+    std::vector<ext_move> result;
+    for(auto it = cached.begin()+1; it != cached.end(); ++it)
+    {
+        if(it->second)
+        {
+            result.push_back(*(it->second));
+        }
+    }
+    return result;
+}
+
 const state &game::get_current_state() const
 {
     return now->first;
@@ -345,7 +358,7 @@ void game::visit_parent()
     fresh();
 }
 
-std::vector<std::tuple<action, std::string>> game::get_child_moves() const
+std::vector<std::tuple<action, std::string>> game::get_child_actions() const
 {
     std::vector<std::tuple<action, std::string>> result;
     auto &children = current_node->get_children();
@@ -356,6 +369,26 @@ std::vector<std::tuple<action, std::string>> game::get_child_moves() const
         std::string txt = s.pretty_action(act);
         result.push_back({act, txt});
     }
+    return result;
+}
+
+std::vector<std::tuple<action, std::string>> game::get_historical_actions() const
+{
+    std::vector<std::tuple<action, std::string>> result;
+    gnode<comments_t>* node = current_node;
+    
+    // Walk from current node back to root, collecting actions
+    while(node->get_parent() != nullptr)
+    {
+        const action& act = node->get_action();
+        // Pretty print using parent's state (state before the action was applied)
+        std::string txt = node->get_parent()->get_state().pretty_action(act);
+        result.push_back({act, txt});
+        node = node->get_parent();
+    }
+    
+    // Reverse since we built it backwards
+    std::reverse(result.begin(), result.end());
     return result;
 }
 

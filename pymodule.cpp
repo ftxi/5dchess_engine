@@ -126,7 +126,6 @@ PYBIND11_MODULE(engine, m) {
         })
         .def(py::self == py::self);
     py::class_<action>(m, "action")
-        // No py::init() → Python cannot construct this class
         .def("get_moves", &action::get_moves)
         .def(py::self == py::self)
         // optional: nice repr
@@ -168,7 +167,7 @@ PYBIND11_MODULE(engine, m) {
         .def("get_comments", &game::get_comments)
         .def("has_parent", &game::has_parent)
         .def("visit_parent", &game::visit_parent)
-        .def("get_child_moves", &game::get_child_moves)
+        .def("get_child_actions", &game::get_child_actions)
         // Python version of visit_child without newstate argument
         .def("visit_child",
              [](game &g, const action &a) {

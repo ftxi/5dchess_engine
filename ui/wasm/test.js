@@ -27,7 +27,7 @@ async function runTest() {
     g.suggest_action();
     g.suggest_action();
 
-    const suggestions = g.get_child_moves();
+    const suggestions = g.get_child_actions();
     console.log('Suggested actions:', suggestions);
     console.log(JSON.stringify(suggestions[0].action));
 

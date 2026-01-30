@@ -130,4 +130,4 @@ For more detail, please read [this page](docs/index.md).
 - [x] variants loading
 - [x] ctest
 - [x] Reduce resource usage when displaying pgn
-- [ ] Check arrows in the new ui
+- [x] Check arrows in the new ui

@@ -242,6 +242,17 @@ export const UI = (() => {
         showPopup(event.currentTarget, 'popupSettings');
     };
 
+    // Settings change callback wiring
+    let settingsChangeCallback = null;
+    const allowSubmitCheckbox = document.getElementById('allowSubmitWithChecks');
+    if (allowSubmitCheckbox) {
+        allowSubmitCheckbox.addEventListener('change', () => {
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ allowSubmitWithChecks: allowSubmitCheckbox.checked });
+            }
+        });
+    }
+
     document.getElementById('btnScreenshot').onclick = () => {
         let canvasImage = document.getElementById('canvas').toDataURL('image/png');
         // this can be used to download any image from webpage to local disk
@@ -594,6 +605,14 @@ export const UI = (() => {
 
         setHintCallback(callback) {
             hintCallback = callback;
+        },
+
+        /**
+         * Set a callback function that will be called when settings change
+         * @param {Function} callback - Function receiving a settings object
+         */
+        setSettingsChangeCallback(callback) {
+            settingsChangeCallback = callback;
         }
     };
 })();

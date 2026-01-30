@@ -30,6 +30,7 @@ public:
     const state &get_current_state() const;
     const state &get_unmoved_state() const;
     std::pair<int, bool> get_current_present() const;
+    std::vector<ext_move> get_cached_moves() const;
     std::vector<boards_info_t> get_current_boards() const;
     std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> get_current_timeline_status() const;
     std::vector<vec4> gen_move_if_playable(vec4 p) const;
@@ -55,7 +56,8 @@ public:
     void set_comments(const comments_t &c) const;
     bool has_parent() const;
     void visit_parent();
-    std::vector<std::tuple<action, std::string>> get_child_moves() const;
+    std::vector<std::tuple<action, std::string>> get_child_actions() const;
+    std::vector<std::tuple<action, std::string>> get_historical_actions() const;
     /*
     visit_child:
     visit a child node (will create one if that child doesn't exist)

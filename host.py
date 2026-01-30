@@ -190,7 +190,7 @@ def display(hl=[]):
     else:
         emit('response_text', "no comments")
     size_x, size_y = g.get_board_size()
-    children = list(enumerate(g.get_child_moves()))
+    children = list(enumerate(g.get_child_actions()))
     global next_options, no_more_hint
     select_values = {str(n):s for (n,(_,s)) in children}
     next_options = {str(n):a for (n,(a,_)) in children}

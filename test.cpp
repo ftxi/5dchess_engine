@@ -26,5 +26,9 @@ int main()
     game g = game::from_pgn(str);
     std::cout << g.show_pgn() << "\n";
     std::cout << static_cast<int>(g.get_current_state().get_mate_type()) << "\n";
+    for(const auto &[act,txt] : g.get_historical_actions())
+    {
+        std::cout << txt << "\n";
+    }
     return 0;
 }

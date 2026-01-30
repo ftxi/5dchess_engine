@@ -178,3 +178,8 @@ UI.setExportCallback(() => {
     worker.postMessage({type: 'export'});
 });
 
+// Forward settings changes from UI to the worker
+UI.setSettingsChangeCallback((settings) => {
+    worker.postMessage({type: 'update_settings', settings: settings});
+});
+

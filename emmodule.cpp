@@ -150,6 +150,20 @@ EMSCRIPTEN_BINDINGS(engine) {
             obj.set("c", c);
             return obj;
         }))
+        .function("get_cached_moves", optional_override([](const game &self) {
+            val result = val::array();
+            auto cached_moves = self.get_cached_moves();
+            for (size_t i = 0; i < cached_moves.size(); ++i) 
+            {
+                const ext_move &m = cached_moves[i];
+                val move_info = val::object();
+                move_info.set("from", convert_vec4_to_js(m.get_from()));
+                move_info.set("to", convert_vec4_to_js(m.get_to()));
+                move_info.set("promote_to", static_cast<int>(m.get_promote()));
+                result.set(i, move_info);
+            }
+            return result;
+        }))
         .function("get_current_boards", optional_override([](const game &self) {
             val result = val::array();
             auto boards = self.get_current_boards();
@@ -261,12 +275,25 @@ EMSCRIPTEN_BINDINGS(engine) {
         }))
         .function("has_parent", &game::has_parent)
         .function("visit_parent", &game::visit_parent)
-        .function("get_child_moves", optional_override([](const game &self) {
+        .function("get_child_actions", optional_override([](const game &self) {
             val result = val::array();
-            auto child_moves = self.get_child_moves();
-            for (size_t i = 0; i < child_moves.size(); ++i) 
+            auto child_actions = self.get_child_actions();
+            for (size_t i = 0; i < child_actions.size(); ++i) 
             {
-                const auto& [act, pgn] = child_moves[i];
+                const auto& [act, pgn] = child_actions[i];
+                val move_info = val::object();
+                move_info.set("action", convert_action_to_js(act));
+                move_info.set("pgn", pgn);
+                result.set(i, move_info);
+            }
+            return result;
+        }))
+        .function("get_historical_actions", optional_override([](const game &self) {
+            val result = val::array();
+            auto hist = self.get_historical_actions();
+            for (size_t i = 0; i < hist.size(); ++i) 
+            {
+                const auto& [act, pgn] = hist[i];
                 val move_info = val::object();
                 move_info.set("action", convert_action_to_js(act));
                 move_info.set("pgn", pgn);

@@ -49,7 +49,7 @@ int main()
 //    g.suggest_action();
 //    bool flag = g.suggest_action();
 //    std::cout << flag << "\n";
-//    for(auto & [act, txt] : g.get_child_moves())
+//    for(auto & [act, txt] : g.get_child_actions())
 //    {
 //        std::cout << txt << " i.e. ";
 //        std::cout << g.get_current_state().pretty_action(act) << "\n";
