@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>HUD Canvas</title>
+    <link rel="stylesheet" href="styles/color-schemes.css">
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/panels.css">
     <link rel="stylesheet" href="styles/popup.css">
@@ -36,6 +37,13 @@
         };
         window.worker_path = 'scripts/worker.js';
         window.engine_path = 'wasm/engine.js';
+
+        window.themes = [
+            { name: "vintage", option: "Vintage" },
+            { name: "plain", option: "Plain" },
+            { name: "dark", option: "Dark" }
+        ]
+        window.defaultTheme = "vintage";
     </script>
     <script type="importmap">
     {
@@ -161,6 +169,12 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
             <label style="display:flex;align-items:center;gap:8px;">
                 <input type="checkbox" id="allowSubmitWithChecks">
                 <span>Allow submit with checks</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+                <span>Color scheme</span>
+                <select id="colorSchemeSelect">
+                    <!-- Options are added in ui.js -->
+                </select>
             </label>
             <p style="margin-top:8px;font-size:0.9em;color:#666;">When checked, submitting legal moves will be allowed even if the current board has checks.</p>
         </div>

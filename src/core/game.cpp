@@ -125,7 +125,7 @@ std::pair<int,bool> game::get_current_present() const
 std::vector<ext_move> game::get_cached_moves() const
 {
     std::vector<ext_move> result;
-    for(auto it = cached.begin()+1; it != cached.end(); ++it)
+    for(auto it = cached.begin()+1; it != now+1; ++it)
     {
         if(it->second)
         {

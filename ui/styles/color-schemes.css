@@ -1,0 +1,118 @@
+/* Color schemes and variables for canvas drawing and UI
+   Provide variables for easy theming (e.g., dark mode overrides)
+*/
+
+/* CSS HSL */
+:root {
+    --sp-grid-white: #ffffff;
+    --sp-grid-black: #f5f5f5;
+    --present: rgba(219,172,52,0.4);
+
+    --board-margin-black: #555555;
+    --board-margin-white: #dfdfdf;
+
+    --square-black: #7f7f7f;
+    --square-white: #cccccc;
+    --square-fuzzy: #a6a6a6;
+
+    --highlight-check: #ff1111;
+    --highlight-white-move: #ffff80;
+    --highlight-black-move: #8080ff;
+    --highlight-generated-move: #80cc3f;
+
+    --arrow-white-top: rgba(255,255,255,0.8);
+
+    --debug-red: red;
+}
+
+:root.plain {
+    --sp-grid-white: #ffffff;
+    --sp-grid-black: #f5f5f5;
+    --present: rgba(219,172,52,0.4);
+
+    --board-margin-black: #555555;
+    --board-margin-white: #dfdfdf;
+
+    --square-black: #7f7f7f;
+    --square-white: #cccccc;
+    --square-fuzzy: #a6a6a6;
+
+    --highlight-check: #ff1111;
+    --highlight-white-move: #ffff80;
+    --highlight-black-move: #8080ff;
+    --highlight-generated-move: #80cc3f;
+
+    --arrow-white-top: rgba(255,255,255,0.8);
+
+    --debug-red: red;
+}
+
+:root.theme1 {
+    --sp-grid-white: hsl(157, 16%, 40%);
+    --sp-grid-black: hsl(157, 16%, 21%);
+    --present: hsla(39, 88%, 57%, 0.8);;
+
+    --board-margin-black: #555555;
+    --board-margin-white: #dfdfdf;
+
+    --square-black: hsl(45, 61%, 51%);
+    --square-white: hsl(45, 61%, 86%);
+    --square-fuzzy: color-mix(in hsl, var(--square-black), var(--square-white));
+
+    --highlight-check: hsl(5, 88%, 57%);;
+    --highlight-white-move: hsl(157, 16%, 40%);
+    --highlight-black-move: hsl(157, 16%, 21%);
+    --highlight-generated-move: #8080ff;
+
+    --arrow-white-top: rgba(255,255,255,0.8);
+
+    --debug-red: red;
+}
+
+/*
+:colors {
+    --dusty-olive: hsla(69, 12%, 44%, 1);
+    --palm-leaf: hsla(60, 14%, 54%, 1);
+    --khaki-beige: hsla(35, 27%, 63%, 1);
+    --desert-sand: hsla(23, 48%, 72%, 1);
+    --soft-peach: hsla(43, 73%, 80%, 1);
+    --golden-pollen: hsla(39, 100%, 71%, 1);
+    --sunlit-clay: hsla(33, 74%, 65%, 1);
+    --toasted-almond: hsla(24, 54%, 60%, 1);
+    --faded-copper: hsla(24, 36%, 55%, 1);
+    --dusty-taupe: hsla(25, 20%, 50%, 1);
+}
+*/
+:root.vintage {
+    --sp-grid-white: hsl(60, 14%, 54%);
+    --sp-grid-black: hsl(69, 12%, 44%);
+    --present: hsl(39, 100%, 71%);
+
+    --board-margin-black: hsl(25, 20%, 28%);
+    --board-margin-white: hsl(24, 54%, 48%);
+
+    --square-white: hsl(43, 73%, 80%);
+    --square-black: hsl(33, 74%, 65%);
+    --square-fuzzy: color-mix(in hsl, var(--square-black), var(--square-white));
+
+    --highlight-check: hsl(5, 92%, 50%);
+    --highlight-white-move: hsl(24, 54%, 48%);
+    --highlight-black-move: hsl(25, 20%, 28%);
+    --highlight-generated-move: hsl(228, 100%, 75%);
+
+    --arrow-white-top: rgba(255, 255, 255, 0.8);
+
+    --debug-red: red;
+}
+
+:root.dark {
+    --sp-grid-white: #0f1113;
+    --sp-grid-black: #151718;
+    --present: rgba(219,172,52,0.18);
+    --board-margin-black: #222222;
+    --board-margin-white: #1a1a1a;
+    --square-black: #4a4a4a;
+    --square-white: #2b2b2b;
+    --square-fuzzy: #3a3a3a;
+    --debug-red: #ff7777;
+}

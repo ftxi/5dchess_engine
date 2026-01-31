@@ -1,7 +1,5 @@
-
-// ============================================================================
-// GENERIC INFINITE SCROLLABLE CANVAS
-// ============================================================================
+// canvas.js
+// implements infinite scrollable canvas in general
 
 export class AnimationManager {
     constructor(callback) {

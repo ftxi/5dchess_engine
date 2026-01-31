@@ -1,14 +1,12 @@
 // draw.js
+// chess board specific implementation
 
 import { InfiniteScrollableCanvas } from 'canvas';
 import { parse_FEN } from 'parse';
 import { chooseLOD } from 'piece';
+import { loadColors, applyFadeToColors, applyFadeToColorString, resolveColor } from './color.js';
 
-// ============================================================================
-// CHESS BOARD SPECIFIC IMPLEMENTATION
-// ============================================================================
-
-export default class ChessBoardCanvas 
+export default class ChessBoardCanvas
 {
     constructor(canvasId) {
         this.statusElement = document.getElementById('status');
@@ -52,11 +50,54 @@ export default class ChessBoardCanvas
         this.canvas.onHover = (x, y) => this.updateStatus(x, y);
         
         this.canvas.startAnimation();
+        this._loadColors();
+    }
+
+    _loadColors() {
+        this.colors = loadColors();
+
+        // Store originals so fade adjustments can be applied and reverted
+        this._origColors = Object.assign({}, this.colors);
+
+        // If an active fade is present, re-apply it after reloading base colors
+        if (typeof this._activeFade === 'number' && this._activeFade > 0) {
+            this._applyFadeToColors(this._activeFade);
+        }
+    }
+
+    _resolveColor(token) {
+        return resolveColor(token, this._activeFade);
+    }
+
+    _applyFadeToColorString(colorStr, fade) {
+        return applyFadeToColorString(colorStr, fade);
+    }
+
+
+
+    _applyFadeToColors(fade) {
+        if (!this._origColors) this._origColors = Object.assign({}, this.colors);
+        this.colors = applyFadeToColors(this._origColors, fade);
+        this._activeFade = fade;
+    }
+
+    _clearFade() {
+        if (this._origColors) {
+            this.colors = Object.assign({}, this._origColors);
+        }
+        this._activeFade = null;
     }
 
     // Set the board data (replaces global data variable)
     setData(data) {
         this.data = data;
+        // Handle optional fade property (0..1): reduces saturation of all canvas colors
+        if (data && typeof data.fade === 'number') {
+            const v = Math.max(0, Math.min(1, data.fade));
+            this._applyFadeToColors(v);
+        } else {
+            this._clearFade();
+        }
         
         // Update board dimensions if provided
         if (data.size) {
@@ -108,7 +149,7 @@ export default class ChessBoardCanvas
         // Filter highlights if they exist
         if (this.data.highlights) {
             for (let colorBlock of this.data.highlights) {
-                const color = colorBlock.color;
+                const color = this._resolveColor(colorBlock.color) || colorBlock.color;
                 
                 // Filter coordinate highlights
                 if (colorBlock.coordinates) {
@@ -174,7 +215,7 @@ export default class ChessBoardCanvas
         const backgroundShiftY = (this.boardSkipY - this.squareSize * this.boardLengthY) / 2;
         
         // Layer 1: Background grid on multiverse
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = this.colors.spGridWhite;
         ctx.fillRect(
             vMin * this.boardSkipX - backgroundShiftX,
             lMin * this.boardSkipY - backgroundShiftY,
@@ -182,7 +223,7 @@ export default class ChessBoardCanvas
             (lMax - lMin + 1) * this.boardSkipY
         );
         
-        ctx.fillStyle = '#f5f5f5';
+        ctx.fillStyle = this.colors.spGridBlack;
         for (let l = lMin - 1; l <= lMax; l++) {
             for (let t = vMin >> 1; t <= vMax >> 1; t++) {
                 if ((l + t) % 2 === 0) {
@@ -215,7 +256,7 @@ export default class ChessBoardCanvas
         // Layer 1.2: Present column
         if (this.data.present) {
             let t = this.data.present.t, c = this.data.present.c;
-            let color = this.data.present.color || 'rgba(219,172,52,0.4)';
+            let color = this._resolveColor(this.data.present.color) || this.colors.present;
             ctx.fillStyle = color;
             ctx.fillRect(
                 (t * 2 + c) * this.boardSkipX - backgroundShiftX,
@@ -231,7 +272,7 @@ export default class ChessBoardCanvas
             const shiftX = v * this.boardSkipX;
             const shiftY = l * this.boardSkipY;
             
-            ctx.fillStyle = (board.c == 1) ? '#555555' : '#dfdfdf';
+            ctx.fillStyle = (board.c == 1) ? this.colors.boardMarginBlack : this.colors.boardMarginWhite;
             ctx.fillRect(
                 shiftX - this.boardMargin,
                 shiftY - this.boardMargin,
@@ -264,10 +305,10 @@ export default class ChessBoardCanvas
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 
-                ctx.fillStyle = '#7f7f7f';
+                ctx.fillStyle = this.colors.squareBlack;
                 ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
                 
-                ctx.fillStyle = '#cccccc';
+                ctx.fillStyle = this.colors.squareWhite;
                 for (let row = 0; row < this.boardLengthY; row++) {
                     for (let col = 0; col < this.boardLengthX; col++) {
                         if ((row + col) % 2 === 0) {
@@ -287,7 +328,7 @@ export default class ChessBoardCanvas
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 
-                ctx.fillStyle = '#a6a6a6';
+                ctx.fillStyle = this.colors.squareFuzzy;
                 ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
             }
         }
@@ -347,9 +388,9 @@ export default class ChessBoardCanvas
                 
                 const gradient = ctx.createLinearGradient(fromX + r, fromY + r, toX + r, toY + r);
                 let u = this.boardLengthX / 2.0 / Math.sqrt((fromX - toX) ** 2 + (fromY - toY) ** 2);
-                gradient.addColorStop(0, "rgba(255,255,255,0.0)");
-                gradient.addColorStop(u / 3, "rgba(255,255,255,0.0)");
-                gradient.addColorStop(u, "rgba(255,255,255,0.8)");
+                gradient.addColorStop(0, 'rgba(0,0,0,0)');
+                gradient.addColorStop(u / 3, 'rgba(0,0,0,0)');
+                gradient.addColorStop(u, this.colors.arrowWhiteTop);
                 gradient.addColorStop(1, color);
                 
                 ctx.fillStyle = gradient;
@@ -406,7 +447,7 @@ export default class ChessBoardCanvas
         this.drawBoards(ctx, lMin, lMax, vMin, vMax);
         
         // Debug: origin indicator
-        ctx.fillStyle = 'red';
+        ctx.fillStyle = this.colors.debugRed;
         ctx.fillRect(0, 0, 10, 10);
     }
 
@@ -476,6 +517,12 @@ export default class ChessBoardCanvas
 
     addFocusPoint(l, t, c) {
         this.focusPoints.push({ l, t, c });
+    }
+
+    reloadColors() {
+        this._loadColors();
+        // force a redraw so new colors take effect
+        this.canvas.startAnimation();
     }
 
     setFocusPoints(points) {

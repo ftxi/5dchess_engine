@@ -51,7 +51,8 @@ createModule().then((engine) => {
         }));
         let highlights = [];
         // check arrows
-        if (self.game.currently_check()) {
+        const checking = self.game.currently_check();
+        if (checking) {
             const checks = self.game.get_current_checks();
             const checkArrows = checks.map((mv) => ({
                 from: {
@@ -70,7 +71,7 @@ createModule().then((engine) => {
                 },
             }));
             highlights.push({
-                color: '#ff1111',
+                color: '--highlight-check',
                 arrows: checkArrows,
             });
         }
@@ -110,23 +111,22 @@ createModule().then((engine) => {
             }
         }
         highlights.push({
-            color: '#ffff80',
+            color: '--highlight-white-move',
             coordinates: whiteMoveCoordinates,
             arrows: whiteMoveArrows,
         });
         highlights.push({
-            color: '#8080ff',
+            color: '--highlight-black-move',
             coordinates: blackMoveCoordinates,
             arrows: blackMoveArrows,
         });
+        let data = {boards, present, focus, highlights};
+        if(checking) {
+            data.fade = 0.8;
+        }
         self.postMessage({
             type: 'data',
-            data: {
-                boards: boards,
-                present: present,
-                focus: focus,
-                highlights: highlights,
-            },
+            data: data,
         });
     }
 

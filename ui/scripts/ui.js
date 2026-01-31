@@ -1,3 +1,5 @@
+// ui.js
+
 export const UI = (() => {
     /* ================= SVG Icons ================= */
     const ICON_UP = `
@@ -251,6 +253,53 @@ export const UI = (() => {
                 settingsChangeCallback({ allowSubmitWithChecks: allowSubmitCheckbox.checked });
             }
         });
+    }
+
+    // ----------------------- Color Scheme / Theme Management -----------------------
+
+    // Populate color scheme select dynamically
+    const colorSchemeSelect = document.getElementById('colorSchemeSelect');
+
+    // Apply theme by toggling a class on documentElement and removing others
+    let themeChangeCallback = null;
+
+    function applyTheme(name) {
+        for (const t of window.themes) {
+            document.documentElement.classList.remove(t.name);
+        }
+        const found = name && window.themes && window.themes.some(t => t.name === name);
+        if (found) {
+            colorSchemeSelect.value = name;
+            document.documentElement.classList.add(name);
+        } else if (name && !found) {
+            console.warn(`Theme '${name}' not found; falling back to default`);
+            // no class added for root
+        }
+        localStorage.setItem('color-scheme', name);
+        if (themeChangeCallback) themeChangeCallback(name);
+    }
+
+    if (colorSchemeSelect) {
+        // Initialize selector
+        for (const t of window.themes) {
+            const opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.option;
+            colorSchemeSelect.appendChild(opt);
+        }
+        // load saved theme
+        const saved = localStorage.getItem('color-scheme') || window.defaultTheme;
+        applyTheme(saved);
+
+        colorSchemeSelect.addEventListener('change', (e) => {
+            const v = e.target.value;
+            applyTheme(v);
+        });
+    }
+
+    // Expose setter for theme change callback
+    function _setThemeChangeCallback(callback) {
+        themeChangeCallback = callback;
     }
 
     document.getElementById('btnScreenshot').onclick = () => {
@@ -613,6 +662,21 @@ export const UI = (() => {
          */
         setSettingsChangeCallback(callback) {
             settingsChangeCallback = callback;
+        },
+
+        /**
+         * Theme/Color-scheme API
+         */
+        setThemeChangeCallback(callback) {
+            _setThemeChangeCallback(callback);
+        },
+
+        /**
+         * Set the Version Number in the Info popup
+         */
+        setVersionNumber(version) {
+            const el = document.getElementById('versionNumber');
+            if (el) el.textContent = version;
         }
     };
 })();

@@ -82,8 +82,8 @@ worker.onmessage = (e) => {
     }
     else if (msg.type === 'engine_version') {
         // Update the version in the Information popup
-        document.getElementById('versionNumber').textContent = msg.version;
-        console.log(msg.version);
+        UI.setVersionNumber(msg.version);
+        console.log('Version', msg.version);
     }
     else if (msg.type === 'alert') {
         alert('[WORKER] ' + msg.message);
@@ -91,7 +91,7 @@ worker.onmessage = (e) => {
     else if (msg.type === 'data') {
         let data = msg.data;
         present_c = data.present.c;
-        addHighlight(data, '#80cc3f', 'coordinates', generated_moves.map(q => ({l: q.l, t: q.t, x: q.x, y: q.y, c: present_c})));
+        addHighlight(data, '--highlight-generated-move', 'coordinates', generated_moves.map(q => ({l: q.l, t: q.t, x: q.x, y: q.y, c: present_c})));
         window.chessBoardCanvas.setData(data);
         clicking = false;
     }
@@ -144,20 +144,25 @@ worker.onmessage = (e) => {
 
 UI.buttons.setCallbacks({
     prev: () => {
+        deselect();
         worker.postMessage({type: 'prev'});
     },
     next: () => {
+        deselect();
         let index = UI.select.getSelectedIndex();
         let action = next_options[index];
         worker.postMessage({type: 'next', action: action});
     },
     undo: () => {
+        deselect();
         worker.postMessage({type: 'undo'});
     },
     redo: () => {
+        deselect();
         worker.postMessage({type: 'redo'});
     },
     submit: () => {
+        deselect();
         worker.postMessage({type: 'submit'});
     }
 });
@@ -181,5 +186,13 @@ UI.setExportCallback(() => {
 // Forward settings changes from UI to the worker
 UI.setSettingsChangeCallback((settings) => {
     worker.postMessage({type: 'update_settings', settings: settings});
+});
+
+// Color scheme selector - persists choice and applies theme
+// Theme selection and DOM handling moved to UI module. Register callback to reload canvas when theme changes.
+UI.setThemeChangeCallback(() => {
+    if (window.chessBoardCanvas && window.chessBoardCanvas.reloadColors) {
+        window.chessBoardCanvas.reloadColors();
+    }
 });
 
