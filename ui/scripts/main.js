@@ -42,6 +42,8 @@ function handle_click(pos) {
         if (generated_moves.some(mv => mv.l === to.l && mv.t === to.t && mv.x === to.x && mv.y === to.y)) {
             worker.postMessage({type: 'apply_move', from: from, to: to});
             generated_moves = [];
+        } else {
+            deselect();
         }
     } else {
         clicking = true;

@@ -136,6 +136,11 @@ export class InfiniteScrollableCanvas {
         this.dragStart = { x: 0, y: 0 };
         this.lastMousePos = { x: 0, y: 0 };
         
+        // Touch state
+        this.touchStartDistance = 0;
+        this.touchStartScale = 0;
+        this.touchTapTime = 0;
+        
         // Animation
         this.animationManager = new AnimationManager((timeDiff) => this._onAnimationFrame(timeDiff));
         
@@ -158,6 +163,11 @@ export class InfiniteScrollableCanvas {
         this.canvas.addEventListener('mouseout', () => this.isMouseDown = false);
         this.canvas.addEventListener('wheel', (e) => this._handleWheel(e));
         this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+        
+        // Touch events for mobile
+        this.canvas.addEventListener('touchstart', (e) => this._handleTouchStart(e));
+        this.canvas.addEventListener('touchmove', (e) => this._handleTouchMove(e));
+        this.canvas.addEventListener('touchend', (e) => this._handleTouchEnd(e));
         
         // Window resize
         window.addEventListener('resize', () => this.resize());
@@ -222,6 +232,101 @@ export class InfiniteScrollableCanvas {
         const screenY = (e.clientY - rect.top) / (rect.bottom - rect.top) * this.canvas.height;
         
         return this.cameraCurrent.screenToWorld(screenX, screenY, this.canvas.width, this.canvas.height);
+    }
+
+    _getTouchWorldPosition(touch) {
+        const rect = this.canvas.getBoundingClientRect();
+        const screenX = (touch.clientX - rect.left) / (rect.right - rect.left) * this.canvas.width;
+        const screenY = (touch.clientY - rect.top) / (rect.bottom - rect.top) * this.canvas.height;
+        
+        return this.cameraCurrent.screenToWorld(screenX, screenY, this.canvas.width, this.canvas.height);
+    }
+
+    _getTouchDistance(touch1, touch2) {
+        const dx = touch1.clientX - touch2.clientX;
+        const dy = touch1.clientY - touch2.clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    _handleTouchStart(e) {
+        e.preventDefault();
+        
+        if (e.touches.length === 1) {
+            // Single finger touch - start potential drag or tap
+            const touch = e.touches[0];
+            const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
+            this.dragStart.x = dragSpeed * touch.clientX - this.cameraTarget.x;
+            this.dragStart.y = dragSpeed * touch.clientY - this.cameraTarget.y;
+            this.isDragging = false;
+            this.touchTapTime = Date.now();
+        } else if (e.touches.length === 2) {
+            // Two finger pinch - start zoom
+            this.touchStartDistance = this._getTouchDistance(e.touches[0], e.touches[1]);
+            this.touchStartScale = this.cameraTarget.scale;
+        }
+    }
+
+    _handleTouchMove(e) {
+        e.preventDefault();
+        
+        if (e.touches.length === 1) {
+            // Single finger drag
+            const touch = e.touches[0];
+            const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
+            this.cameraTarget.x = dragSpeed * touch.clientX - this.dragStart.x;
+            this.cameraTarget.y = dragSpeed * touch.clientY - this.dragStart.y;
+            this.startAnimation();
+            this.isDragging = true;
+            
+            // Update hover position
+            const worldPos = this._getTouchWorldPosition(touch);
+            this.lastMousePos = worldPos;
+            if (this.onHover) {
+                this.onHover(worldPos.x, worldPos.y, e);
+            }
+        } else if (e.touches.length === 2) {
+            // Two finger pinch zoom
+            const currentDistance = this._getTouchDistance(e.touches[0], e.touches[1]);
+            const scaleFactor = currentDistance / this.touchStartDistance;
+            
+            // Use logarithmic scaling for zoom
+            const zoomDelta = Math.log2(scaleFactor);
+            this.cameraTarget.scale = this.touchStartScale + zoomDelta;
+            this.cameraTarget.scale = Math.max(this.config.minZoom, 
+                                               Math.min(this.config.maxZoom, this.cameraTarget.scale));
+            this.startAnimation();
+            this.isDragging = true;
+        }
+    }
+
+    _handleTouchEnd(e) {
+        e.preventDefault();
+        
+        if (e.touches.length === 0) {
+            // All fingers released
+            const currentTime = Date.now();
+            const isTap = !this.isDragging && (currentTime - this.touchTapTime) < 300;
+            
+            if (isTap && e.changedTouches.length > 0) {
+                // Single tap detected
+                const touch = e.changedTouches[0];
+                const worldPos = this._getTouchWorldPosition(touch);
+                if (this.onClick) {
+                    this.onClick(worldPos.x, worldPos.y, e);
+                }
+            }
+            
+            this.isDragging = false;
+        } else if (e.touches.length === 1) {
+            // One finger released, but another still touching
+            // Start drag with remaining finger
+            const touch = e.touches[0];
+            const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
+            this.dragStart.x = dragSpeed * touch.clientX - this.cameraTarget.x;
+            this.dragStart.y = dragSpeed * touch.clientY - this.cameraTarget.y;
+            this.isDragging = false;
+            this.touchTapTime = Date.now();
+        }
     }
 
     _onAnimationFrame(timeDiff) {
