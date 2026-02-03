@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>HUD Canvas</title>
+    <title>5D Chess</title>
     <link rel="stylesheet" href="styles/color-schemes.css">
     <link rel="stylesheet" href="styles/main.css">
     <link rel="stylesheet" href="styles/panels.css">
@@ -166,17 +166,27 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
     <div class="popup-window" id="popupSettings">
         <div class="popup-title">Settings</div>
         <div class="popup-content">
-            <label style="display:flex;align-items:center;gap:8px;">
-                <input type="checkbox" id="allowSubmitWithChecks">
-                <span>Allow submit with checks</span>
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+            <fieldset>
+                <legend>Game</legend>
+                <label style="display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" id="allowSubmitWithChecks">
+                    <span>Allow submit with checks</span>
+                </label>
+                <p style="margin-top:8px;font-size:0.9em;color:#666;">When checked, submitting legal moves will be allowed even if the current board has checks.</p>
+            </fieldset>
+            <fieldset>
+                <legend>Interface</legend>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
                 <span>Color scheme</span>
                 <select id="colorSchemeSelect">
                     <!-- Options are added in ui.js -->
                 </select>
-            </label>
-            <p style="margin-top:8px;font-size:0.9em;color:#666;">When checked, submitting legal moves will be allowed even if the current board has checks.</p>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                    <input type="checkbox" id="toggleDebugWindow">
+                    <span>Show debug window</span>
+                </label>
+            </fieldset>
         </div>
     </div>
 </div>

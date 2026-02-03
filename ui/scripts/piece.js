@@ -1,5 +1,5 @@
 
-const LOD_SIZES = [64, 32, 16, 8, 4, 2];
+const LOD_SIZES = [32, 16, 8, 4, 2];
 
 // Load a single SVG as Image
 function loadSvgImage(filename) {
@@ -58,8 +58,7 @@ async function loadAllSvgs() {
 const svgImages = await loadAllSvgs();
 
 export function chooseLOD(pixelSize) {
-    if (pixelSize >= 48) return svgImages.img;
-    if (pixelSize >= 24) return svgImages.lod[64];
+    if (pixelSize >= 24) return svgImages.img;
     if (pixelSize >= 12) return svgImages.lod[32];
     if (pixelSize >= 6)  return svgImages.lod[16];
     if (pixelSize >= 3)  return svgImages.lod[8];

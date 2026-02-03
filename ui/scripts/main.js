@@ -183,16 +183,23 @@ UI.setExportCallback(() => {
     worker.postMessage({type: 'export'});
 });
 
-// Forward settings changes from UI to the worker
+// Unified settings handler: forward to worker and handle local UI changes
 UI.setSettingsChangeCallback((settings) => {
-    worker.postMessage({type: 'update_settings', settings: settings});
-});
+    // Forward all settings updates to the worker
+    worker.postMessage({ type: 'update_settings', settings: settings });
 
-// Color scheme selector - persists choice and applies theme
-// Theme selection and DOM handling moved to UI module. Register callback to reload canvas when theme changes.
-UI.setThemeChangeCallback(() => {
-    if (window.chessBoardCanvas && window.chessBoardCanvas.reloadColors) {
-        window.chessBoardCanvas.reloadColors();
+    // Handle local UI changes based on settings keys
+    if (settings.theme !== undefined) {
+        // Theme changed: reload canvas colors
+        if (window.chessBoardCanvas && window.chessBoardCanvas.reloadColors) {
+            window.chessBoardCanvas.reloadColors();
+        }
+    } else if (settings.debugWindow !== undefined) {
+        // Toggle debug window visibility
+        const dbg = document.querySelector('.debug-window');
+        if (dbg) dbg.style.display = settings.debugWindow ? '' : 'none';
+    } else if (settings.allowSubmitWithChecks !== undefined) {
+        // No local action needed here; worker will use this
     }
 });
 

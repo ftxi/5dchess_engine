@@ -125,7 +125,7 @@ For more detail, please read [this page](docs/index.md).
 - [x] embind
 - [x] debug nonstandard pieces
 - [ ] editing comments
-- [ ] L/T numbers
+- [x] L/T numbers
 - [ ] documentation
 - [x] variants loading
 - [x] ctest

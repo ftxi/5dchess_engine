@@ -113,13 +113,20 @@ createModule().then((engine) => {
         highlights.push({
             color: '--highlight-white-move',
             coordinates: whiteMoveCoordinates,
+        });
+        highlights.push({
+            color: '--highlight-white-move-arrow',
             arrows: whiteMoveArrows,
         });
         highlights.push({
             color: '--highlight-black-move',
             coordinates: blackMoveCoordinates,
+        });
+        highlights.push({
+            color: '--highlight-black-move-arrow',
             arrows: blackMoveArrows,
         });
+        
         let data = {boards, present, focus, highlights};
         if(checking) {
             data.fade = 0.8;

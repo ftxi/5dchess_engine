@@ -6,6 +6,14 @@ import { parse_FEN } from 'parse';
 import { chooseLOD } from 'piece';
 import { loadColors, applyFadeToColors, applyFadeToColorString, resolveColor } from './color.js';
 
+function smoothClamp(a, b, x) {
+  if (x <= a) return 0;
+  if (x >= b) return 1;
+  const t = (x - a) / (b - a);
+  const s = t * t * (3 - 2 * t);
+  return s * 1;
+}
+
 export default class ChessBoardCanvas
 {
     constructor(canvasId) {
@@ -19,6 +27,7 @@ export default class ChessBoardCanvas
         this.boardMargin = 4;
         this.boardSkipX = 100;
         this.boardSkipY = 122;
+        this.fontSizeforLT = 16;
         
         this.focusPoints = [{ l: 0, t: 0, c: 0 }];
         this.focusIndex = 0;
@@ -37,19 +46,19 @@ export default class ChessBoardCanvas
         };
         
         // Create infinite canvas
-        this.canvas = new InfiniteScrollableCanvas(canvasId, {
+        this.infCanvas = new InfiniteScrollableCanvas(canvasId, {
             minZoom: -5.0,
             maxZoom: 7.0,
             initialZoom: -1.0
         });
         
         // Set up callbacks
-        this.canvas.onRender = (ctx, bounds) => this.renderBoards(ctx, bounds);
-        this.canvas.onClick = (x, y) => this.handleBoardClick(x, y, false);
-        this.canvas.onRightClick = (x, y) => this.handleBoardClick(x, y, true);
-        this.canvas.onHover = (x, y) => this.updateStatus(x, y);
+        this.infCanvas.onRender = (ctx, bounds) => this.renderBoards(ctx, bounds);
+        this.infCanvas.onClick = (x, y) => this.handleBoardClick(x, y, false);
+        this.infCanvas.onRightClick = (x, y) => this.handleBoardClick(x, y, true);
+        this.infCanvas.onHover = (x, y) => this.updateStatus(x, y);
         
-        this.canvas.startAnimation();
+        this.infCanvas.startAnimation();
         this._loadColors();
     }
 
@@ -72,8 +81,6 @@ export default class ChessBoardCanvas
     _applyFadeToColorString(colorStr, fade) {
         return applyFadeToColorString(colorStr, fade);
     }
-
-
 
     _applyFadeToColors(fade) {
         if (!this._origColors) this._origColors = Object.assign({}, this.colors);
@@ -109,6 +116,10 @@ export default class ChessBoardCanvas
                 Math.floor(this.boardSkipX * 1.12)
             );
         }
+
+        this.backgroundShiftX = (this.boardSkipX - this.squareSize * this.boardLengthX) / 2;
+        this.backgroundShiftY = (this.boardSkipY - this.squareSize * this.boardLengthY) / 2;
+
         if(data.focus)
         {
             this.focusPoints = data.focus;
@@ -116,7 +127,7 @@ export default class ChessBoardCanvas
         // Clear cache when data changes
         this.filterCache.bounds = [null, null, null, null];
         
-        this.canvas.startAnimation();
+        this.infCanvas.startAnimation();
     }
 
     // Filter board data based on visible bounds (with caching)
@@ -211,14 +222,13 @@ export default class ChessBoardCanvas
         this._filterBoardData(lMin, lMax, vMin, vMax);
         
         const cache = this.filterCache;
-        const backgroundShiftX = (this.boardSkipX - this.squareSize * this.boardLengthX) / 2;
-        const backgroundShiftY = (this.boardSkipY - this.squareSize * this.boardLengthY) / 2;
+        const squareLength = this.infCanvas.cameraCurrent.getZoomLevel() * this.squareSize;
         
         // Layer 1: Background grid on multiverse
         ctx.fillStyle = this.colors.spGridWhite;
         ctx.fillRect(
-            vMin * this.boardSkipX - backgroundShiftX,
-            lMin * this.boardSkipY - backgroundShiftY,
+            vMin * this.boardSkipX - this.backgroundShiftX,
+            lMin * this.boardSkipY - this.backgroundShiftY,
             (vMax - vMin + 1) * this.boardSkipX,
             (lMax - lMin + 1) * this.boardSkipY
         );
@@ -228,39 +238,113 @@ export default class ChessBoardCanvas
             for (let t = vMin >> 1; t <= vMax >> 1; t++) {
                 if ((l + t) % 2 === 0) {
                     ctx.fillRect(
-                        t * 2 * this.boardSkipX - backgroundShiftX,
-                        l * this.boardSkipY - backgroundShiftY,
+                        t * 2 * this.boardSkipX - this.backgroundShiftX,
+                        l * this.boardSkipY - this.backgroundShiftY,
                         2 * this.boardSkipX,
                         this.boardSkipY
                     );
                 }
             }
         }
+
+        // Layer 1.1: L/T numbers
         
-        // Layer 1.1: Highlighted timelines
+        const opacityValues = (() => {
+            const camera = this.infCanvas.cameraCurrent;
+            const zoomLevel = camera.getZoomLevel();
+            const {x:worldX, y:worldY} = camera.screenToWorld(
+                (2 * this.boardSkipX - this.backgroundShiftX) * zoomLevel,
+                (this.boardSkipY - this.backgroundShiftY) * zoomLevel + 80, // 80 is the approximate height of hud
+                this.infCanvas.canvas.width, 
+                this.infCanvas.canvas.height
+            );
+            const {l, t} = this.worldToLT(worldX, worldY);
+            const deltaX = Math.min(
+                worldX - (t * 2 * this.boardSkipX - this.backgroundShiftX),
+                (t+1) * 2 * this.boardSkipX - this.backgroundShiftX - worldX
+            );
+            const deltaY = Math.min(
+                worldY - (l * this.boardSkipY - this.backgroundShiftY),
+                (l+1) * this.boardSkipY - this.backgroundShiftY - worldY
+            );
+            const lOpacity = smoothClamp(
+                this.fontSizeforLT / 3.0,
+                3 * this.fontSizeforLT,
+                deltaX * zoomLevel
+            );
+            const tOpacity = smoothClamp(
+                this.fontSizeforLT / 3.0,
+                3 * this.fontSizeforLT,
+                deltaY * zoomLevel
+            );
+            return {l, t, lOpacity, tOpacity};
+        })();
+        
+        ctx.font = `${this.fontSizeforLT}px serif`;
         ctx.save();
-        ctx.globalAlpha = 0.2;
-        for (let color in cache.filteredTimelineHighlight) {
-            ctx.fillStyle = color;
-            for (let l of cache.filteredTimelineHighlight[color]) {
-                ctx.fillRect(
-                    vMin * this.boardSkipX - backgroundShiftX,
-                    l * this.boardSkipY - backgroundShiftY,
-                    (vMax - vMin + 1) * this.boardSkipX,
-                    this.boardSkipY
-                );
+        if(opacityValues.lOpacity > 0)
+        {
+            ctx.globalAlpha = opacityValues.lOpacity;
+            ctx.fillStyle = this.colors.spGridWhite;
+            for (let l = lMin - 1; l <= lMax; l++) {
+                let t = opacityValues.t;
+                if ((l + t) % 2 === 0) {
+                    ctx.fillText(
+                        `L${l}`,
+                        t * 2 * this.boardSkipX - this.backgroundShiftX - 2,
+                        l * this.boardSkipY - this.backgroundShiftY + this.fontSizeforLT
+                    );
+                }
+            }
+            ctx.fillStyle = this.colors.spGridBlack;
+            for (let l = lMin - 1; l <= lMax; l++) {
+                let t = opacityValues.t;
+                if ((l + t) % 2 !== 0) {
+                    ctx.fillText(
+                        `L${l}`,
+                        t * 2 * this.boardSkipX - this.backgroundShiftX - 2,
+                        l * this.boardSkipY - this.backgroundShiftY + this.fontSizeforLT
+                    );
+                }
+            }
+        }
+        
+        if(opacityValues.tOpacity > 0)
+        {
+            ctx.globalAlpha = opacityValues.tOpacity;
+            ctx.fillStyle = this.colors.spGridWhite;
+            for (let t = vMin >> 1; t <= vMax >> 1; t++) {
+                let l = opacityValues.l;
+                if ((l + t) % 2 !== 0) {
+                    ctx.fillText(
+                        `T${t}`,
+                        t * 2 * this.boardSkipX - this.backgroundShiftX - 1,
+                        l * this.boardSkipY - this.backgroundShiftY
+                    );
+                }
+            }
+            ctx.fillStyle = this.colors.spGridBlack;
+            for (let t = vMin >> 1; t <= vMax >> 1; t++) {
+                let l = opacityValues.l;
+                if ((l + t) % 2 === 0) {
+                    ctx.fillText(
+                        `T${t}`,
+                        t * 2 * this.boardSkipX - this.backgroundShiftX - 1,
+                        l * this.boardSkipY - this.backgroundShiftY
+                    );
+                }
             }
         }
         ctx.restore();
         
-        // Layer 1.2: Present column
+        // Layer 1.3: Present column
         if (this.data.present) {
             let t = this.data.present.t, c = this.data.present.c;
             let color = this._resolveColor(this.data.present.color) || this.colors.present;
             ctx.fillStyle = color;
             ctx.fillRect(
-                (t * 2 + c) * this.boardSkipX - backgroundShiftX,
-                lMin * this.boardSkipY - backgroundShiftY,
+                (t * 2 + c) * this.boardSkipX - this.backgroundShiftX,
+                lMin * this.boardSkipY - this.backgroundShiftY,
                 this.boardSkipX,
                 (lMax - lMin + 1) * this.boardSkipY
             );
@@ -297,7 +381,7 @@ export default class ChessBoardCanvas
             }
         }
         
-        const squareLength = this.canvas.cameraCurrent.getZoomLevel() * this.squareSize;
+        
         if(squareLength > 0.7) {
             // Checkerboard pattern
             for (const board of cache.filteredBoards) {
@@ -335,7 +419,7 @@ export default class ChessBoardCanvas
             
         // Layer 3: Highlighted squares
         ctx.save();
-        ctx.globalAlpha = 0.5;
+        //ctx.globalAlpha = 0.5;
         for (let color in cache.filteredCoordinateHighlight) {
             ctx.fillStyle = color;
             for (let pos of cache.filteredCoordinateHighlight[color]) {
@@ -346,7 +430,6 @@ export default class ChessBoardCanvas
         
         if(squareLength > 0.7) {
             // Layer 4: Pieces
-            this.cameraElement.innerText = `square length: ${squareLength}`;
             const imgs = chooseLOD(squareLength);
             for (const board of cache.filteredBoards) {
                 let l = board.l, v = board.t << 1 | board.c;
@@ -446,9 +529,23 @@ export default class ChessBoardCanvas
         // Call the drawing method (can be overridden)
         this.drawBoards(ctx, lMin, lMax, vMin, vMax);
         
+        /*
         // Debug: origin indicator
         ctx.fillStyle = this.colors.debugRed;
         ctx.fillRect(0, 0, 10, 10);
+        */
+    }
+
+    /**
+     * Returns the board L/T grid coordinates for the given world X/Y position.
+     * @param {number} worldX 
+     * @param {number} worldY 
+     * @returns object with properties l and t
+     */
+    worldToLT(worldX, worldY) {
+        const l = Math.floor((worldY + this.backgroundShiftY) / this.boardSkipY);
+        const t = Math.floor((worldX + this.backgroundShiftX) / this.boardSkipX / 2);
+        return { l, t };
     }
 
     worldToBoard(worldX, worldY) {
@@ -506,12 +603,12 @@ export default class ChessBoardCanvas
         if (this.focusPoints[this.focusIndex] !== undefined) {
             const focus = this.focusPoints[this.focusIndex];
             
-            const actualScale = this.canvas.canvas.width / 120 / 3;
+            const actualScale = this.infCanvas.canvas.width / 120 / 3;
             const targetScale = Math.log2(actualScale);
             const targetX = this.boardSkipX * (focus.t << 1 | focus.c) + this.boardLengthX * this.squareSize / 2;
             const targetY = this.boardSkipY * focus.l + this.boardLengthY * this.squareSize / 2;
             
-            this.canvas.moveTo(targetX, targetY, targetScale);
+            this.infCanvas.moveTo(targetX, targetY, targetScale);
         }
     }
 
@@ -522,7 +619,7 @@ export default class ChessBoardCanvas
     reloadColors() {
         this._loadColors();
         // force a redraw so new colors take effect
-        this.canvas.startAnimation();
+        this.infCanvas.startAnimation();
     }
 
     setFocusPoints(points) {

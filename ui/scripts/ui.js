@@ -255,13 +255,32 @@ export const UI = (() => {
         });
     }
 
+    // Debug window toggle
+    const debugCheckbox = document.getElementById('toggleDebugWindow');
+    if (debugCheckbox) {
+        // Initialize checkbox based on current debug window visibility
+        const dbgEl = document.querySelector('.debug-window');
+        try {
+            const visible = dbgEl && window.getComputedStyle(dbgEl).display !== 'none';
+            debugCheckbox.checked = visible;
+        } catch(e) { alert(e); }
+
+        debugCheckbox.addEventListener('change', () => {
+            const dbgVal = debugCheckbox.checked;
+            const dbg = document.querySelector('.debug-window');
+            if (dbg) dbg.style.display = dbgVal ? '' : 'none';
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ debugWindow: dbgVal });
+            }
+        });
+    }
+
     // ----------------------- Color Scheme / Theme Management -----------------------
 
     // Populate color scheme select dynamically
     const colorSchemeSelect = document.getElementById('colorSchemeSelect');
 
     // Apply theme by toggling a class on documentElement and removing others
-    let themeChangeCallback = null;
 
     function applyTheme(name) {
         for (const t of window.themes) {
@@ -276,7 +295,8 @@ export const UI = (() => {
             // no class added for root
         }
         localStorage.setItem('color-scheme', name);
-        if (themeChangeCallback) themeChangeCallback(name);
+        // Notify settings change listeners that the theme changed
+        if (settingsChangeCallback) settingsChangeCallback({ theme: name });
     }
 
     if (colorSchemeSelect) {
@@ -298,9 +318,7 @@ export const UI = (() => {
     }
 
     // Expose setter for theme change callback
-    function _setThemeChangeCallback(callback) {
-        themeChangeCallback = callback;
-    }
+
 
     document.getElementById('btnScreenshot').onclick = () => {
         let canvasImage = document.getElementById('canvas').toDataURL('image/png');
@@ -662,13 +680,6 @@ export const UI = (() => {
          */
         setSettingsChangeCallback(callback) {
             settingsChangeCallback = callback;
-        },
-
-        /**
-         * Theme/Color-scheme API
-         */
-        setThemeChangeCallback(callback) {
-            _setThemeChangeCallback(callback);
         },
 
         /**

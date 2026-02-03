@@ -20,7 +20,7 @@ canvas {
     position: fixed;
     bottom: 18px;
     left: 18px;
-    width: 150px;
+    width: 200px;
     max-height: 40vh;
     background: rgba(0,0,0,0.5);
     color: #0f0;
