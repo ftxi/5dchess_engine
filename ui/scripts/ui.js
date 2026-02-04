@@ -41,9 +41,7 @@ export const UI = (() => {
     });
     /* ================= Light Toggle ================= */
     const light = document.getElementById("light");
-    light.onclick = () => {
-        light.classList.toggle("off");
-    };
+    let lightCallback = null;
 
     /* ================= Control Panel ================= */
     const controlPanel = document.getElementById("controlPanel");
@@ -271,6 +269,16 @@ export const UI = (() => {
             if (dbg) dbg.style.display = dbgVal ? '' : 'none';
             if (settingsChangeCallback) {
                 settingsChangeCallback({ debugWindow: dbgVal });
+            }
+        });
+    }
+
+    // Show movable pieces toggle
+    const showMovablePiecesCheckbox = document.getElementById('showMovablePieces');
+    if (showMovablePiecesCheckbox) {
+        showMovablePiecesCheckbox.addEventListener('change', () => {
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ showMovablePieces: showMovablePiecesCheckbox.checked });
             }
         });
     }
@@ -696,6 +704,36 @@ export const UI = (() => {
         setVersionNumber(version) {
             const el = document.getElementById('versionNumber');
             if (el) el.textContent = version;
+        },
+
+        /**
+         * Set callback for HUD light clicks
+         */
+        setHudLightCallback(callback) {
+            lightCallback = callback;
+        },
+
+        /**
+         * Set HUD light state
+         */
+        setHudLight(on) {
+            if (on) {
+                light.classList.remove("off");
+                light.classList.add("blink");
+                light.onclick = () => {
+                    if (light.classList.contains("blink")) {
+                        light.classList.remove("blink");
+                        if (lightCallback) lightCallback(true);
+                    } else {
+                        light.classList.add("blink");
+                        if (lightCallback) lightCallback(false);
+                    }
+                };
+            } else {
+                light.classList.add("off");
+                light.classList.remove("blink");
+                light.onclick = null;
+            }
         }
     };
 })();

@@ -17,6 +17,7 @@ createModule().then((engine) => {
     // Settings defaults
     self.settings = {
         allowSubmitWithChecks: false,
+        showMovablePieces: false,
     };
 
     // Get and post the engine version
@@ -128,6 +129,16 @@ createModule().then((engine) => {
             color: '--highlight-black-move-arrow',
             arrows: blackMoveArrows,
         });
+        if(self.settings.showMovablePieces) {
+            let movablePieces = self.game.get_movable_pieces();
+            for (let p of movablePieces) {
+                p.c = present.c;
+            }
+            highlights.push({
+                color: '--highlight-movable-piece',
+                coordinates: movablePieces,
+            });
+        }
         
         for (let board of boards) {
             if (board.fen) {

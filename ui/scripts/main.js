@@ -202,6 +202,15 @@ UI.setSettingsChangeCallback((settings) => {
         if (dbg) dbg.style.display = settings.debugWindow ? '' : 'none';
     } else if (settings.allowSubmitWithChecks !== undefined) {
         // No local action needed here; worker will use this
+    } else if (settings.showMovablePieces !== undefined) {
+        worker.postMessage({ type: 'view' });
     }
 });
+
+// Testing HUD light functions
+UI.setHudLightCallback((isOn) => {
+    console.log(`HUD light clicked: ${isOn ? 'switched to ON state' : 'switched to BLINK state'}`);
+});
+
+UI.setHudLight(true); // Start with blinking state for testing
 

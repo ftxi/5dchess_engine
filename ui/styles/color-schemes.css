@@ -21,6 +21,7 @@
     --highlight-black-move: rgba(128, 128, 255, 0.8);
     --highlight-black-move-arrow: #8080ff;
     --highlight-generated-move: rgba(128, 204, 63, 0.8);
+    --highlight-movable-piece: rgba(143, 10, 255, 0.4);
 
     --arrow-white-top: rgba(255,255,255,0.8);
 

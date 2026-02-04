@@ -4,7 +4,7 @@
 import { InfiniteScrollableCanvas } from 'canvas';
 
 import { chooseLOD } from 'piece';
-import { loadColors, applyFadeToColors, applyFadeToColorString, resolveColor } from './color.js';
+import { loadColors, applyFadeToColors, applyFadeToColorString, resolveColor } from 'color';
 
 function smoothClamp(a, b, x) {
   if (x <= a) return 0;
