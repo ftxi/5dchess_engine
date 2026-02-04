@@ -1,4 +1,5 @@
 import createModule from '../wasm/engine.js';
+import { parse_FEN } from './parse.js';
 
 function nextTurn(pos) {
     if (pos.c) {
@@ -41,6 +42,7 @@ createModule().then((engine) => {
             self.postMessage({ type: 'alert', message: 'No game loaded.' });
             return;
         }
+        let size = self.game.get_board_size();
         let boards = self.game.get_current_boards();
         let present = self.game.get_current_present();
         let timeline_status = self.game.get_current_timeline_status();
@@ -127,7 +129,13 @@ createModule().then((engine) => {
             arrows: blackMoveArrows,
         });
         
-        let data = {boards, present, focus, highlights};
+        for (let board of boards) {
+            if (board.fen) {
+                board.parsed = parse_FEN(board.fen, size.x, size.y);
+            }
+        }
+
+        let data = {boards, present, focus, highlights, size};
         if(checking) {
             data.fade = 0.8;
         }

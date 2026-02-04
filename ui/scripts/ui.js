@@ -520,9 +520,17 @@ export const UI = (() => {
                 // Check if the key is a valid shortcut
                 let key = e.key;
                 
-                // For space key, we need to prevent default scrolling
+                // For space key, we need to prevent default scrolling only when not in editable elements
                 if (key === ' ') {
-                    e.preventDefault();
+                    const activeElement = document.activeElement;
+                    const isEditable = activeElement && (
+                        activeElement.tagName === 'INPUT' ||
+                        activeElement.tagName === 'TEXTAREA' ||
+                        activeElement.contentEditable === 'true'
+                    );
+                    if (!isEditable) {
+                        e.preventDefault();
+                    }
                 }
                 
                 // Check if the key matches any shortcut

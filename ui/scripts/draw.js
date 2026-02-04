@@ -2,7 +2,7 @@
 // chess board specific implementation
 
 import { InfiniteScrollableCanvas } from 'canvas';
-import { parse_FEN } from 'parse';
+
 import { chooseLOD } from 'piece';
 import { loadColors, applyFadeToColors, applyFadeToColorString, resolveColor } from './color.js';
 
@@ -436,7 +436,7 @@ export default class ChessBoardCanvas
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 
-                let parsedBoard = parse_FEN(board.fen);
+                let parsedBoard = board.parsed;
                 for (let row = 0; row < this.boardLengthY; row++) {
                     for (let col = 0; col < this.boardLengthX; col++) {
                         const piece = parsedBoard[row][col];

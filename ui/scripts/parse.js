@@ -1,11 +1,9 @@
-export function parse_FEN(fen) 
+export function parse_FEN(fen, size_x, size_y) 
 {
-    let board_length_x = window.chessBoardCanvas.boardLengthX;
-    let board_length_y = window.chessBoardCanvas.boardLengthY;
     const rows = fen.split('/');
-    if (rows.length !== board_length_x) 
+    if (rows.length !== size_x) 
     {
-        throw new Error(`Invalid FEN format: input must have exactly ${board_length_x} rows.`);
+        throw new Error(`Invalid FEN format: input must have exactly ${size_x} rows.`);
     }
 
     return rows.map(row => {
@@ -31,9 +29,9 @@ export function parse_FEN(fen)
                 parsedRow.push(...Array(emptySquares).fill('1'));
             }
         }
-        if (parsedRow.length != board_length_y)
+        if (parsedRow.length != size_y)
         {
-            throw new Error(`Invalid FEN format: each row must have exactly ${board_length_y} squares. `+row);
+            throw new Error(`Invalid FEN format: each row must have exactly ${size_y} squares. `+row);
         }
         return parsedRow;
     });
