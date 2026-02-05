@@ -2,7 +2,7 @@
 ==================
 
 
-5dchess_engine is an engine for analysing 5D chess game. It can be used as a C++ library or a python library or javascript library. There are two ways to present a game: via cli or webpage.
+The `5dchess_engine` is a standalone program that can also be used as a library for analyzing 5D chess game. Written in c++, it is also compiled for use in python and javascript environments. When used as a standalone tool, it offers both a command line interface and a web-based interface for viewing and analyzing games.
 
 ### Try it online!
 
