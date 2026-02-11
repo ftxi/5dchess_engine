@@ -4,9 +4,12 @@
 #include "game.h"
 
 std::string str = R"(
-[Board "Standard - Turn Zero"]
+[Board "Standard - Turn Zero"]{comment 0}
 [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
 [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
+
+{comment 1}
+{{comment} 2}
 
 1. (0T1)e2e4 / (0T1)f7f5 
 2. (0T2)Qd1h5+ 

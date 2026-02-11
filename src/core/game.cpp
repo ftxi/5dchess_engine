@@ -37,7 +37,7 @@ game game::from_pgn(std::string input)
         throw std::runtime_error("Bad input, parse failed");
     pgnparser_ast::gametree gt_ast = std::move(ag->gt);
     ag->gt = {};
-    game g(gnode<comments_t>::create_root(state(*ag), comments_t{}));
+    game g(gnode<comments_t>::create_root(state(*ag), ag->comments));
     g.metadata = ag->headers;
     gnode<comments_t> *cn = nullptr;
     // parse moves

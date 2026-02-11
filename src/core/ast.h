@@ -83,6 +83,7 @@ struct game {
     std::map<std::string, std::string> headers;
     std::vector<std::tuple<std::string, token_t, int, int, bool>> boards;
     gametree gt;
+    std::vector<std::string> comments;
     friend std::ostream& operator<<(std::ostream& os, const game& g);
 };
 

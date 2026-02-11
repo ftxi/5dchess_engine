@@ -793,6 +793,7 @@ std::optional<game> pgnparser::parse_game()
     dprint("parse_game()");
     std::map<std::string, std::string> headers;
     std::vector<std::tuple<std::string, token_t, int, int, bool>> boards;
+    std::vector<std::string_view> comments;
     parse_comments();
     while(buffer.token == METADATA)
     {
@@ -898,14 +899,14 @@ std::optional<game> pgnparser::parse_game()
                 throw parse_error("parse_game(): Duplicate header key: " + key);
         }
         next_token();
-        parse_comments();
+        append_vectors(comments, parse_comments());
 //        if(buffer.token == END)
 //            PARSE_FAIL;
     }
-    parse_comments();
+    append_vectors(comments, parse_comments());
     auto gt_opt = parse_gametree();
     if(!gt_opt) PARSE_FAIL;
-    return game{headers, boards, std::move(*gt_opt)};
+    return game{headers, boards, std::move(*gt_opt), views_to_strings(comments)};
 }
 
 /* ***MATCHER*** */

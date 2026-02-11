@@ -208,6 +208,10 @@ UI.setExportCallback(() => {
     worker.postMessage({type: 'export'});
 });
 
+UI.setCommentsEditCallback((text) => {
+    worker.postMessage({ type: 'update_comment', comment: text });
+});
+
 // Unified settings handler: forward to worker and handle local UI changes
 UI.setSettingsChangeCallback((settings) => {
     // Forward all settings updates to the worker
@@ -232,7 +236,6 @@ UI.setSettingsChangeCallback((settings) => {
 
 // Testing HUD light functions
 UI.setHudLightCallback((isOn) => {
-    console.log(`HUD light clicked: ${isOn ? 'switched to ON state' : 'switched to BLINK state'}`);
     show_phantom = isOn;
     worker.postMessage({ type: 'view' });
 });
