@@ -21,6 +21,8 @@
     --highlight-black-move: rgba(128, 128, 255, 0.8);
     --highlight-black-move-arrow: #8080ff;
     --highlight-generated-move: rgba(128, 204, 63, 0.8);
+    --highlight-movable-piece: rgba(143, 10, 255, 0.4);
+    --highlight-phantom-board: rgba(128, 0, 0, 0.2);
 
     --arrow-white-top: rgba(255,255,255,0.8);
 
@@ -43,6 +45,7 @@
     --highlight-white-move: rgba(255, 255, 128, 0.8);
     --highlight-black-move: rgba(128, 128, 255, 0.8);
     --highlight-generated-move: rgba(128, 204, 63, 0.8);
+    --highlight-phantom-board: rgba(128, 0, 0, 0.2);
 
     --arrow-white-top: rgba(255,255,255,0.8);
 
@@ -61,12 +64,13 @@
     --square-white: hsl(45, 61%, 86%);
     --square-fuzzy: color-mix(in hsl, var(--square-black), var(--square-white));
 
-    --highlight-check: hsl(5, 88%, 57%);;
+    --highlight-check: hsl(5, 88%, 57%);
     --highlight-white-move: hsla(157, 16%, 40%, 0.8);
     --highlight-white-move-arrow: hsl(157, 16%, 40%);
     --highlight-black-move: hsla(157, 16%, 21%, 0.8);
     --highlight-black-move-arrow: hsl(157, 16%, 21%);
     --highlight-generated-move: rgba(128, 128, 255, 0.8); 
+    --highlight-phantom-board: rgba(128, 0, 0, 0.2);
 
     --arrow-white-top: rgba(255,255,255,0.8);
 
@@ -105,6 +109,7 @@
     --highlight-black-move: hsla(25, 20%, 28%, 0.55);
     --highlight-black-move-arrow: hsl(25, 25%, 33%);
     --highlight-generated-move: hsla(228, 100%, 75%, 0.55); 
+    --highlight-phantom-board: hsla(0, 100%, 50%, 0.2);
 
     --arrow-white-top: rgba(255, 255, 255, 0.8);
 

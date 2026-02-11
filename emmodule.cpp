@@ -179,6 +179,36 @@ EMSCRIPTEN_BINDINGS(engine) {
             }
             return result;
         }))
+        .function("get_phantom_boards_and_checks", optional_override([](const game &self) {
+            val result = val::object();
+            auto [boards, checks] = self.get_phantom_boards_and_checks();
+            
+            val boards_array = val::array();
+            for (size_t i = 0; i < boards.size(); ++i) 
+            {
+                const auto &[l, t, c, fen] = boards[i];
+                val board_info = val::object();
+                board_info.set("l", l);
+                board_info.set("t", t);
+                board_info.set("c", c);
+                board_info.set("fen", fen);
+                boards_array.set(i, board_info);
+            }
+            
+            val checks_array = val::array();
+            for (size_t i = 0; i < checks.size(); ++i) 
+            {
+                const auto &fm = checks[i];
+                val check_info = val::object();
+                check_info.set("from", convert_vec4_to_js(fm.from));
+                check_info.set("to", convert_vec4_to_js(fm.to));
+                checks_array.set(i, check_info);
+            }
+            
+            result.set("boards", boards_array);
+            result.set("checks", checks_array);
+            return result;
+        }))
         .function("get_current_timeline_status", optional_override([](const game& self) {
             const auto& [mandatory, optional, unplayable] =
                 self.get_current_timeline_status();

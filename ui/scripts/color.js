@@ -100,7 +100,7 @@ function resolveColor(token, activeFade) {
     if (varName) {
         const val = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
         if (!val) return val;
-        if (varName === '--highlight-check') return val; // check stays unchanged
+        if (varName === '--highlight-check' || varName === '--highlight-phantom-board') return val; // check stays unchanged
         if (typeof activeFade === 'number' && activeFade > 0) {
             return applyFadeToColorString(val, activeFade) || val;
         }

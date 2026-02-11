@@ -51,18 +51,13 @@
             "ui": "./scripts/ui.js",
             "piece": "./scripts/piece.js",
             "parse": "./scripts/parse.js",
+            "color": "./scripts/color.js",
             "canvas": "./scripts/canvas.js",
             "draw": "./scripts/draw.js",
             "onload": "./scripts/onload.js"
         }
     }
     </script>
-    <!--<script src="scripts/ui.js" defer></script>
-    <script src="scripts/piece.js" type="module"></script>
-    <script src="scripts/parse.js" type="module"></script>
-    <script src="scripts/canvas.js" type="module"></script>
-    <script src="scripts/draw.js" type="module"></script>
-    <script src="scripts/onload.js"></script> -->
     <script src="scripts/main.js" type="module" defer></script>
 </head>
 
@@ -138,7 +133,7 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
         <div class="popup-content">
             <p><b>&copy; <a href="https://github.com/ftxi/5dchess_engine">ftxi</a></b> 2024-2026. </p>
             <p><b>Github Repository:</b> <a href="https://github.com/ftxi/5dchess_engine">https://github.com/ftxi/5dchess_engine</a></p>
-            <p>This software is open source and distributed under the BSD 2-Clause License.</p>
+            <p>This software is free and distributed under the BSD 2-Clause License.</p>
             <h4>Resources</h4>
             <p>Icons: <a href="https://remixicon.com/license">RemixIcon</a></p>
             <h4>Disclaimer</h4>
@@ -173,6 +168,10 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
                     <span>Allow submit with checks</span>
                 </label>
                 <p style="margin-top:8px;font-size:0.9em;color:#666;">When checked, submitting legal moves will be allowed even if the current board has checks.</p>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                    <input type="checkbox" id="showMovablePieces">
+                    <span>Show movable pieces</span>
+                </label>
             </fieldset>
             <fieldset>
                 <legend>Interface</legend>

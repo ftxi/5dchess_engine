@@ -41,9 +41,7 @@ export const UI = (() => {
     });
     /* ================= Light Toggle ================= */
     const light = document.getElementById("light");
-    light.onclick = () => {
-        light.classList.toggle("off");
-    };
+    let lightCallback = null;
 
     /* ================= Control Panel ================= */
     const controlPanel = document.getElementById("controlPanel");
@@ -271,6 +269,16 @@ export const UI = (() => {
             if (dbg) dbg.style.display = dbgVal ? '' : 'none';
             if (settingsChangeCallback) {
                 settingsChangeCallback({ debugWindow: dbgVal });
+            }
+        });
+    }
+
+    // Show movable pieces toggle
+    const showMovablePiecesCheckbox = document.getElementById('showMovablePieces');
+    if (showMovablePiecesCheckbox) {
+        showMovablePiecesCheckbox.addEventListener('change', () => {
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ showMovablePieces: showMovablePiecesCheckbox.checked });
             }
         });
     }
@@ -696,6 +704,43 @@ export const UI = (() => {
         setVersionNumber(version) {
             const el = document.getElementById('versionNumber');
             if (el) el.textContent = version;
+        },
+
+        /**
+         * Set callback for HUD light clicks
+         * The callback is invoked when the user clicks the HUD light to toggle its blinking state.
+         * @param {Function} callback - Function that receives a boolean: true when stopping blink, false when starting blink
+         */
+        setHudLightCallback(callback) {
+            lightCallback = callback;
+        },
+
+        /**
+         * Set HUD light state
+         * Controls whether the HUD light is visible and interactive. When on, the light blinks and can be
+         * clicked to toggle between blinking and steady states. When off, the light is hidden and non-interactive.
+         * @param {boolean} on - True to show and enable the light with blinking animation, false to hide it
+         */
+        setHudLight(on) {
+            if (on) {
+                if (light.classList.contains("off")) {
+                    light.classList.remove("off");
+                    light.classList.add("blink");
+                }
+                light.onclick = () => {
+                    if (light.classList.contains("blink")) {
+                        light.classList.remove("blink");
+                        if (lightCallback) lightCallback(true);
+                    } else {
+                        light.classList.add("blink");
+                        if (lightCallback) lightCallback(false);
+                    }
+                };
+            } else {
+                light.classList.add("off");
+                light.classList.remove("blink");
+                light.onclick = null;
+            }
         }
     };
 })();
