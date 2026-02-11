@@ -278,8 +278,12 @@ createModule().then((engine) => {
         } else if (data.type === 'update_comment') {
             let comments = data.comments || [];
             if (comments.length > 0) {
-                comments[comments.length - 1] = data.comment;
-            } else {
+                if (data.comment && data.comment !== '') {
+                    comments[comments.length - 1] = data.comment;
+                } else {
+                    comments.pop();
+                }
+            } else if (data.comment && data.comment !== '') {
                 comments.push(data.comment);
             }
             self.game.set_comments(comments);

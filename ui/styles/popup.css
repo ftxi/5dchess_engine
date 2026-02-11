@@ -36,6 +36,41 @@
     opacity: 1;
 }
 
+.popup-standard {
+    width: 90%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    height: 70vh;
+    max-height: 70vh;
+    min-height: 360px;
+    overflow: hidden;
+    padding: 24px;
+    padding-bottom: 20px;
+}
+
+.popup-standard .popup-title {
+    margin-bottom: 16px;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+
+.popup-standard .popup-content-flex {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.popup-info {
+    overflow: hidden;
+    display: none;
+    flex-direction: column;
+}
+
+.popup-info.show {
+    display: flex;
+}
+
 .popup-window::-webkit-scrollbar {
     width: 6px;
 }
@@ -74,6 +109,13 @@
     font-size: 14px;
 }
 
+.popup-content-flex {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 12px;
+}
+
 .popup-textarea {
     width: 100%;
     min-height: 200px;
@@ -87,8 +129,19 @@
     box-sizing: border-box;
 }
 
+.popup-textarea-flex {
+    flex: 1;
+    min-height: 150px;
+    resize: none;
+}
+
 .popup-textarea:focus {
     border-color: #1976d2;
+}
+
+.popup-textarea.drag-over {
+    border-color: #1976d2;
+    background-color: rgba(25, 118, 210, 0.05);
 }
 
 .popup-button {
@@ -111,4 +164,98 @@
 
 .popup-button:active {
     background: #0d47a1;
+}
+
+.popup-button-group {
+    display: flex;
+    gap: 12px;
+}
+
+.popup-button-group .popup-button {
+    flex: 1;
+    margin-top: 0;
+}
+/* ================= Info Popup Tabs ================= */
+
+.info-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 16px;
+    margin-left: -24px;
+    margin-right: -24px;
+    margin-top: -8px;
+    padding: 0 24px;
+}
+
+.info-tab-btn {
+    padding: 12px 16px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: #666;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.info-tab-btn:hover {
+    color: #333;
+    background: rgba(0, 0, 0, 0.02);
+}
+
+.info-tab-btn.active {
+    color: #1976d2;
+    border-bottom-color: #1976d2;
+}
+
+.info-tab-content h4 {
+    margin: 0 0 12px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.popup-info .info-tab-content {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.info-tab-content ul {
+    list-style: none;
+}
+
+.info-tab-content li {
+    margin-bottom: 8px;
+    line-height: 1.5;
+}
+
+.info-tab-content a {
+    color: #1976d2;
+    text-decoration: none;
+}
+
+.info-tab-content a:hover {
+    text-decoration: underline;
+}
+
+.info-startup-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    font-size: 14px;
+    color: #555;
+}
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 4px #f44;
+    }
+    50% {
+        opacity: 0.6;
+        box-shadow: 0 0 8px #f44;
+    }
 }

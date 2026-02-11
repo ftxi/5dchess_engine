@@ -63,18 +63,45 @@
 
 <body>
 
+<!-- SVG Icon Definitions -->
+<svg style="display: none;">
+    <defs>
+        <symbol id="icon-focus" viewBox="0 0 24 24">
+            <path d="M12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 16C14.2091 16 16 14.2091 16 12C16 9.79086 14.2091 8 12 8C9.79086 8 8 9.79086 8 12C8 14.2091 9.79086 16 12 16ZM12 18C8.68629 18 6 15.3137 6 12C6 8.68629 8.68629 6 12 6C15.3137 6 18 8.68629 18 12C18 15.3137 15.3137 18 12 18ZM12 14C10.8954 14 10 13.1046 10 12C10 10.8954 10.8954 10 12 10C13.1046 10 14 10.8954 14 12C14 13.1046 13.1046 14 12 14Z"></path>
+        </symbol>
+        <symbol id="icon-screenshot" viewBox="0 0 24 24">
+            <path d="M14.4336 3C15.136 3 15.7869 3.36852 16.1484 3.9707L16.9209 5.25684C17.0113 5.40744 17.174 5.5 17.3496 5.5H19C20.6569 5.5 22 6.84315 22 8.5V18C22 19.6569 20.6569 21 19 21H5C3.34315 21 2 19.6569 2 18V8.5C2 6.84315 3.34315 5.5 5 5.5H6.65039C6.82602 5.5 6.98874 5.40744 7.0791 5.25684L7.85156 3.9707C8.21306 3.36852 8.86403 3 9.56641 3H14.4336ZM8.79492 6.28613C8.34311 7.03915 7.52855 7.5 6.65039 7.5H5C4.44772 7.5 4 7.94772 4 8.5V18C4 18.5523 4.44772 19 5 19H19C19.5523 19 20 18.5523 20 18V8.5C20 7.94772 19.5523 7.5 19 7.5H17.3496C16.4715 7.5 15.6569 7.03915 15.2051 6.28613L14.4336 5H9.56641L8.79492 6.28613ZM12 8.5C14.4853 8.5 16.5 10.5147 16.5 13C16.5 15.4853 14.4853 17.5 12 17.5C9.51472 17.5 7.5 15.4853 7.5 13C7.5 10.5147 9.51472 8.5 12 8.5ZM12 10.5C10.6193 10.5 9.5 11.6193 9.5 13C9.5 14.3807 10.6193 15.5 12 15.5C13.3807 15.5 14.5 14.3807 14.5 13C14.5 11.6193 13.3807 10.5 12 10.5Z"></path>
+        </symbol>
+        <symbol id="icon-import" viewBox="0 0 24 24">
+            <path d="M13 10H18L12 16L6 10H11V3H13V10ZM4 19H20V12H22V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V12H4V19Z"></path>
+        </symbol>
+        <symbol id="icon-export" viewBox="0 0 24 24">
+            <path d="M4 19H20V12H22V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V12H4V19ZM13 9V16H11V9H6L12 3L18 9H13Z"></path>
+        </symbol>
+        <symbol id="icon-info" viewBox="0 0 24 24">
+            <path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 7H13V9H11V7ZM11 11H13V17H11V11Z"></path>
+        </symbol>
+        <symbol id="icon-edit" viewBox="0 0 24 24">
+            <path d="M6.93912 14.0328C6.7072 14.6563 6.51032 15.2331 6.33421 15.8155C7.29345 15.1189 8.43544 14.6767 9.75193 14.5121C12.2652 14.198 14.4976 12.5385 15.6279 10.4537L14.1721 8.99888L15.5848 7.58417C15.9185 7.25004 16.2521 6.91614 16.5858 6.58248C17.0151 6.15312 17.5 5.35849 18.0129 4.2149C12.4197 5.08182 8.99484 8.50647 6.93912 14.0328ZM17 8.99739L18 9.99669C17 12.9967 14 15.9967 10 16.4967C7.33146 16.8303 5.66421 18.6636 4.99824 21.9967H3C4 15.9967 6 1.99669 21 1.99669C20.0009 4.99402 19.0018 6.99313 18.0027 7.99402C17.6662 8.33049 17.3331 8.66382 17 8.99739Z"></path>
+        </symbol>
+        <symbol id="icon-settings" viewBox="0 0 24 24">
+            <path d="M2.21232 14.0601C1.91928 12.6755 1.93115 11.2743 2.21316 9.94038C3.32308 10.0711 4.29187 9.7035 4.60865 8.93871C4.92544 8.17392 4.50032 7.22896 3.62307 6.53655C4.3669 5.3939 5.34931 4.39471 6.53554 3.62289C7.228 4.50059 8.17324 4.92601 8.93822 4.60914C9.7032 4.29227 10.0708 3.32308 9.93979 2.21281C11.3243 1.91977 12.7255 1.93164 14.0595 2.21364C13.9288 3.32356 14.2964 4.29235 15.0612 4.60914C15.8259 4.92593 16.7709 4.5008 17.4633 3.62356C18.606 4.36739 19.6052 5.3498 20.377 6.53602C19.4993 7.22849 19.0739 8.17373 19.3907 8.93871C19.7076 9.70369 20.6768 10.0713 21.7871 9.94028C22.0801 11.3248 22.0682 12.726 21.7862 14.06C20.6763 13.9293 19.7075 14.2969 19.3907 15.0616C19.0739 15.8264 19.4991 16.7714 20.3763 17.4638C19.6325 18.6064 18.6501 19.6056 17.4638 20.3775C16.7714 19.4998 15.8261 19.0743 15.0612 19.3912C14.2962 19.7081 13.9286 20.6773 14.0596 21.7875C12.675 22.0806 11.2738 22.0687 9.93989 21.7867C10.0706 20.6768 9.70301 19.708 8.93822 19.3912C8.17343 19.0744 7.22848 19.4995 6.53606 20.3768C5.39341 19.633 4.39422 18.6506 3.62241 17.4643C4.5001 16.7719 4.92552 15.8266 4.60865 15.0616C4.29179 14.2967 3.32259 13.9291 2.21232 14.0601ZM3.99975 12.2104C5.09956 12.5148 6.00718 13.2117 6.45641 14.2963C6.90564 15.3808 6.75667 16.5154 6.19421 17.5083C6.29077 17.61 6.38998 17.7092 6.49173 17.8056C7.4846 17.2432 8.61912 17.0943 9.70359 17.5435C10.7881 17.9927 11.485 18.9002 11.7894 19.9999C11.9295 20.0037 12.0697 20.0038 12.2099 20.0001C12.5143 18.9003 13.2112 17.9927 14.2958 17.5435C15.3803 17.0942 16.5149 17.2432 17.5078 17.8057C17.6096 17.7091 17.7087 17.6099 17.8051 17.5081C17.2427 16.5153 17.0938 15.3807 17.543 14.2963C17.9922 13.2118 18.8997 12.5149 19.9994 12.2105C20.0032 12.0704 20.0033 11.9301 19.9996 11.7899C18.8998 11.4856 17.9922 10.7886 17.543 9.70407C17.0937 8.61953 17.2427 7.48494 17.8052 6.49204C17.7086 6.39031 17.6094 6.2912 17.5076 6.19479C16.5148 6.75717 15.3803 6.9061 14.2958 6.4569C13.2113 6.0077 12.5144 5.10016 12.21 4.00044C12.0699 3.99666 11.9297 3.99659 11.7894 4.00024C11.4851 5.10005 10.7881 6.00767 9.70359 6.4569C8.61904 6.90613 7.48446 6.75715 6.49155 6.1947C6.38982 6.29126 6.29071 6.39047 6.19431 6.49222C6.75668 7.48509 6.90561 8.61961 6.45641 9.70407C6.00721 10.7885 5.09967 11.4855 3.99995 11.7899C3.99617 11.93 3.9961 12.0702 3.99975 12.2104ZM11.9997 15.0002C10.3428 15.0002 8.99969 13.657 8.99969 12.0002C8.99969 10.3433 10.3428 9.00018 11.9997 9.00018C13.6565 9.00018 14.9997 10.3433 14.9997 12.0002C14.9997 13.657 13.6565 15.0002 11.9997 15.0002ZM11.9997 13.0002C12.552 13.0002 12.9997 12.5525 12.9997 12.0002C12.9997 11.4479 12.552 11.0002 11.9997 11.0002C11.4474 11.0002 10.9997 11.4479 10.9997 12.0002C10.9997 12.5525 11.4474 13.0002 11.9997 13.0002Z"></path>
+        </symbol>
+    </defs>
+</svg>
+
 <canvas id="canvas"></canvas>
 
 <div class="hud-wrapper" id="hudWrapper">
     <div class="hud collapsed" id="hud">
         <div class="hud-header">
-            <div class="hud-title">Loading</div>
+            <div class="hud-title">Loading...</div>
             <div class="hud-light" id="light"></div>
         </div>
 
         <div class="hud-content">
             <div class="hud-text" contenteditable="true" spellcheck="false">
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+                Loading WebAssembly module. This may take a while.
             </div>
         </div>
 
@@ -109,63 +136,52 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
 
 <div class="buttons-panel" id="buttonsPanel">
     <button class="btn-icon" id="btnFocus" title="Focus">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 16C14.2091 16 16 14.2091 16 12C16 9.79086 14.2091 8 12 8C9.79086 8 8 9.79086 8 12C8 14.2091 9.79086 16 12 16ZM12 18C8.68629 18 6 15.3137 6 12C6 8.68629 8.68629 6 12 6C15.3137 6 18 8.68629 18 12C18 15.3137 15.3137 18 12 18ZM12 14C10.8954 14 10 13.1046 10 12C10 10.8954 10.8954 10 12 10C13.1046 10 14 10.8954 14 12C14 13.1046 13.1046 14 12 14Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-focus"></use></svg>
     </button>
     <button class="btn-icon" id="btnScreenshot" title="Screenshot">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14.4336 3C15.136 3 15.7869 3.36852 16.1484 3.9707L16.9209 5.25684C17.0113 5.40744 17.174 5.5 17.3496 5.5H19C20.6569 5.5 22 6.84315 22 8.5V18C22 19.6569 20.6569 21 19 21H5C3.34315 21 2 19.6569 2 18V8.5C2 6.84315 3.34315 5.5 5 5.5H6.65039C6.82602 5.5 6.98874 5.40744 7.0791 5.25684L7.85156 3.9707C8.21306 3.36852 8.86403 3 9.56641 3H14.4336ZM8.79492 6.28613C8.34311 7.03915 7.52855 7.5 6.65039 7.5H5C4.44772 7.5 4 7.94772 4 8.5V18C4 18.5523 4.44772 19 5 19H19C19.5523 19 20 18.5523 20 18V8.5C20 7.94772 19.5523 7.5 19 7.5H17.3496C16.4715 7.5 15.6569 7.03915 15.2051 6.28613L14.4336 5H9.56641L8.79492 6.28613ZM12 8.5C14.4853 8.5 16.5 10.5147 16.5 13C16.5 15.4853 14.4853 17.5 12 17.5C9.51472 17.5 7.5 15.4853 7.5 13C7.5 10.5147 9.51472 8.5 12 8.5ZM12 10.5C10.6193 10.5 9.5 11.6193 9.5 13C9.5 14.3807 10.6193 15.5 12 15.5C13.3807 15.5 14.5 14.3807 14.5 13C14.5 11.6193 13.3807 10.5 12 10.5Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-screenshot"></use></svg>
     </button>
     <button class="btn-icon" id="btnImport" title="Import">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M13 10H18L12 16L6 10H11V3H13V10ZM4 19H20V12H22V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V12H4V19Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-import"></use></svg>
     </button>
     <button class="btn-icon" id="btnExport" title="Export">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M4 19H20V12H22V20C22 20.5523 21.5523 21 21 21H3C2.44772 21 2 20.5523 2 20V12H4V19ZM13 9V16H11V9H6L12 3L18 9H13Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-export"></use></svg>
     </button>
     <button class="btn-icon" id="btnInfo" title="Information">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 7H13V9H11V7ZM11 11H13V17H11V11Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-info"></use></svg>
     </button>
     <button class="btn-icon" id="btnEdit" title="Edit">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M6.93912 14.0328C6.7072 14.6563 6.51032 15.2331 6.33421 15.8155C7.29345 15.1189 8.43544 14.6767 9.75193 14.5121C12.2652 14.198 14.4976 12.5385 15.6279 10.4537L14.1721 8.99888L15.5848 7.58417C15.9185 7.25004 16.2521 6.91614 16.5858 6.58248C17.0151 6.15312 17.5 5.35849 18.0129 4.2149C12.4197 5.08182 8.99484 8.50647 6.93912 14.0328ZM17 8.99739L18 9.99669C17 12.9967 14 15.9967 10 16.4967C7.33146 16.8303 5.66421 18.6636 4.99824 21.9967H3C4 15.9967 6 1.99669 21 1.99669C20.0009 4.99402 19.0018 6.99313 18.0027 7.99402C17.6662 8.33049 17.3331 8.66382 17 8.99739Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-edit"></use></svg>
     </button>
     <button class="btn-icon" id="btnSettings" title="Settings">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M2.21232 14.0601C1.91928 12.6755 1.93115 11.2743 2.21316 9.94038C3.32308 10.0711 4.29187 9.7035 4.60865 8.93871C4.92544 8.17392 4.50032 7.22896 3.62307 6.53655C4.3669 5.3939 5.34931 4.39471 6.53554 3.62289C7.228 4.50059 8.17324 4.92601 8.93822 4.60914C9.7032 4.29227 10.0708 3.32308 9.93979 2.21281C11.3243 1.91977 12.7255 1.93164 14.0595 2.21364C13.9288 3.32356 14.2964 4.29235 15.0612 4.60914C15.8259 4.92593 16.7709 4.5008 17.4633 3.62356C18.606 4.36739 19.6052 5.3498 20.377 6.53602C19.4993 7.22849 19.0739 8.17373 19.3907 8.93871C19.7076 9.70369 20.6768 10.0713 21.7871 9.94028C22.0801 11.3248 22.0682 12.726 21.7862 14.06C20.6763 13.9293 19.7075 14.2969 19.3907 15.0616C19.0739 15.8264 19.4991 16.7714 20.3763 17.4638C19.6325 18.6064 18.6501 19.6056 17.4638 20.3775C16.7714 19.4998 15.8261 19.0743 15.0612 19.3912C14.2962 19.7081 13.9286 20.6773 14.0596 21.7875C12.675 22.0806 11.2738 22.0687 9.93989 21.7867C10.0706 20.6768 9.70301 19.708 8.93822 19.3912C8.17343 19.0744 7.22848 19.4995 6.53606 20.3768C5.39341 19.633 4.39422 18.6506 3.62241 17.4643C4.5001 16.7719 4.92552 15.8266 4.60865 15.0616C4.29179 14.2967 3.32259 13.9291 2.21232 14.0601ZM3.99975 12.2104C5.09956 12.5148 6.00718 13.2117 6.45641 14.2963C6.90564 15.3808 6.75667 16.5154 6.19421 17.5083C6.29077 17.61 6.38998 17.7092 6.49173 17.8056C7.4846 17.2432 8.61912 17.0943 9.70359 17.5435C10.7881 17.9927 11.485 18.9002 11.7894 19.9999C11.9295 20.0037 12.0697 20.0038 12.2099 20.0001C12.5143 18.9003 13.2112 17.9927 14.2958 17.5435C15.3803 17.0942 16.5149 17.2432 17.5078 17.8057C17.6096 17.7091 17.7087 17.6099 17.8051 17.5081C17.2427 16.5153 17.0938 15.3807 17.543 14.2963C17.9922 13.2118 18.8997 12.5149 19.9994 12.2105C20.0032 12.0704 20.0033 11.9301 19.9996 11.7899C18.8998 11.4856 17.9922 10.7886 17.543 9.70407C17.0937 8.61953 17.2427 7.48494 17.8052 6.49204C17.7086 6.39031 17.6094 6.2912 17.5076 6.19479C16.5148 6.75717 15.3803 6.9061 14.2958 6.4569C13.2113 6.0077 12.5144 5.10016 12.21 4.00044C12.0699 3.99666 11.9297 3.99659 11.7894 4.00024C11.4851 5.10005 10.7881 6.00767 9.70359 6.4569C8.61904 6.90613 7.48446 6.75715 6.49155 6.1947C6.38982 6.29126 6.29071 6.39047 6.19431 6.49222C6.75668 7.48509 6.90561 8.61961 6.45641 9.70407C6.00721 10.7885 5.09967 11.4855 3.99995 11.7899C3.99617 11.93 3.9961 12.0702 3.99975 12.2104ZM11.9997 15.0002C10.3428 15.0002 8.99969 13.657 8.99969 12.0002C8.99969 10.3433 10.3428 9.00018 11.9997 9.00018C13.6565 9.00018 14.9997 10.3433 14.9997 12.0002C14.9997 13.657 13.6565 15.0002 11.9997 15.0002ZM11.9997 13.0002C12.552 13.0002 12.9997 12.5525 12.9997 12.0002C12.9997 11.4479 12.552 11.0002 11.9997 11.0002C11.4474 11.0002 10.9997 11.4479 10.9997 12.0002C10.9997 12.5525 11.4474 13.0002 11.9997 13.0002Z"></path></svg>
+        <svg viewBox="0 0 24 24" fill="currentColor"><use href="#icon-settings"></use></svg>
     </button>
 </div>
 
 <div class="popup-overlay" id="popupOverlay">
-    <div class="popup-window" id="popupInfo">
-        <div class="popup-header">
-            <svg class="popup-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11 7H13V9H11V7ZM11 11H13V17H11V11Z"></path></svg>
-        </div>
-        <div class="popup-title">Version <span id="versionNumber">@VERSION_NUMBER@</span></div>
-        <div class="popup-content">
-            <p><b>&copy; <a href="https://github.com/ftxi/5dchess_engine">ftxi</a></b> 2024-2026. </p>
-            <p><b>Github Repository:</b> <a href="https://github.com/ftxi/5dchess_engine">https://github.com/ftxi/5dchess_engine</a></p>
-            <p>This software is free and distributed under the BSD 2-Clause License.</p>
-            <h4>Resources</h4>
-            <p>Icons: <a href="https://remixicon.com/license">RemixIcon</a></p>
-            <h4>Disclaimer</h4>
-            <p>This Project was made without reference to source or decompiled code from the software "5d Chess With Multiverse Time Travel" developed by LLC. Thunkspace. All code, assets, libraries and other files in this project are either open source or made by myself.</p>
-        </div>
-    </div>
-
-    <div class="popup-window" id="popupImport">
+    <div class="popup-window popup-standard" id="popupImport">
         <div class="popup-title">Import Data</div>
-        <div class="popup-content">
-            <textarea class="popup-textarea" id="importTextarea" placeholder="Paste your data here..."></textarea>
-            <button class="popup-button" id="loadButton">Load</button>
+        <div class="popup-content popup-content-flex">
+            <textarea class="popup-textarea popup-textarea-flex" id="importTextarea" placeholder="Paste your data here or drag and drop a file..."></textarea>
+            <div class="popup-button-group">
+                <button class="popup-button" id="loadFromFileButton">Load from File</button>
+                <button class="popup-button" id="loadButton">Load from Text</button>
+            </div>
         </div>
     </div>
 
-    <div class="popup-window" id="popupExport">
+    <div class="popup-window popup-standard" id="popupExport">
         <div class="popup-title">Export Data</div>
-        <div class="popup-content">
-            <textarea class="popup-textarea" id="exportTextarea" readonly>
-                Sample export data
-            </textarea>
+        <div class="popup-content popup-content-flex">
+            <textarea class="popup-textarea popup-textarea-flex" id="exportTextarea" readonly></textarea>
+            <div class="popup-button-group">
+                <button class="popup-button" id="copyButton">Copy to Clipboard</button>
+                <button class="popup-button" id="saveButton">Save as File</button>
+            </div>
         </div>
     </div>
 
-    <div class="popup-window" id="popupSettings">
+    <div class="popup-window popup-standard" id="popupSettings">
         <div class="popup-title">Settings</div>
         <div class="popup-content">
             <fieldset>
@@ -194,6 +210,287 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
                 </label>
             </fieldset>
         </div>
+    </div>
+
+    <div class="popup-window popup-standard popup-info" id="popupInfo">
+        <div class="popup-title">Information</div>
+        
+        <div class="info-tabs">
+            <button class="info-tab-btn active" data-tab="user-interface">User interface</button>
+            <button class="info-tab-btn" data-tab="game-rules">Game Rules</button>
+            <button class="info-tab-btn" data-tab="notation">Algebraic Notation</button>
+            <button class="info-tab-btn" data-tab="about">About</button>
+        </div>
+
+        <div class="popup-content info-tab-content" id="tab-user-interface">
+            <p>Welcome to 5d chess! This guide will help you go through its features.</p>
+            <p>To close this window, simply click anywhere outside the window. If you want to see it again, click the <svg style="width: 12px; height: 12px; flex-shrink: 0;" fill="currentColor"><use href="#icon-info"></use></svg> button on the bottom.</p>
+
+            <h4><b>Viewport</b></h4>
+            <p>The main area displays the chess boards. You can interact with the boards using mouse or touch:</p>
+            <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+                <li style="display: flex; align-items: center; gap: 8px;">
+                    <span><b>Zoom</b> - Use mouse wheel or pinch gesture to zoom in and out</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <span><b>Pan</b> - Click and drag (or touch and drag) to move the view around</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px;">
+                    <span><b>Select Piece</b> - Click or tap on a piece to select it. If you are unsure which piece can be selected, you can turn on "show movable pieces" in the settings.</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px;">
+                    <span><b>Move Piece</b> - After selecting a piece, click or tap on a valid destination square to move it.</span>
+                </li>
+            </ul>
+
+            <h4><b>Control Panel</b></h4>
+            <p>The control panel on the top right enables tree-shaped travsersal of game states by these navigation buttons:</p>
+            <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+                <li><b>PREV</b> - Go to previous action (Shortcut: Arrow ↑)</li>
+                <li><b>NEXT</b> - Go to next action (Shortcut: Arrow ↓)</li>
+                <li><b>UNDO</b> - Undo last move (Shortcut: Arrow ←)</li>
+                <li><b>REDO</b> - Redo move (Shortcut: Arrow →)</li>
+                <li><b>SUBMIT</b> - Submit move (Shortcut: Enter)</li>
+            </ul>
+            <p>To use the <b>NEXT</b> button, you need to expand the control panel and select the desired action first. Actions are added to the list as you submit the moves. If there are still more legal actions not on the list, pressing <b>Hint</b> button adds a computed legal action to the list immediately.</p>
+            
+            <h4><b>Action Buttons</b></h4>
+            <p>Action buttons on the bottom:</p>
+            <ul style="margin: 8px; list-style: none; padding-left: 0;">
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-focus"></use></svg>
+                    <span><b>Focus</b> - Center view on current board state (Shortcut: Space)</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-screenshot"></use></svg>
+                    <span><b>Screenshot</b> - Capture and download board image</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-import"></use></svg>
+                    <span><b>Import</b> - Import game from Branched 5DPGN</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-export"></use></svg>
+                    <span><b>Export</b> - Export current game to Branched 5DPGN</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-info"></use></svg>
+                    <span><b>Info</b> - View this window</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-edit"></use></svg>
+                    <span><b>Edit</b> - This feature is under development</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                    <svg style="width: 20px; height: 20px; flex-shrink: 0;" fill="currentColor"><use href="#icon-settings"></use></svg>
+                    <span><b>Settings</b> - Configure application preferences</span>
+                </li>
+            </ul>
+
+            <h4><b>HUD</b></h4>
+            <p>The HUD (Heads-Up Display) on the top shows the status of the game. When expanded, it shows comments recorded during the game.</p>
+            <p>To edit the comments, expand the HUD and click the comment area. After editing, two buttons will show up. Click "Update Comment" to save changes or "Discard Changes" to cancel the edit. If you would rather delete the comment, please clear all text and click "Delete Comment".</p>
+            <p>The light indicator in the right shows board state:</p>
+            <ul style="margin: 8px 0; padding-left: 20px; list-style: none;">
+                <li style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <div class="hud-light off"></div>
+                    <span><b>Disabled</b> - Normal board state, no phantom checks</span>
+                </li>
+                <li style="display: flex; align-items: center; gap: 12px;">
+                    <div class="hud-light blink"></div>
+                    <span><b>Glowing Red</b> - Phantom checks detected. Click the light to toggle phantom board visibility</span>
+                </li>
+            </ul>
+        </div>
+
+        <div class="popup-content info-tab-content" id="tab-game-rules" style="display: none;">
+            <h4>Game Rules</h4>
+            <p>While I am working on the documentation, for rules of 5D Chess with Multiverse Time Travel, please visit:</p>
+            <p style="margin-top: 12px; text-align: center;">
+                <a href="https://5d-chess.fandom.com/wiki/Tutorial" target="_blank" style="color: #1976d2; text-decoration: none;">
+                    5D Chess on Fandom
+                </a>
+            </p>
+            <p style="margin-top: 16px; font-size: 13px; color: #777;">
+                This application implements the official rules of 5D Chess with Multiverse Time Travel. Click the link above to learn about piece movements, time dimension mechanics, and game objectives.
+            </p>
+        </div>
+
+        <div class="popup-content info-tab-content" id="tab-notation" style="display: none;">
+            <p>The <b>Branched 5DPGN</b> used by this application is similar to <a href="https://github.com/adri326/5dchess-notation">Shad’s notation</a>. Take this f7-sacrifice game record as an example:</p>
+
+            <pre>
+            [Mode "5D"]
+            [Board "Standard"]
+            1. e3 / Nf6
+            2w. Bb5 {Be careful!}
+            (2b. d5 {Another move})
+            2b. c6
+            3. c3 / cxb5
+            4. Qb3 / Qa5
+            5. Q>>xf7+ {f7-sacrifice!} / (1T1)Kxf7
+            6. (1T2)Nh3 / (1T2)e6
+            7. (1T3)e3 / (1T3)Qf6
+            8. (1T4)Qh5*
+            </pre>
+
+            <p>At the top of each game record are several tags (headers) that define the background information of the position.</p>
+
+            <ol>
+            <li>
+            <p><code>[Mode "5D"]</code> is unused. If the engine encounters an unknown tag, it records it silently without reporting an error.</p>
+            </li>
+
+            <li>
+            <p><code>[Board "Standard"]</code> indicates that the opening is Standard, meaning there is only one initial board.</p>
+            <p>Two other preset openings are also supported: <strong>Standard – Turn Zero</strong> and <strong>Very Small – Open</strong>.</p>
+            </li>
+
+            <li>
+            <p>If you want to play other openings, you may use <code>[Board "Custom - Even"]</code> or <code>[Board "Custom - Odd"]</code> to specify whether you are using an even or odd timeline. Use <code>[Size "5x5"]</code> to declare the board size (replace 5x5 with your desired size; up to 8x8 is supported). Then use <strong>5dFEN</strong> to declare the starting board layout.</p>
+
+            <p>If you do not specify whether the timeline is even or odd, the engine will determine it based on whether <code>+0</code> or <code>-0</code> appears in the 5dFEN. If you do not declare a board size, the default is 8x8.</p>
+
+            <ul>
+            <li>For compatibility with other engines, <code>[Board "Custom"]</code> is also allowed and will simply be ignored.</li>
+            <li>If your record uses <code>[Board "xxx"]</code> and <code>xxx</code> is not a preset recognized by the engine, an error will be reported.</li>
+            </ul>
+            </li>
+
+            <li>
+            <p>The format of 5dFEN is:</p>
+            <p><code>[&lt;FEN&gt;:&lt;Timeline&gt;:&lt;Turn&gt;:&lt;Color&gt;]</code></p>
+
+            <p>Example:</p>
+            <p><code>[nbrk/3p*/P*3/KRBN:0:1:w]</code></p>
+
+            <p>This indicates that on timeline L=0, turn T=1, there is a White board whose FEN is <code>nbrk/3p*/P*3/KRBN</code>.</p>
+
+            <p>FEN stands for <em>Forsyth-Edwards Notation</em>. In general:</p>
+            <ul>
+            <li>Lowercase letters <code>pnbrqk</code> represent Black pieces.</li>
+            <li>Uppercase letters <code>PNBRQK</code> represent White pieces.</li>
+            <li>Digits <code>1–8</code> indicate consecutive empty squares.</li>
+            <li>Slashes separate ranks.</li>
+            </ul>
+
+            <p>In 5dFEN, letters marked with an asterisk (only <code>p*/P* r*/R* k*/K*</code>) indicate pieces that have not moved. These markers determine whether special moves such as castling are allowed.</p>
+
+            <p>Some non-standard pieces are also supported. The engine supports the following pieces:</p>
+            <ul>
+            <li>P — pawn</li>
+            <li>W — brawn</li>
+            <li>K — king</li>
+            <li>C — common king</li>
+            <li>Q — queen</li>
+            <li>Y — queen</li>
+            <li>S — princess</li>
+            <li>N — knight</li>
+            <li>R — rook</li>
+            <li>B — bishop</li>
+            <li>U — unicorn</li>
+            <li>D — dragon</li>
+            </ul>
+            </li>
+
+            <li>
+            <p>The notation of 5dpgn imitates standard chess PGN (Portable Game Notation). Its format is:</p>
+
+            <p><code>&lt;origin board&gt;&lt;piece&gt;&lt;origin square&gt;&lt;jump marker&gt;&lt;capture marker&gt;&lt;target board&gt;&lt;target square&gt;</code></p>
+
+            <p>Where:</p>
+            <ul>
+            <li>The board must be enclosed in English parentheses, e.g., <code>(L1T2)</code>, meaning timeline L=1, turn T=2. L may be omitted. There must be no space between L1 and T2.</li>
+            <li>Piece letters must be uppercase.</li>
+            <li>Squares are written like <code>a7</code>. Files (x-axis, from White’s perspective left to right) use <code>a–g</code>. Ranks (y-axis, from White’s perspective bottom to top) use <code>1–8</code>.</li>
+            <li>The capture marker is a lowercase <code>x</code>. If no capture occurs, omit it.</li>
+            <li>Jump markers are <code>&gt;</code> and <code>&gt;&gt;</code>.  
+            <ul>
+            <li><code>&gt;</code> indicates time travel without creating a new timeline.</li>
+            <li><code>&gt;&gt;</code> indicates the target board is in the past and a new timeline must be created.</li>
+            </ul>
+            </li>
+            <li>If the move is not a time-travel move, there should be no jump marker or target board.</li>
+            <li>Castling may be written as <code>O-O</code> or <code>Ke1g1/Ke8g8</code>. Similarly, queenside castling may be written as <code>O-O-O</code> or <code>Ke1c1/Ke8c8</code>.</li>
+            </ul>
+            </li>
+
+            <li>
+            <p>Additional information may be appended to each move. The engine will read but ignore this information.</p>
+            <ul>
+            <li>If a pawn/brawn promotes, append <code>=Q</code> at the end of the move. Replace Q with any uppercase piece letter.</li>
+            <li>You may append markers such as <code>+</code>, <code>#</code>, or <code>*</code> after a move, indicating check, checkmate, or soft mate respectively.</li>
+            <li>Shad’s notation defines formats such as <code>~</code>, <code>(~T6)</code>, <code>(&gt;L-5)</code>, etc. For example, <code>Q&gt;&gt;xf7+</code> in the example may also be written as <code>Q&gt;&gt;xf7+~ (~T1) (&gt;L1)</code>. The engine can read these formats but will ignore them.</li>
+            </ul>
+            </li>
+
+            <li>
+            <p>Not all information must be written in full. As long as the information provided uniquely determines the move, parts may be omitted. The engine generates all legal moves and performs pattern matching; if unambiguous, it is accepted.</p>
+
+            <p>For example, the first move <code>e3</code> in the example would be fully written as <code>(0T1)Pe2e3</code>, but may also be written as <code>(0T1)e3</code>, <code>(L0)e3</code>, or simply <code>e3</code>.</p>
+            </li>
+
+            <li>
+            <p>Each turn (half-move) consists of one or more moves separated by spaces. Before each turn, there should be a move number followed by a dot.</p>
+
+            <ul>
+            <li>Black’s turn may be written as <code>2b.</code> or with a slash <code>/</code>.</li>
+            <li>Correspondingly, White’s turn may be written as <code>2.</code> or <code>2w.</code>.</li>
+            </ul>
+
+            <p>Within the engine, all moves in a turn are sorted in a standard order. This ensures that the player’s “next move” button matches the “next move” in the game record.</p>
+            </li>
+
+            <li>
+            <p>Each turn may be followed by one or more comments enclosed in curly braces <code>{}</code>. Comments may be nested, but the number of opening and closing braces must match. The last comment will be displayed in the engine’s text window.</p>
+
+            <ul>
+            <li>Due to standard sorting, if comments are placed elsewhere, the engine will ignore them.</li>
+            </ul>
+            </li>
+
+            <li>
+            <p>A 5dpgn record consists of multiple turns. All turns, including the final move, must be legally submittable turns. Turns may be separated by spaces or line breaks.</p>
+            </li>
+
+            <li>
+            <p>Branching syntax: For variations, use the format recommended by @IceMoe. Parentheses represent branches, with the main line following afterward. For example:</p>
+
+            <pre>
+            1.e4 e5
+            (2. xx xx (3. xx xx) 3. xx xx)
+            (2. xx xx)
+            2. xx xx
+            3. xx xx
+            </pre>
+
+            <p>This indicates there are three possible moves on move 2.</p>
+
+            <p>The parentheses of the last branch may be omitted. Therefore,  
+            <code>1.e3 / Nf6 2.Nf3 / d5</code>  
+            is equivalent to  
+            <code>1.e3 ( / Nf6 ( 2.Nf3 ( / d5)))</code>.</p>
+            </li>
+            </ol>
+        </div>
+
+        <div class="popup-content info-tab-content" id="tab-about" style="display: none;">
+            <h4>About 5D Chess Engine</h4>
+            <p>Version <span id="infoVersionNumber">0.0.0</span></p>
+            <p><b>&copy; <a href="https://github.com/ftxi/5dchess_engine">ftxi</a></b> 2024-2026.</p>
+            <p><b>Github Repository:</b> <a href="https://github.com/ftxi/5dchess_engine">https://github.com/ftxi/5dchess_engine</a></p>
+            <p>This software is free and distributed under the BSD 2-Clause License.</p>
+            <h4>Resources</h4>
+            <p>Icons: <a href="https://remixicon.com/license">RemixIcon</a></p>
+            <p>Chess pieces: adopted from <a href="https://github.com/adri326/5dchess-designer/tree/main/assets">5dchess-designer</a></p>
+            <h4>Disclaimer</h4>
+            <p>This Project was made without reference to source or decompiled code from the software "5d Chess With Multiverse Time Travel" developed by LLC. Thunkspace. All code, assets, libraries and other files in this project are either open source or made by myself.</p>
+        </div>
+
+        <label class="info-startup-toggle">
+            <input type="checkbox" id="showInfoPageCheckbox" checked>
+            <span>Show this page on startup</span> 
+        </label>
     </div>
 </div>
 

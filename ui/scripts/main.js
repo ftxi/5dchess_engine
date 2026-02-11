@@ -8,11 +8,11 @@ let worker = new Worker(window.worker_path, { type: 'module' });
 
 // State management for move selection
 let clicking = false;
-let clicked_pos = null;
-let generated_moves = [];
-let present_c;
-let next_options = [];
-let show_phantom = true;
+let clickedPos = null;
+let generatedMoves = [];
+let presentC;
+let nextOptions = [];
+let showPhantom = true;
 
 class ChessBoardCanvas extends ChessBoardCanvasBase {
     onClickSquare(l, t, c, x, y) {
@@ -30,37 +30,37 @@ function handle_click(pos) {
     if (clicking) {
         return;
     }
-    if(pos.c !== present_c) {
-        if (clicked_pos !== null) {
+    if(pos.c !== presentC) {
+        if (clickedPos !== null) {
             deselect();
         }
         return; // Ignore clicks on other colors
     }
-    if (clicked_pos !== null) {
-        let from = clicked_pos;
+    if (clickedPos !== null) {
+        let from = clickedPos;
         let to = pos;
-        clicked_pos = null;
-        if (generated_moves.some(mv => mv.l === to.l && mv.t === to.t && mv.x === to.x && mv.y === to.y)) {
+        clickedPos = null;
+        if (generatedMoves.some(mv => mv.l === to.l && mv.t === to.t && mv.x === to.x && mv.y === to.y)) {
             worker.postMessage({type: 'apply_move', from: from, to: to});
-            generated_moves = [];
+            generatedMoves = [];
         } else {
             deselect();
         }
     } else {
         clicking = true;
         worker.postMessage({type: 'gen_move_if_playable', pos: pos});
-        clicked_pos = pos;
+        clickedPos = pos;
     }
 }
 
 function deselect() {
-    clicked_pos = null;
-    generated_moves = [];
+    clickedPos = null;
+    generatedMoves = [];
     worker.postMessage({type: 'view'});
 }
 
 function disablePhantom() {
-    show_phantom = false;
+    showPhantom = false;
     UI.setHudLight(false);
 }
 
@@ -89,25 +89,27 @@ worker.onmessage = (e) => {
         worker.postMessage({type: 'load', pgn: '[Board "Standard - Turn Zero"]'});
     }
     else if (msg.type === 'engine_version') {
-        // Update the version in the Information popup
+        // Update the version in the Information popup and welcome popup
         UI.setVersionNumber(msg.version);
         console.log('Version', msg.version);
+        // Show info popup on startup if enabled
+        UI.showInfoPage();
     }
     else if (msg.type === 'alert') {
         alert('[WORKER] ' + msg.message);
     }
     else if (msg.type === 'data') {
         let data = msg.data;
-        present_c = data.present.c;
-        addHighlight(data, '--highlight-generated-move', 'coordinates', generated_moves.map(q => ({l: q.l, t: q.t, x: q.x, y: q.y, c: present_c})));
+        presentC = data.present.c;
+        addHighlight(data, '--highlight-generated-move', 'coordinates', generatedMoves.map(q => ({l: q.l, t: q.t, x: q.x, y: q.y, c: presentC})));
         if(data.phantom && data.phantom.length > 0) {
             UI.setHudLight(true);
-            if (show_phantom) {
-                addHighlight(data, '--highlight-phantom-board', 'boards', data.phantom.map((b) => ({l: b.l, t: b.t, c: !present_c})));
+            if (showPhantom) {
+                addHighlight(data, '--highlight-phantom-board', 'boards', data.phantom.map((b) => ({l: b.l, t: b.t, c: !presentC})));
                 data.boards = data.boards.concat(data.phantom);
                 addHighlight(data, '--highlight-check', 'arrows', data.phantomChecks.map((c) => ({
-                    from: {...c.from, c: !present_c},
-                    to: {...c.to, c: !present_c}
+                    from: {...c.from, c: !presentC},
+                    to: {...c.to, c: !presentC}
                 })));
                 data.fade = 0.5;
             }
@@ -118,9 +120,9 @@ worker.onmessage = (e) => {
         clicking = false;
     }
     else if (msg.type === 'moves') {
-        generated_moves = msg.moves;
-        if (generated_moves.length === 0){
-            clicked_pos = null;
+        generatedMoves = msg.moves;
+        if (generatedMoves.length === 0){
+            clickedPos = null;
             clicking = false;
         }
         else
@@ -145,7 +147,7 @@ worker.onmessage = (e) => {
     else if (msg.type === 'update_select')
     {
         let options = msg.options.map(obj => obj.pgn);
-        next_options = msg.options.map(obj => obj.action);
+        nextOptions = msg.options.map(obj => obj.action);
         UI.select.setOptions(options);
     }
     else if (msg.type === 'update_pgn')
@@ -173,7 +175,7 @@ UI.buttons.setCallbacks({
     next: () => {
         deselect();
         let index = UI.select.getSelectedIndex();
-        let action = next_options[index];
+        let action = nextOptions[index];
         worker.postMessage({type: 'next', action: action});
         disablePhantom();
     },
@@ -236,7 +238,7 @@ UI.setSettingsChangeCallback((settings) => {
 
 // Testing HUD light functions
 UI.setHudLightCallback((isOn) => {
-    show_phantom = isOn;
+    showPhantom = isOn;
     worker.postMessage({ type: 'view' });
 });
 

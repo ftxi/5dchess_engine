@@ -257,8 +257,12 @@ export const UI = (() => {
         }
         popupOverlay.classList.add('show');
         document.getElementById(popupName).classList.add('show');
-        button.classList.add('active');
-        activeButton = button;
+        if (button) {
+            button.classList.add('active');
+            activeButton = button;
+        } else {
+            activeButton = null;
+        }
     }
 
     function closePopup() {
@@ -295,12 +299,120 @@ export const UI = (() => {
         closePopup();
     }
 
+    // Load from File button - opens file picker and loads selected file
+    document.getElementById('loadFromFileButton').onclick = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.5dpgn,.pgn,.txt';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // Limit file size to 10MB
+            const maxSize = 10 * 1024 * 1024;
+            if (file.size > maxSize) {
+                alert('File is too large. Maximum size is 10MB.');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const content = event.target.result;
+                document.getElementById('importTextarea').value = content;
+            };
+            reader.onerror = () => {
+                alert('Failed to read file.');
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    };
+
+    // Drag and drop support for import textarea
+    const importTextarea = document.getElementById('importTextarea');
+    importTextarea.ondragover = (e) => {
+        e.preventDefault();
+        importTextarea.classList.add('drag-over');
+    };
+    importTextarea.ondragleave = () => {
+        importTextarea.classList.remove('drag-over');
+    };
+    importTextarea.ondrop = (e) => {
+        e.preventDefault();
+        importTextarea.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length === 0) return;
+        
+        const file = files[0];
+        const maxSize = 10 * 1024 * 1024;
+        if (file.size > maxSize) {
+            alert('File is too large. Maximum size is 10MB.');
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const content = event.target.result;
+            importTextarea.value = content;
+        };
+        reader.onerror = () => {
+            alert('Failed to read file.');
+        };
+        reader.readAsText(file);
+    };
+
     document.getElementById('btnExport').onclick = (event) => {
         showPopup(event.currentTarget, 'popupExport');
         // Call export callback to populate textarea
         if (exportCallback) {
             exportCallback();
         }
+    };
+
+    // Copy to Clipboard button
+    document.getElementById('copyButton').onclick = () => {
+        const textarea = document.getElementById('exportTextarea');
+        const text = textarea.value;
+        if (!text) {
+            alert('Nothing to copy.');
+            return;
+        }
+        navigator.clipboard.writeText(text).then(() => {
+            // Visual feedback - flash the button
+            const button = document.getElementById('copyButton');
+            const originalText = button.textContent;
+            button.textContent = 'Copied!';
+            setTimeout(() => {
+                button.textContent = originalText;
+            }, 2000);
+        }).catch(() => {
+            alert('Failed to copy to clipboard.');
+        });
+    };
+
+    // Save as File button
+    document.getElementById('saveButton').onclick = () => {
+        const textarea = document.getElementById('exportTextarea');
+        const text = textarea.value;
+        if (!text) {
+            alert('Nothing to save.');
+            return;
+        }
+        
+        // Create blob and download
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        link.download = `game_${timestamp}.5dpgn`;
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     document.getElementById('btnSettings').onclick = (event) => {
@@ -392,6 +504,84 @@ export const UI = (() => {
 
     // Expose setter for theme change callback
 
+
+    /* ================= Info Popup Management ================= */
+
+    // Info page preference key for localStorage
+    const INFO_PAGE_KEY = 'show-info-page';
+    const LEGACY_WELCOME_KEY = 'show-welcome-page';
+
+    // Get the info popup checkbox
+    const showInfoPageCheckbox = document.getElementById('showInfoPageCheckbox');
+
+    // Initialize the info page checkbox from localStorage
+    if (showInfoPageCheckbox) {
+        const stored = localStorage.getItem(INFO_PAGE_KEY);
+        const legacy = localStorage.getItem(LEGACY_WELCOME_KEY);
+        const shouldShowInfo = stored !== null ? stored !== 'false' : legacy !== 'false';
+        showInfoPageCheckbox.checked = shouldShowInfo;
+
+        if (stored === null && legacy !== null) {
+            localStorage.setItem(INFO_PAGE_KEY, legacy);
+        }
+
+        // Listen for checkbox changes
+        showInfoPageCheckbox.addEventListener('change', () => {
+            localStorage.setItem(INFO_PAGE_KEY, showInfoPageCheckbox.checked.toString());
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ showInfoPage: showInfoPageCheckbox.checked });
+            }
+        });
+    }
+
+    // Function to show info popup on page load
+    function showInfoPopup() {
+        const stored = localStorage.getItem(INFO_PAGE_KEY);
+        const legacy = localStorage.getItem(LEGACY_WELCOME_KEY);
+        const shouldShowInfo = stored !== null ? stored !== 'false' : legacy !== 'false';
+        if (shouldShowInfo) {
+            // Small delay to ensure DOM is fully ready
+            setTimeout(() => {
+                showPopup(null, 'popupInfo');
+            }, 500);
+        }
+    }
+
+    // Store reference to show info popup for external use
+    const infoPopupManager = {
+        show() {
+            showPopup(null, 'popupInfo');
+        },
+        setShowOnStartup(value) {
+            localStorage.setItem(INFO_PAGE_KEY, value.toString());
+            if (showInfoPageCheckbox) {
+                showInfoPageCheckbox.checked = value;
+            }
+        }
+    };
+
+    // Handle info popup tabs
+    const infoTabBtns = document.querySelectorAll('.info-tab-btn');
+    const infoTabContents = document.querySelectorAll('.info-tab-content');
+
+    infoTabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabId = btn.getAttribute('data-tab');
+            
+            // Remove active class from all buttons and contents
+            infoTabBtns.forEach(b => b.classList.remove('active'));
+            infoTabContents.forEach(content => content.style.display = 'none');
+            
+            // Add active class to clicked button
+            btn.classList.add('active');
+            
+            // Show corresponding content
+            const contentElement = document.getElementById(`tab-${tabId}`);
+            if (contentElement) {
+                contentElement.style.display = 'block';
+            }
+        });
+    });
 
     document.getElementById('btnScreenshot').onclick = () => {
         let canvasImage = document.getElementById('canvas').toDataURL('image/png');
@@ -776,8 +966,8 @@ export const UI = (() => {
          * Set the Version Number in the Info popup
          */
         setVersionNumber(version) {
-            const el = document.getElementById('versionNumber');
-            if (el) el.textContent = version;
+            const infoEl = document.getElementById('infoVersionNumber');
+            if (infoEl) infoEl.textContent = version;
         },
 
         /**
@@ -815,6 +1005,13 @@ export const UI = (() => {
                 light.classList.remove("blink");
                 light.onclick = null;
             }
+        },
+
+        /**
+         * Show the info popup
+         */
+        showInfoPage() {
+            showInfoPopup();
         }
     };
 })();
