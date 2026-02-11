@@ -1,11 +1,21 @@
 
 
-/* ================= HUD ================= */
-.hud {
+/* ================= HUD Wrapper ================= */
+.hud-wrapper {
     position: fixed;
     top: 18px;
     left: 50%;
     transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    z-index: 100;
+}
+
+/* ================= HUD ================= */
+.hud {
+    position: relative;
     width: 440px;
     max-width: calc(100vw - 200px - 18px - 18px - 20px); /* screen width - control panel width - control panel right margin - hud left margin - minimum gap */
     min-width: 150px;
@@ -106,6 +116,64 @@
     line-height: 1.45;
     outline: none;
     cursor: text;
+}
+
+.hud-comment-actions {
+    position: relative;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.hud-comment-actions.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.hud-comment-btn {
+    background: linear-gradient(135deg, #f0f0f0, #e0e0e0);
+    border: 1px solid #cfcfcf;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #333;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.hud-comment-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, #e8e8e8, #dcdcdc);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+#hudUpdateComment {
+    width: 125px;
+}
+
+#hudUpdateComment.delete {
+    background: linear-gradient(135deg, #ffebee, #ffcdd2);
+    border-color: #ef9a9a;
+    color: #c62828;
+}
+
+#hudUpdateComment.delete:hover:not(:disabled) {
+    background: linear-gradient(135deg, #ffcdd2, #ef9a9a);
+    box-shadow: 0 2px 6px rgba(198, 40, 40, 0.2);
+}
+
+.hud-comment-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.hud-comment-btn.secondary {
+    background: linear-gradient(135deg, #ffffff, #f3f3f3);
+    color: #555;
 }
 
 /* Scrollbar */

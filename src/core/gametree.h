@@ -116,6 +116,10 @@ public:
                 oss << '\n';
             }
         }
+        else
+        {
+            oss << show(info) << "\n";
+        }
         if(num_children > 1)
         {
             for(auto it = children.begin(); it+1 != children.end(); it++)

@@ -275,6 +275,15 @@ createModule().then((engine) => {
         } else if (data.type === 'export') {
             let pgn = self.game.show_pgn();
             self.postMessage({ type: 'update_pgn', pgn: pgn });
+        } else if (data.type === 'update_comment') {
+            let comments = data.comments || [];
+            if (comments.length > 0) {
+                comments[comments.length - 1] = data.comment;
+            } else {
+                comments.push(data.comment);
+            }
+            self.game.set_comments(comments);
+            updateHudStatus();
         }
     };
 });

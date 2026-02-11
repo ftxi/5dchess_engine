@@ -17,6 +17,9 @@ export const UI = (() => {
     const toggle = document.getElementById("toggle");
     const hudText = document.querySelector('.hud-text');
     const hudTitle = document.querySelector('.hud-title');
+    const hudCommentActions = document.getElementById('hudCommentActions');
+    const hudUpdateComment = document.getElementById('hudUpdateComment');
+    const hudDiscardChanges = document.getElementById('hudDiscardChanges');
 
     function updateToggle(expanded) {
         toggle.innerHTML = expanded ? ICON_UP : ICON_DOWN;
@@ -32,13 +35,72 @@ export const UI = (() => {
 
     /* ================= HUD Text Content ================= */
     let hudTextChangeCallback = null;
+    let commentsEditCallback = null;
+    let hudTextOriginal = hudText ? hudText.textContent : '';
+
+    function setHudTextOriginal(value) {
+        hudTextOriginal = value;
+        updateHudCommentActions();
+    }
+
+    function areBracesBalanced(text) {
+        let braceCount = 0;
+        for (const char of text) {
+            if (char === '{') braceCount++;
+            else if (char === '}') braceCount--;
+            if (braceCount < 0) return false;
+        }
+        return braceCount === 0;
+    }
+
+    function updateHudCommentActions() {
+        if (!hudCommentActions || !hudText || !hudUpdateComment) return;
+        const hasChanges = hudText.textContent !== hudTextOriginal;
+        hudCommentActions.classList.toggle('visible', hasChanges);
+        
+        if (hasChanges) {
+            const text = hudText.textContent.trim();
+            const isEmpty = text.length === 0;
+            const isBalanced = areBracesBalanced(text);
+            
+            // Update button text based on empty state
+            hudUpdateComment.textContent = isEmpty ? 'Delete Comment' : 'Update Comment';
+            hudUpdateComment.classList.toggle('delete', isEmpty);
+            
+            // Disable button if braces are unbalanced
+            if (!isBalanced) {
+                hudUpdateComment.disabled = true;
+                hudUpdateComment.title = 'Curly braces must be balanced';
+            } else {
+                hudUpdateComment.disabled = false;
+                hudUpdateComment.title = '';
+            }
+        }
+    }
 
     // Listen for changes in hud-text
     hudText.addEventListener('input', () => {
         if (hudTextChangeCallback) {
             hudTextChangeCallback(hudText.textContent);
         }
+        updateHudCommentActions();
     });
+
+    if (hudUpdateComment) {
+        hudUpdateComment.addEventListener('click', () => {
+            if (commentsEditCallback) {
+                commentsEditCallback(hudText.textContent);
+            }
+            setHudTextOriginal(hudText.textContent);
+        });
+    }
+
+    if (hudDiscardChanges) {
+        hudDiscardChanges.addEventListener('click', () => {
+            hudText.textContent = hudTextOriginal;
+            updateHudCommentActions();
+        });
+    }
     /* ================= Light Toggle ================= */
     const light = document.getElementById("light");
     let lightCallback = null;
@@ -142,18 +204,21 @@ export const UI = (() => {
             // Need to shift left
             const overlap = hudRightEdge + minGap - controlPanelLeftEdge;
             const newLeft = 50 - (overlap / screenWidth * 100);
-            hud.style.left = Math.max(18, newLeft) + '%';
+            const hudWrapper = document.getElementById('hudWrapper');
+            hudWrapper.style.left = Math.max(18, newLeft) + '%';
         } else {
-            hud.style.left = '50%';
+            const hudWrapper = document.getElementById('hudWrapper');
+            hudWrapper.style.left = '50%';
         }
         
         // Check if left edge is too close to screen edge
-        const hudLeft = parseFloat(hud.style.left) / 100 * screenWidth - hudHalfWidth;
+        const hudWrapper = document.getElementById('hudWrapper');
+        const hudLeft = parseFloat(hudWrapper.style.left) / 100 * screenWidth - hudHalfWidth;
         if (hudLeft < 18) {
-            hud.style.left = '18px';
-            hud.style.transform = 'translateX(0)';
+            hudWrapper.style.left = '18px';
+            hudWrapper.style.transform = 'translateX(0)';
         } else {
-            hud.style.transform = 'translateX(-50%)';
+            hudWrapper.style.transform = 'translateX(-50%)';
         }
     }
 
@@ -621,6 +686,7 @@ export const UI = (() => {
          */
         setHudText(content) {
             hudText.textContent = content;
+            setHudTextOriginal(content);
         },
 
         /**
@@ -652,6 +718,14 @@ export const UI = (() => {
          */
         setHudTextChangeCallback(callback) {
             hudTextChangeCallback = callback;
+        },
+
+        /**
+         * Set the callback function for when Update Comment is pressed
+         * @param {Function} callback - Function that receives the current comment text
+         */
+        setCommentsEditCallback(callback) {
+            commentsEditCallback = callback;
         },
         
         /**
@@ -744,3 +818,7 @@ export const UI = (() => {
         }
     };
 })();
+
+export function setCommentsEditCallback(callback) {
+    UI.setCommentsEditCallback(callback);
+}
