@@ -708,6 +708,8 @@ export const UI = (() => {
 
         /**
          * Set callback for HUD light clicks
+         * The callback is invoked when the user clicks the HUD light to toggle its blinking state.
+         * @param {Function} callback - Function that receives a boolean: true when stopping blink, false when starting blink
          */
         setHudLightCallback(callback) {
             lightCallback = callback;
@@ -715,11 +717,16 @@ export const UI = (() => {
 
         /**
          * Set HUD light state
+         * Controls whether the HUD light is visible and interactive. When on, the light blinks and can be
+         * clicked to toggle between blinking and steady states. When off, the light is hidden and non-interactive.
+         * @param {boolean} on - True to show and enable the light with blinking animation, false to hide it
          */
         setHudLight(on) {
             if (on) {
-                light.classList.remove("off");
-                light.classList.add("blink");
+                if (light.classList.contains("off")) {
+                    light.classList.remove("off");
+                    light.classList.add("blink");
+                }
                 light.onclick = () => {
                     if (light.classList.contains("blink")) {
                         light.classList.remove("blink");

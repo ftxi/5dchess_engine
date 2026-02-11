@@ -12,6 +12,7 @@ let clicked_pos = null;
 let generated_moves = [];
 let present_c;
 let next_options = [];
+let show_phantom = true;
 
 class ChessBoardCanvas extends ChessBoardCanvasBase {
     onClickSquare(l, t, c, x, y) {
@@ -58,6 +59,11 @@ function deselect() {
     worker.postMessage({type: 'view'});
 }
 
+function disablePhantom() {
+    show_phantom = false;
+    UI.setHudLight(false);
+}
+
 function addHighlight(data, color, field, values) {
   if (!Array.isArray(data.highlights)) {
     data.highlights = [];
@@ -94,6 +100,20 @@ worker.onmessage = (e) => {
         let data = msg.data;
         present_c = data.present.c;
         addHighlight(data, '--highlight-generated-move', 'coordinates', generated_moves.map(q => ({l: q.l, t: q.t, x: q.x, y: q.y, c: present_c})));
+        if(data.phantom && data.phantom.length > 0) {
+            UI.setHudLight(true);
+            if (show_phantom) {
+                addHighlight(data, '--highlight-phantom-board', 'boards', data.phantom.map((b) => ({l: b.l, t: b.t, c: !present_c})));
+                data.boards = data.boards.concat(data.phantom);
+                addHighlight(data, '--highlight-check', 'arrows', data.phantomChecks.map((c) => ({
+                    from: {...c.from, c: !present_c},
+                    to: {...c.to, c: !present_c}
+                })));
+                data.fade = 0.5;
+            }
+        } else {
+            UI.setHudLight(false);
+        }
         window.chessBoardCanvas.setData(data);
         clicking = false;
     }
@@ -148,12 +168,14 @@ UI.buttons.setCallbacks({
     prev: () => {
         deselect();
         worker.postMessage({type: 'prev'});
+        disablePhantom();
     },
     next: () => {
         deselect();
         let index = UI.select.getSelectedIndex();
         let action = next_options[index];
         worker.postMessage({type: 'next', action: action});
+        disablePhantom();
     },
     undo: () => {
         deselect();
@@ -166,6 +188,7 @@ UI.buttons.setCallbacks({
     submit: () => {
         deselect();
         worker.postMessage({type: 'submit'});
+        disablePhantom();
     }
 });
 
@@ -210,7 +233,8 @@ UI.setSettingsChangeCallback((settings) => {
 // Testing HUD light functions
 UI.setHudLightCallback((isOn) => {
     console.log(`HUD light clicked: ${isOn ? 'switched to ON state' : 'switched to BLINK state'}`);
+    show_phantom = isOn;
+    worker.postMessage({ type: 'view' });
 });
 
-UI.setHudLight(true); // Start with blinking state for testing
-
+UI.setHudLight(false); // Initialize HUD light to off

@@ -145,9 +145,34 @@ const state &game::get_unmoved_state() const
     return cached[0].first;
 }
 
-std::vector<std::tuple<int, int, bool, std::string>> game::get_current_boards() const
+std::vector<boards_info_t> game::get_current_boards() const
 {
     return get_current_state().get_boards();
+}
+
+std::pair<std::vector<boards_info_t>, std::vector<full_move>> game::get_phantom_boards_and_checks() const
+{
+    const state &s = get_current_state();
+    auto [t, c] = s.get_present();
+    const state &ps = s.phantom();
+    std::vector<full_move> checks;
+    std::set<vec4> tls;
+    for(full_move fm : ps.find_checks(!c))
+    {
+        checks.push_back(fm);
+        tls.insert(fm.from.tl());
+    }
+	//print_range("Phantom timelines: ", tls);
+    std::vector<boards_info_t> all_boards = ps.get_boards();
+    std::vector<boards_info_t> result;
+    for(const auto& [l, t, color, fen] : all_boards)
+    {
+        if(tls.contains(vec4(0, 0, t, l)))
+        {
+            result.push_back({l, t, color, fen});
+        }
+    }
+    return {result, checks};
 }
 
 std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> game::get_current_timeline_status() const

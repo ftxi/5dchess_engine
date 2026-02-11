@@ -146,7 +146,16 @@ createModule().then((engine) => {
             }
         }
 
-        let data = {boards, present, focus, highlights, size};
+        let phantomData = self.game.get_phantom_boards_and_checks();
+        let phantom = phantomData.boards;
+        let phantomChecks = phantomData.checks;
+        for (let board of phantom) {
+            if (board.fen) {
+                board.parsed = parse_FEN(board.fen, size.x, size.y);
+            }
+        }
+
+        let data = {boards, present, focus, highlights, size, phantom, phantomChecks};
         if(checking) {
             data.fade = 0.8;
         }
