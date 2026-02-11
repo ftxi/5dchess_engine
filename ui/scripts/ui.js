@@ -367,6 +367,10 @@ export const UI = (() => {
         if (exportCallback) {
             exportCallback();
         }
+        // Populate filename and extension fields
+        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        document.getElementById('exportFilename').value = `game_${timestamp}`;
+        document.getElementById('exportExtension').value = '.5dpgn';
     };
 
     // Copy to Clipboard button
@@ -399,15 +403,24 @@ export const UI = (() => {
             return;
         }
         
+        // Get filename and extension from input fields
+        const filename = document.getElementById('exportFilename').value.trim();
+        const extension = document.getElementById('exportExtension').value.trim();
+        
+        if (!filename) {
+            alert('Please enter a filename.');
+            return;
+        }
+        
+        // Construct the full filename
+        const fullFilename = extension ? filename + extension : filename;
+        
         // Create blob and download
         const blob = new Blob([text], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        
-        // Generate filename with timestamp
-        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        link.download = `game_${timestamp}.5dpgn`;
+        link.download = fullFilename;
         
         document.body.appendChild(link);
         link.click();
