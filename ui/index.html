@@ -231,7 +231,7 @@
         </div>
 
         <div class="popup-content info-tab-content" id="tab-user-interface">
-            <p>Welcome to 5d chess! This guide will help you go through its features.</p>
+            <p>Welcome to 5D Chess Engine! This guide will help you go through its features.</p>
             <p>To close this window, simply click anywhere outside the window. If you want to see it again, click the <svg style="width: 12px; height: 12px; flex-shrink: 0;" fill="currentColor"><use href="#icon-info"></use></svg> button on the bottom.</p>
 
             <h4><b>Viewport</b></h4>
@@ -260,7 +260,7 @@
                 <li><b>REDO</b> - Redo move (Shortcut: Arrow →)</li>
                 <li><b>SUBMIT</b> - Submit move (Shortcut: Enter)</li>
             </ul>
-            <p>To use the <b>NEXT</b> button, you need to expand the control panel and select the desired action first. Actions are added to the list as you submit the moves. If there are still more legal actions not on the list, pressing <b>Hint</b> button adds a computed legal action to the list immediately.</p>
+            <p>To use the <b>NEXT</b> button, you need to expand the control panel and select the desired action first. Actions are added to the list as you submit the moves. If there are still more legal actions not on the list, pressing <b>Hint</b> button (Shortcut: H) adds a computed legal action to the list immediately.</p>
             
             <h4><b>Action Buttons</b></h4>
             <p>Action buttons on the bottom:</p>
@@ -367,7 +367,7 @@
 
             <li>
             <p>The format of 5dFEN is:</p>
-            <p><code>[&lt;FEN&gt;:&lt;Timeline&gt;:&lt;Turn&gt;:&lt;Color&gt;]</code></p>
+            <p><code>[&lt;FEN&gt;:&lt;timeline&gt;:&lt;turn&gt;:&lt;color&gt;]</code></p>
 
             <p>Example:</p>
             <p><code>[nbrk/3p*/P*3/KRBN:0:1:w]</code></p>
@@ -378,11 +378,11 @@
             <ul>
             <li>Lowercase letters <code>pnbrqk</code> represent Black pieces.</li>
             <li>Uppercase letters <code>PNBRQK</code> represent White pieces.</li>
-            <li>Digits <code>1–8</code> indicate consecutive empty squares.</li>
+            <li>Digits <code>1–8</code> indicate number of consecutive empty squares.</li>
             <li>Slashes separate ranks.</li>
             </ul>
 
-            <p>In 5dFEN, letters marked with an asterisk (only <code>p*/P* r*/R* k*/K*</code>) indicate pieces that have not moved. These markers determine whether special moves such as castling are allowed.</p>
+            <p>In 5dFEN, letters marked with an asterisk (only <code>p*/P* r*/R* k*/K* w*/W*</code>) indicate pieces that have not moved. These markers determine whether special moves such as castling are allowed.</p>
 
             <p>Some non-standard pieces are also supported. The engine supports the following pieces:</p>
             <ul>
@@ -404,7 +404,7 @@
             <li>
             <p>The notation of 5dpgn imitates standard chess PGN (Portable Game Notation). Its format is:</p>
 
-            <p><code>&lt;origin board&gt;&lt;piece&gt;&lt;origin square&gt;&lt;jump marker&gt;&lt;capture marker&gt;&lt;target board&gt;&lt;target square&gt;</code></p>
+            <p><code>&lt;origin-board&gt;&lt;piece&gt;&lt;origin-square&gt;&lt;jump-indicator&gt;&lt;capture-marker&gt;&lt;target-board&gt;&lt;target-square&gt;</code></p>
 
             <p>Where:</p>
             <ul>
@@ -412,13 +412,13 @@
             <li>Piece letters must be uppercase.</li>
             <li>Squares are written like <code>a7</code>. Files (x-axis, from White’s perspective left to right) use <code>a–g</code>. Ranks (y-axis, from White’s perspective bottom to top) use <code>1–8</code>.</li>
             <li>The capture marker is a lowercase <code>x</code>. If no capture occurs, omit it.</li>
-            <li>Jump markers are <code>&gt;</code> and <code>&gt;&gt;</code>.  
+            <li>jump-indicators are <code>&gt;</code> and <code>&gt;&gt;</code>.  
             <ul>
             <li><code>&gt;</code> indicates time travel without creating a new timeline.</li>
             <li><code>&gt;&gt;</code> indicates the target board is in the past and a new timeline must be created.</li>
             </ul>
             </li>
-            <li>If the move is not a time-travel move, there should be no jump marker or target board.</li>
+            <li>If the move is not a time-travel move, there should be no jump-indicator or target board.</li>
             <li>Castling may be written as <code>O-O</code> or <code>Ke1g1/Ke8g8</code>. Similarly, queenside castling may be written as <code>O-O-O</code> or <code>Ke1c1/Ke8c8</code>.</li>
             </ul>
             </li>
