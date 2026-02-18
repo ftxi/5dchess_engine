@@ -147,6 +147,11 @@
     color: #333;
     cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    white-space: nowrap;
+    min-width: 130px;
 }
 
 .hud-comment-btn:hover:not(:disabled) {
@@ -156,7 +161,14 @@
 }
 
 #hudUpdateComment {
-    width: 125px;
+    width: max-content;
+    max-width: 190px;
+}
+
+@media (max-width: 600px) {
+    #hudUpdateComment {
+        width: max-content;
+    }
 }
 
 #hudUpdateComment.delete {

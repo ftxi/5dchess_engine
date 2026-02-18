@@ -20,18 +20,40 @@ export const UI = (() => {
     const hudCommentActions = document.getElementById('hudCommentActions');
     const hudUpdateComment = document.getElementById('hudUpdateComment');
     const hudDiscardChanges = document.getElementById('hudDiscardChanges');
+    const AUTO_TOGGLE_KEY = 'auto-toggle-comments';
+    let autoToggleComments = true;
+    try {
+        const storedAutoToggle = localStorage.getItem(AUTO_TOGGLE_KEY);
+        autoToggleComments = storedAutoToggle !== null ? storedAutoToggle === 'true' : true;
+    } catch (error) {
+        autoToggleComments = true;
+    }
 
     function updateToggle(expanded) {
+        if (!toggle) return;
         toggle.innerHTML = expanded ? ICON_UP : ICON_DOWN;
     }
 
-    toggle.onclick = () => {
-        const expanded = hud.classList.toggle("expanded");
+    function setHudExpanded(expanded) {
+        if (!hud) return;
+        hud.classList.toggle("expanded", expanded);
         hud.classList.toggle("collapsed", !expanded);
         updateToggle(expanded);
+    }
+
+    function autoToggleHudForText(text) {
+        if (!autoToggleComments) return;
+        const trimmed = (text || '').trim();
+        setHudExpanded(trimmed.length > 0);
+    }
+
+    toggle.onclick = () => {
+        if (!hud) return;
+        const isExpanded = hud.classList.contains("expanded");
+        setHudExpanded(!isExpanded);
     };
 
-    updateToggle(false);
+    setHudExpanded(false);
 
     /* ================= HUD Text Content ================= */
     let hudTextChangeCallback = null;
@@ -473,6 +495,24 @@ export const UI = (() => {
         });
     }
 
+    // Automatically toggle HUD when comments change
+    const autoToggleCommentsCheckbox = document.getElementById('autoToggleComments');
+    if (autoToggleCommentsCheckbox) {
+        autoToggleCommentsCheckbox.checked = autoToggleComments;
+        autoToggleCommentsCheckbox.addEventListener('change', () => {
+            autoToggleComments = autoToggleCommentsCheckbox.checked;
+            try {
+                localStorage.setItem(AUTO_TOGGLE_KEY, autoToggleComments.toString());
+            } catch (error) {
+                // Ignore storage errors (e.g. Safari private mode)
+            }
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ autoToggleComments });
+            }
+            autoToggleHudForText(hudText ? hudText.textContent : '');
+        });
+    }
+
     // ----------------------- Color Scheme / Theme Management -----------------------
 
     // Populate color scheme select dynamically
@@ -890,6 +930,7 @@ export const UI = (() => {
         setHudText(content) {
             hudText.textContent = content;
             setHudTextOriginal(content);
+            autoToggleHudForText(content);
         },
 
         /**

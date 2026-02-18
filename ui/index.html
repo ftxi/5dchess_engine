@@ -164,7 +164,7 @@
         <div class="popup-content popup-content-flex">
             <textarea class="popup-textarea popup-textarea-flex" id="importTextarea" placeholder="Paste your data here or drag and drop a file..."></textarea>
             <div class="popup-button-group">
-                <button class="popup-button" id="loadFromFileButton">Load from File</button>
+                <button class="popup-button" id="loadFromFileButton">Open File...</button>
                 <button class="popup-button" id="loadButton">Load</button>
             </div>
         </div>
@@ -211,6 +211,10 @@
                 <select id="colorSchemeSelect">
                     <!-- Options are added in ui.js -->
                 </select>
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                    <input type="checkbox" id="autoToggleComments" checked>
+                    <span>Automatically toggle comments area</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
                     <input type="checkbox" id="toggleDebugWindow">
