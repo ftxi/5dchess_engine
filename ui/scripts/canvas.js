@@ -119,6 +119,7 @@ export class InfiniteScrollableCanvas {
             zoomSpeed: options.zoomSpeed ?? 0.005,
             dragSpeed: options.dragSpeed ?? 1.0,
             lerpSpeed: options.lerpSpeed ?? 0.01,
+            dragThreshold: options.dragThreshold ?? 10, // Minimum distance in pixels to consider it a drag
             ...options
         };
         
@@ -135,11 +136,13 @@ export class InfiniteScrollableCanvas {
         this.isDragging = false;
         this.dragStart = { x: 0, y: 0 };
         this.lastMousePos = { x: 0, y: 0 };
+        this.mouseStartPos = { x: 0, y: 0 };
         
         // Touch state
         this.touchStartDistance = 0;
         this.touchStartScale = 0;
         this.touchTapTime = 0;
+        this.touchStartPos = { x: 0, y: 0 };
         
         // Animation
         this.animationManager = new AnimationManager((timeDiff) => this._onAnimationFrame(timeDiff));
@@ -180,6 +183,8 @@ export class InfiniteScrollableCanvas {
         const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
         this.dragStart.x = dragSpeed * e.clientX - this.cameraTarget.x;
         this.dragStart.y = dragSpeed * e.clientY - this.cameraTarget.y;
+        this.mouseStartPos.x = e.clientX;
+        this.mouseStartPos.y = e.clientY;
         this.isDragging = false;
     }
 
@@ -205,16 +210,24 @@ export class InfiniteScrollableCanvas {
         this.lastMousePos = worldPos;
         
         if (this.isMouseDown) {
-            const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
-            this.cameraTarget.x = dragSpeed * e.clientX - this.dragStart.x;
-            this.cameraTarget.y = dragSpeed * e.clientY - this.dragStart.y;
-            this.startAnimation();
+            // Check if movement exceeds drag threshold
+            const distance = this._getDistance(e.clientX, e.clientY, this.mouseStartPos.x, this.mouseStartPos.y);
+            if (distance > this.config.dragThreshold) {
+                this.isDragging = true;
+            }
+            
+            // Only perform drag if we've exceeded the threshold
+            if (this.isDragging) {
+                const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
+                this.cameraTarget.x = dragSpeed * e.clientX - this.dragStart.x;
+                this.cameraTarget.y = dragSpeed * e.clientY - this.dragStart.y;
+                this.startAnimation();
+            }
         }
         
         if (this.onHover) {
             this.onHover(worldPos.x, worldPos.y, e);
         }
-        this.isDragging = true;
     }
 
     _handleWheel(e) {
@@ -248,6 +261,12 @@ export class InfiniteScrollableCanvas {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
+    _getDistance(x1, y1, x2, y2) {
+        const dx = x1 - x2;
+        const dy = y1 - y2;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
     _handleTouchStart(e) {
         e.preventDefault();
         
@@ -257,6 +276,8 @@ export class InfiniteScrollableCanvas {
             const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
             this.dragStart.x = dragSpeed * touch.clientX - this.cameraTarget.x;
             this.dragStart.y = dragSpeed * touch.clientY - this.cameraTarget.y;
+            this.touchStartPos.x = touch.clientX;
+            this.touchStartPos.y = touch.clientY;
             this.isDragging = false;
             this.touchTapTime = Date.now();
         } else if (e.touches.length === 2) {
@@ -270,13 +291,21 @@ export class InfiniteScrollableCanvas {
         e.preventDefault();
         
         if (e.touches.length === 1) {
-            // Single finger drag
             const touch = e.touches[0];
-            const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
-            this.cameraTarget.x = dragSpeed * touch.clientX - this.dragStart.x;
-            this.cameraTarget.y = dragSpeed * touch.clientY - this.dragStart.y;
-            this.startAnimation();
-            this.isDragging = true;
+            
+            // Check if movement exceeds drag threshold
+            const distance = this._getDistance(touch.clientX, touch.clientY, this.touchStartPos.x, this.touchStartPos.y);
+            if (distance > this.config.dragThreshold) {
+                this.isDragging = true;
+            }
+            
+            // Only perform drag if we've exceeded the threshold
+            if (this.isDragging) {
+                const dragSpeed = this.config.dragSpeed / this.cameraCurrent.getZoomLevel();
+                this.cameraTarget.x = dragSpeed * touch.clientX - this.dragStart.x;
+                this.cameraTarget.y = dragSpeed * touch.clientY - this.dragStart.y;
+                this.startAnimation();
+            }
             
             // Update hover position
             const worldPos = this._getTouchWorldPosition(touch);
@@ -305,11 +334,12 @@ export class InfiniteScrollableCanvas {
         if (e.touches.length === 0) {
             // All fingers released
             const currentTime = Date.now();
-            const isTap = !this.isDragging && (currentTime - this.touchTapTime) < 300;
+            const touch = e.changedTouches[0];
+            const distance = this._getDistance(touch.clientX, touch.clientY, this.touchStartPos.x, this.touchStartPos.y);
+            const isTap = distance <= this.config.dragThreshold || (currentTime - this.touchTapTime) < 300;
             
             if (isTap && e.changedTouches.length > 0) {
                 // Single tap detected
-                const touch = e.changedTouches[0];
                 const worldPos = this._getTouchWorldPosition(touch);
                 if (this.onClick) {
                     this.onClick(worldPos.x, worldPos.y, e);
