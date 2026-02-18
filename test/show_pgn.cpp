@@ -1,6 +1,8 @@
 #include <tuple>
 #include <ranges>
 #include <cassert>
+#include <iostream>
+#include <chrono>
 #include "game.h"
 
 std::string str = R"(
@@ -57,8 +59,80 @@ std::string str = R"(
 
 int main()
 {
+    int return_code = 0;
     game g = game::from_pgn(str);
-    std::cout << g.show_pgn() << "\n";
-    std::cout << static_cast<int>(g.get_current_state().get_mate_type()) << "\n";
-    return 0;
+    std::cout << "Final mate state: " << static_cast<int>(g.get_current_state().get_mate_type()) << "\n";
+    std::string default_pgn = g.show_pgn();
+    std::cout << default_pgn << "\n\n";
+    const std::vector<uint16_t> flags_to_test = {
+        state::SHOW_NOTHING,
+        state::SHOW_RELATIVE,
+        state::SHOW_PAWN,
+        state::SHOW_CAPTURE,
+        state::SHOW_PROMOTION,
+//        state::SHOW_MATE,
+        state::SHOW_LCOMMENT,
+        state::SHOW_SHORT,
+        state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE | state::SHOW_SHORT,
+        state::SHOW_ALL
+    };
+    for(uint16_t flags : flags_to_test)
+    {
+        std::cout << "Flags: " << flags << " (";
+        if(flags & state::SHOW_RELATIVE)
+        {
+            std::cout << "SHOW_RELATIVE ";
+        }
+        if(flags & state::SHOW_PAWN)
+        {
+            std::cout << "SHOW_PAWN ";
+        }
+        if(flags & state::SHOW_CAPTURE)
+        {
+            std::cout << "SHOW_CAPTURE ";
+        }
+        if(flags & state::SHOW_PROMOTION)
+        {
+            std::cout << "SHOW_PROMOTION ";
+        }
+        if(flags & state::SHOW_MATE)
+        {
+            std::cout << "SHOW_MATE ";
+        }
+        if(flags & state::SHOW_LCOMMENT)
+        {
+            std::cout << "SHOW_LCOMMENT ";
+        }
+        if(flags & state::SHOW_SHORT)
+        {
+            std::cout << "SHOW_SHORT ";
+        }
+        std::cout << ")\n";
+        auto start = std::chrono::high_resolution_clock::now();
+        std::string pgn = g.show_pgn(flags);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "Time to print: " << duration.count() << " ms\n";
+        std::cout << "Re-construct game from PGN:";
+        bool exception_thrown = false;
+        try {
+            game g2 = game::from_pgn(pgn);
+        }
+        catch(const std::exception& e)
+        {
+            exception_thrown = true;
+            std::cerr << "failed. " << e.what() << "\n";
+            return_code = 1;
+        }
+        if(!exception_thrown)
+        {
+            std::cout << "passed\n";
+        }
+        std::cout << "Output:\n" << pgn << "\n\n";
+    }
+    if(return_code == 0)
+    {
+        std::cout << "---= show_pgn.cpp: all tests passed =---" <<std::endl;
+    }
+    return return_code;
 }

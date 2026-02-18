@@ -86,6 +86,11 @@ function addHighlight(data, color, field, values) {
 worker.onmessage = (e) => {
     const msg = e.data;
     if (msg.type === 'ready') {
+        // Send current export options to worker on startup
+        worker.postMessage({
+            type: 'update_settings', 
+            settings: UI.getSettings()
+        });
         worker.postMessage({type: 'load', pgn: '[Board "Standard - Turn Zero"]'});
     }
     else if (msg.type === 'engine_version') {

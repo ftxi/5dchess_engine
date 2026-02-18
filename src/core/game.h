@@ -8,6 +8,7 @@
 #include <string>
 #include <map>
 #include <set>
+#include <optional>
 #include "state.h"
 #include "gametree.h"
 
@@ -66,7 +67,7 @@ public:
     */
     bool visit_child(action act, comments_t comments = {}, std::optional<state> newstate = std::nullopt);
     
-    std::string show_pgn();
+    std::string show_pgn(uint16_t show_flags = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE);
 };
 
 

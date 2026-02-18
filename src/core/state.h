@@ -1,11 +1,14 @@
 #ifndef STATE_H
 #define STATE_H
 
+#include <array>
+#include <cstddef>
 #include <memory>
-#include <string>
-#include <set>
 #include <optional>
+#include <set>
+#include <string>
 #include <tuple>
+#include <utility>
 #include <iostream>
 #include "multiverse.h"
 #include "action.h"
@@ -126,12 +129,15 @@ public:
     constexpr static uint16_t SHOW_PROMOTION = 1 << 3;
     constexpr static uint16_t SHOW_MATE = 1 << 4;
     constexpr static uint16_t SHOW_LCOMMENT = 1 << 5;
-    constexpr static uint16_t SHOW_ALL = SHOW_RELATIVE | SHOW_PAWN | SHOW_CAPTURE | SHOW_PROMOTION | SHOW_MATE | SHOW_LCOMMENT;
-    template<uint16_t FLAGS=SHOW_CAPTURE | SHOW_PROMOTION>
-    std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W) const;
-private:
+    constexpr static uint16_t SHOW_SHORT = 1 << 6;
+    constexpr static uint16_t SHOW_ALL = SHOW_RELATIVE | SHOW_PAWN | SHOW_CAPTURE | SHOW_PROMOTION | SHOW_MATE | SHOW_LCOMMENT | SHOW_SHORT;
     template<uint16_t FLAGS>
-    std::string pretty_move_impl(full_move fm, piece_t promote_to, char check_symbol) const;
+    std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W) const;
+    std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W, uint16_t flags=SHOW_CAPTURE | SHOW_PROMOTION) const;
+private:
+    struct detail;
+    template<uint16_t FLAGS>
+    std::string pretty_move_impl(full_move fm, piece_t promote_to, char check_symbol, bool multimove) const;
 public:
     /*
     pretty_action<FLAGS>(action act)
@@ -140,8 +146,9 @@ public:
 
     If SHOW_MATE is set and the action is softmate or checkmate, the last check symbol will be replaced to * or # respectively
     */
-    template<uint16_t FLAGS=SHOW_CAPTURE | SHOW_PROMOTION>
+    template<uint16_t FLAGS>
     std::string pretty_action(action act) const;
+    std::string pretty_action(action act, uint16_t flags=SHOW_CAPTURE | SHOW_PROMOTION) const;
     
     enum class mate_type {NONE, CHECKMATE, SOFTMATE, STALEMATE};
     mate_type get_mate_type() const;

@@ -268,7 +268,7 @@ def handle_request(data):
 @socketio.on('request_pgn')
 def handle_undo():
     print('client requests pgn')
-    pgn = g.show_pgn()
+    pgn = g.show_pgn(engine.SHOW_ALL & ~engine.SHOW_RELATIVE)
     emit('response_pgn', pgn)
 
 if __name__ == '__main__':

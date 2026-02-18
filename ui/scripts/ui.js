@@ -404,12 +404,14 @@ export const UI = (() => {
             return;
         }
         navigator.clipboard.writeText(text).then(() => {
-            // Visual feedback - flash the button
+            // Visual feedback - show copied label and flash button
             const button = document.getElementById('copyButton');
-            const originalText = button.textContent;
-            button.textContent = 'Copied!';
+            const label = document.getElementById('copiedLabel');
+            button.classList.add('active');
+            label.classList.add('visible');
             setTimeout(() => {
-                button.textContent = originalText;
+                button.classList.remove('active');
+                label.classList.remove('visible');
             }, 2000);
         }).catch(() => {
             alert('Failed to copy to clipboard.');
@@ -449,6 +451,90 @@ export const UI = (() => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     };
+
+    // Export options checkboxes
+    const exportMateCheckbox = document.getElementById('exportMate');
+    const exportShortNotationCheckbox = document.getElementById('exportShortNotation');
+    const exportRelativeNotationCheckbox = document.getElementById('exportRelativeNotation');
+    const EXPORT_MATE_KEY = 'export-mate';
+    const EXPORT_SHORT_NOTATION_KEY = 'export-short-notation';
+    const EXPORT_RELATIVE_NOTATION_KEY = 'export-relative-notation';
+
+    // Initialize export options from localStorage
+    try {
+        const storedMate = localStorage.getItem(EXPORT_MATE_KEY);
+        const storedShortNotation = localStorage.getItem(EXPORT_SHORT_NOTATION_KEY);
+        const storedRelativeNotation = localStorage.getItem(EXPORT_RELATIVE_NOTATION_KEY);
+        exportMateCheckbox.checked = storedMate !== null ? storedMate === 'true' : true;
+        exportShortNotationCheckbox.checked = storedShortNotation !== null ? storedShortNotation === 'true' : false;
+        exportRelativeNotationCheckbox.checked = storedRelativeNotation !== null ? storedRelativeNotation === 'true' : false;
+    } catch (error) {
+        // Fallback to defaults if localStorage is not available (e.g., Safari private mode)
+        exportMateCheckbox.checked = true;
+        exportShortNotationCheckbox.checked = false;
+        exportRelativeNotationCheckbox.checked = false;
+    }
+
+    if (exportMateCheckbox) {
+        exportMateCheckbox.addEventListener('change', () => {
+            try {
+                localStorage.setItem(EXPORT_MATE_KEY, exportMateCheckbox.checked.toString());
+            } catch (error) {
+                // Ignore storage errors
+            }
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ 
+                    exportMate: exportMateCheckbox.checked,
+                    exportShortNotation: exportShortNotationCheckbox.checked,
+                    exportRelativeNotation: exportRelativeNotationCheckbox.checked
+                });
+            }
+        });
+    }
+
+    if (exportShortNotationCheckbox) {
+        exportShortNotationCheckbox.addEventListener('change', () => {
+            try {
+                localStorage.setItem(EXPORT_SHORT_NOTATION_KEY, exportShortNotationCheckbox.checked.toString());
+            } catch (error) {
+                // Ignore storage errors
+            }
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ 
+                    exportMate: exportMateCheckbox.checked,
+                    exportShortNotation: exportShortNotationCheckbox.checked,
+                    exportRelativeNotation: exportRelativeNotationCheckbox.checked
+                });
+            }
+        });
+    }
+
+    if (exportRelativeNotationCheckbox) {
+        exportRelativeNotationCheckbox.addEventListener('change', () => {
+            try {
+                localStorage.setItem(EXPORT_RELATIVE_NOTATION_KEY, exportRelativeNotationCheckbox.checked.toString());
+            } catch (error) {
+                // Ignore storage errors
+            }
+            if (settingsChangeCallback) {
+                settingsChangeCallback({ 
+                    exportMate: exportMateCheckbox.checked,
+                    exportShortNotation: exportShortNotationCheckbox.checked,
+                    exportRelativeNotation: exportRelativeNotationCheckbox.checked
+                });
+            }
+        });
+    }
+
+    // Refresh button
+    const refreshButton = document.getElementById('refreshButton');
+    if (refreshButton) {
+        refreshButton.onclick = () => {
+            if (exportCallback) {
+                exportCallback();
+            }
+        };
+    }
 
     document.getElementById('btnSettings').onclick = (event) => {
         showPopup(event.currentTarget, 'popupSettings');
@@ -1066,6 +1152,17 @@ export const UI = (() => {
          */
         showInfoPage() {
             showInfoPopup();
+        },
+
+        /**
+         * Get the current settings (Mate and Short Notation)
+         * @returns {Object} Object with exportMate and exportShortNotation boolean values
+         */
+        getSettings() {
+            return {
+                exportMate: exportMateCheckbox.checked,
+                exportShortNotation: exportShortNotationCheckbox.checked
+            };
         }
     };
 })();

@@ -124,10 +124,12 @@ For more detail, please read [this page](docs/index.md).
 - [ ] ~~flask static path~~
 - [x] embind
 - [x] debug nonstandard pieces
-- [ ] editing comments
+- [x] editing comments
 - [x] L/T numbers
 - [ ] documentation
 - [x] variants loading
 - [x] ctest
 - [x] Reduce resource usage when displaying pgn
 - [x] Check arrows in the new ui
+- [x] Export pgn options
+- [ ] Next move arrows

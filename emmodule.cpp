@@ -336,6 +336,15 @@ EMSCRIPTEN_BINDINGS(engine) {
             return g.visit_child(act);
         }))
         .function("show_pgn", &game::show_pgn);
+    constant("SHOW_NOTHING", state::SHOW_NOTHING);
+    constant("SHOW_RELATIVE", state::SHOW_RELATIVE);
+    constant("SHOW_PAWN", state::SHOW_PAWN);
+    constant("SHOW_CAPTURE", state::SHOW_CAPTURE);
+    constant("SHOW_PROMOTION", state::SHOW_PROMOTION);
+    constant("SHOW_MATE", state::SHOW_MATE);
+    constant("SHOW_LCOMMENT", state::SHOW_LCOMMENT);
+    constant("SHOW_ALL", state::SHOW_ALL);
+    constant("SHOW_SHORT", state::SHOW_SHORT);
     
     // Export version information
     function("get_version", optional_override([]() {

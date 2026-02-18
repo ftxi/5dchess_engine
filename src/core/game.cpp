@@ -437,7 +437,7 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
     return false;
 }
 
-std::string game::show_pgn()
+std::string game::show_pgn(uint16_t show_flags)
 {
     std::ostringstream oss;
     for(const auto &[k, v] : metadata)
@@ -445,11 +445,12 @@ std::string game::show_pgn()
         std::string key = k;
         if(!key.empty())
         {
+            // Capitalize the first letter of the key
             key[0] = toupper(key[0]);
         }
         oss << "[" << key << " \"" << v << "\"]\n";
     }
     oss << gametree->get_state().show_fen() << "\n";
-    oss << gametree->to_string(show_comments);
+    oss << gametree->to_string(show_comments, show_flags);
     return oss.str();
 }

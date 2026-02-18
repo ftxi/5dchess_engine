@@ -88,7 +88,12 @@ public:
         }
         return nullptr;
     }
-    std::string to_string(std::function<std::string(T)> show = [](T){return "";}, turn_t start_turn = {1,false}, bool full_turn_display=true)
+    std::string to_string(
+        std::function<std::string(T)> show = [](T){return "";},
+        uint16_t show_flags = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE,
+        turn_t start_turn = {1,false},
+        bool full_turn_display=true
+    )
     {
         std::ostringstream oss;
         size_t num_children = children.size();
@@ -107,8 +112,7 @@ public:
             {
                 oss << t << ". ";
             }
-            constexpr uint16_t FLAGS = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE;
-            oss << parent->get_state().template pretty_action<FLAGS>(act) << " ";
+            oss << parent->get_state().pretty_action(act, show_flags) << " ";
             oss << show(info);
             start_turn = next_turn(start_turn);
             if(c && num_children > 0)
@@ -124,13 +128,13 @@ public:
         {
             for(auto it = children.begin(); it+1 != children.end(); it++)
             {
-                oss << "(" << (**it).to_string(show, start_turn, true) << ")\n";
+                oss << "(" << (**it).to_string(show, show_flags, start_turn, true) << ")\n";
             }
         }
         if(num_children > 0)
         {
             auto it = (children.end() - 1);
-            oss << (**it).to_string(show, start_turn, num_children > 1);
+            oss << (**it).to_string(show, show_flags, start_turn, num_children > 1);
         }
         return oss.str();
     }

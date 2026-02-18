@@ -35,7 +35,7 @@ async function runTest() {
     g.visit_child(suggestions[0].action);
 
     // Show PGN and boards
-    console.log('PGN after suggestion:', g.show_pgn());
+    console.log('PGN after suggestion:', g.show_pgn(engine_wasm.SHOW_NOTHING));
     console.log('Current boards:', g.get_current_boards());
   } catch (err) {
     console.error('Error loading module:', err);

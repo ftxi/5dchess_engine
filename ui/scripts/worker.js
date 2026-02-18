@@ -18,6 +18,9 @@ createModule().then((engine) => {
     self.settings = {
         allowSubmitWithChecks: false,
         showMovablePieces: false,
+        exportMate: true,
+        exportShortNotation: false,
+        exportRelativeNotation: false,
     };
 
     // Get and post the engine version
@@ -273,7 +276,17 @@ createModule().then((engine) => {
             // Update UI state if needed
             updateButtons();
         } else if (data.type === 'export') {
-            let pgn = self.game.show_pgn();
+            let flags = engine.SHOW_CAPTURE | engine.SHOW_PROMOTION;
+            if (self.settings.exportMate) {
+                flags |= engine.SHOW_MATE;
+            }
+            if (self.settings.exportShortNotation) {
+                flags |= engine.SHOW_SHORT;
+            }
+            if (self.settings.exportRelativeNotation) {
+                flags |= engine.SHOW_RELATIVE;
+            }
+            let pgn = self.game.show_pgn(flags);
             self.postMessage({ type: 'update_pgn', pgn: pgn });
         } else if (data.type === 'update_comment') {
             let comments = data.comments || [];

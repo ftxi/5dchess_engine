@@ -906,6 +906,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
     {
         // do the same for superphysical moves
         auto spm = std::get<pgnparser_ast::superphysical_move>(move.data);
+        bool is_relative = std::holds_alternative<pgnparser_ast::relative_board>(spm.to_board);
         for(vec4 p : gen_movable_pieces())
         {
             char piece = to_white(piece_name(get_piece(p, player)));
@@ -918,7 +919,15 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                     full_move fm(p,q);
                     dprint("matching", fm);
                     // test if this physical move matches any of them
-                    std::string full_notation = pretty_move<FLAGS>(fm);
+                    std::string full_notation;
+                    if(is_relative)
+                    {
+                        full_notation = pretty_move<FLAGS | SHOW_RELATIVE>(fm);
+                    }
+                    else
+                    {
+                        full_notation = pretty_move<FLAGS>(fm);
+                    }
                     auto full = pgnparser(full_notation).parse_superphysical_move();
                     assert(full.has_value());
                     bool match = pgnparser::match_superphysical_move(spm, *full);
