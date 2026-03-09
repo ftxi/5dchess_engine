@@ -718,7 +718,7 @@ state::mate_type state::get_mate_type() const
         int max_axis = std::min(w.new_axis+timeline_advantage+1, w.dimension-1);
         for(int n = w.new_axis; n <= max_axis; n++)
         {
-            std::erase_if(hc.axes[n], [&w, n, old_t=present](int i){
+            hc.axes[n].erase_if([&w, n, old_t=present](int i){
                 if(std::holds_alternative<arriving_move>(w.axis_coords[n][i]))
                 {
                     auto am = std::get<arriving_move>(w.axis_coords[n][i]);

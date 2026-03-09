@@ -110,7 +110,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
     HC universe;
     int new_axis, dimension;
-    std::vector<std::set<int>> nonbranching_axes, branching_axes;
+    std::vector<integer_set> nonbranching_axes, branching_axes;
     auto [mandatory_timelines, optional_timelines, unplayable_timelines] = s.get_timeline_status();
     auto playable_timelines = concat_vectors(mandatory_timelines, optional_timelines);
     assert(!s.can_submit());
@@ -301,7 +301,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     universe.axes.reserve(dimension);
     for(int n = 0; n < dimension; n++)
     {
-        std::set<int> coords;
+        integer_set coords;
         // on nth dimension, the hypercube has coordinates 0, 1, ..., m avialible
         // which corresponds to axis_coords[n][0], axis_coords[n][1], ...
         for(int i = 0; i < static_cast<int>(axis_coords[n].size()); i++)
@@ -350,7 +350,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     
     // split the search space by number of branches
     HC hc_n_lines = universe;
-    std::set<int> singleton = {0}, non_null;
+    integer_set singleton = {0}, non_null;
     if(new_axis < dimension)
     {
         for(int i = 1; i < static_cast<int>(axis_coords[new_axis].size()); i++)
@@ -384,7 +384,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
     for(int n = 0; n < dimension; n++)
     {
         bool has_nonjump = false;
-        std::set<int> ghost_arrive_indices;
+        integer_set ghost_arrive_indices;
         for(int i : hc[n])
         {
             const semimove& loc = axis_coords[n][i];
@@ -527,7 +527,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                  -[s] any branching move on axis n to (l', t') (which is a null_move)
                  i.e. all moves >> (l',t') then creates branch new_l
                  */
-                std::set<int> s;
+                integer_set s;
                 for(int i : hc[n])
                 {
                     const semimove& loc3 = axis_coords[n][i];
@@ -540,7 +540,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                         }
                     }
                 }
-                std::map<int, std::set<int>> fixed_axes {{n, s}, {m, {im}}};
+                std::map<int, integer_set> fixed_axes {{n, s}, {m, integer_set{im}}};
                 slice problem(fixed_axes);
                 dprint("case one; point:", range_to_string(p));
                 dprint("problem", problem.to_string());
@@ -561,7 +561,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                 -[s2] on axis for new_l0, any move goes to (l,t)
             */
             int axis_branch = jump_map[critical_tl];
-            std::set<int> s1, s2;
+            integer_set s1, s2;
             for(int i : hc.axes[n])
             {
                 const semimove& l1 = axis_coords[n][i];
@@ -586,7 +586,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                     }
                 }
             }
-            std::map<int, std::set<int>> fixed_axes {{n, s1}, {axis_branch, s2}};
+            std::map<int, integer_set> fixed_axes {{n, s1}, {axis_branch, s2}};
             slice problem(fixed_axes);
             dprint("case two; point:", range_to_string(p));
             dprint("problem", problem.to_string());
@@ -728,7 +728,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
             {
                 continue;
             }
-            std::set<int> s;
+            integer_set s;
             for(int i : hc[n])
             {
                 semimove loc = axis_coords[n][i];
@@ -804,7 +804,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         if(line_to_axis.contains(check.from.l()))
         {
             int n1 = line_to_axis.at(check.from.l());
-            std::set<int> not_taking;
+            integer_set not_taking;
             for(int i : hc.axes[n1])
             {
                 semimove loc = axis_coords[n1][i];
@@ -849,7 +849,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     not_taking.insert(i);
                 }
             }
-            problem.fixed_axes.insert({n1, not_taking});
+                problem.fixed_axes.insert({n1, not_taking});
         }
         /* on axis for check.to.l():
          if the board of checks.to is what just played, ban all moves that leave
@@ -871,7 +871,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
             }
             else
             {
-                std::set<int> expose_royal;
+                integer_set expose_royal;
                 for(int i : hc.axes[n2])
                 {
                     semimove loc = axis_coords[n2][i];
@@ -916,7 +916,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                 else
                 {
                     bitboard_t z = pmask(crossed.xy());
-                    std::set<int> not_blocking;
+                    integer_set not_blocking;
                     for(int i : hc.axes[n])
                     {
                         semimove loc = axis_coords[n][i];

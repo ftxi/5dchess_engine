@@ -59,7 +59,7 @@ void test_hc()
     search_space ss1 = hc.remove_point(a);
     std::cout << ss1.to_string() << "\n";
     
-    std::map<int, std::set<int>> fixed_axes = {{0,{1}},{2,{1,2}}};
+    std::map<int, integer_set> fixed_axes = {{0,{1}},{2,{1,2}}};
     slice sl {fixed_axes};
     search_space ss2 = hc.remove_slice(sl);
     std::cout << ss2.to_string() << "\n";
@@ -69,7 +69,7 @@ void test_remove()
 {
     HC hc {{{0}, {2}}};
     std::cout << hc.to_string() << "\n";
-    std::map<int, std::set<int>> fixed_axes = {{0,{0}}};
+    std::map<int, integer_set> fixed_axes = {{0,{0}}};
     slice sl {fixed_axes};
     search_space ss2 = hc.remove_slice(sl);
     std::cout << ss2.to_string() << "\n";

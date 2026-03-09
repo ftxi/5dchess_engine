@@ -3,7 +3,7 @@
 #include <sstream>
 #include "utils.h"
 
-const std::set<int> &HC::operator[](size_t i) const
+const integer_set &HC::operator[](size_t i) const
 {
     return axes[i];
 }
@@ -51,7 +51,7 @@ search_space HC::remove_slice(const slice &s) const
     for(const auto& [i, fixed_coords] : s.fixed_axes)
     {
         HC x = remaining;
-        x.axes[i] = set_minus(x.axes[i], fixed_coords);
+        x.axes[i].minus(fixed_coords);
         remaining.axes[i] = fixed_coords;
         if(!x.axes[i].empty()) // do not include empty hc
         {
@@ -69,7 +69,7 @@ search_space HC::remove_point(const point &p) const
     {
         HC x = remaining;
         x.axes[i].erase(p[i]);
-        std::set<int> singleton = {p[i]};
+        integer_set singleton = {p[i]};
         remaining.axes[i] = singleton;
         if(!x.axes[i].empty()) // do not include empty hc
         {
