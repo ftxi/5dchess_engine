@@ -1,13 +1,13 @@
 #include "multiverse_base.h"
 #include "utils.h"
 #include "magic.h"
+#include <array>
 #include <regex>
 #include <sstream>
 #include <algorithm>
 #include <limits>
 #include <iostream>
 #include <utility>
-#include <initializer_list>
 #include <cassert>
 
 /*
@@ -433,7 +433,8 @@ generator<vec4> multiverse::gen_piece_move(vec4 p, bool board_color) const
     movegen_t gen = board_color ? gen_moves<true>(p) : gen_moves<false>(p);
     for (const auto& [r, bb] : gen)
     {
-        for(int pos : marked_pos(bb))
+        auto positions = board_color ? marked_pos<true>(bb) : marked_pos<false>(bb);
+        for(int pos : positions)
         {
             vec4 q = vec4(pos, r);
 			co_yield q;
@@ -441,20 +442,53 @@ generator<vec4> multiverse::gen_piece_move(vec4 p, bool board_color) const
     }
 }
 
-constexpr std::initializer_list<vec4> orthogonal_dtls = {
+/*
+ Flips the vec4 along the y and l axes.
+ */
+constexpr vec4 flip_vec(const vec4& v)
+{
+    return vec4(v.x(), -v.y(), v.t(), -v.l());
+}
+
+template<bool C, size_t N, size_t... Idx>
+constexpr std::array<vec4, N> flip_vectors_impl(const std::array<vec4, N>& input, std::index_sequence<Idx...>)
+{
+    if constexpr (!C)
+    {
+        return input;
+    }
+    else
+    {
+        return { flip_vec(input[Idx])... };
+    }
+}
+
+
+/*
+ Flips the vectors in the input array if C is true, and returns the input array unchanged if C is false.
+ 
+ This is to ensure that the move generation logic can be shared between the two players without biasing towards one of them.
+ */
+template<bool C, size_t N>
+constexpr std::array<vec4, N> flip_vectors(const std::array<vec4, N>& input)
+{
+    return flip_vectors_impl<C>(input, std::make_index_sequence<N>{});
+}
+
+constexpr std::array<vec4, 3> orthogonal_dtls = {
     vec4(0, 0, 0, 1),
     vec4(0, 0, 0, -1),
     vec4(0, 0, -1, 0)
 };
 
-constexpr std::initializer_list<vec4> diagonal_dtls = {
+constexpr std::array<vec4, 4> diagonal_dtls = {
     vec4(0, 0, 1, 1),
     vec4(0, 0, 1, -1),
     vec4(0, 0, -1, 1),
     vec4(0, 0, -1, -1)
 };
 
-constexpr std::initializer_list<vec4> both_dtls = {
+constexpr std::array<vec4, 7> both_dtls = {
     vec4(0, 0, 0, 1),
     vec4(0, 0, 0, -1),
     vec4(0, 0, -1, 0),
@@ -464,7 +498,18 @@ constexpr std::initializer_list<vec4> both_dtls = {
     vec4(0, 0, -1, -1)
 };
 
-constexpr std::initializer_list<vec4> double_dtls = {
+constexpr std::array<vec4, 8> knight_pure_sp_delta = {
+    vec4(0, 0, 2, 1),
+    vec4(0, 0, 1, 2),
+    vec4(0, 0, -2, 1),
+    vec4(0, 0, 1, -2),
+    vec4(0, 0, 2, -1),
+    vec4(0, 0, -1, 2),
+    vec4(0, 0, -2, -1),
+    vec4(0, 0, -1, -2)
+};
+
+constexpr std::array<vec4, 3> double_dtls = {
     vec4(0, 0, 0, 2),
     vec4(0, 0, 0, -2),
     vec4(0, 0, -2, 0)
@@ -476,7 +521,7 @@ std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_rook_moves(ve
     std::vector<std::pair<vec4, bitboard_t>> result;
     std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t lrook = b0_ptr->lrook() & b0_ptr->friendly<C>();
-    for(auto d : orthogonal_dtls)
+    for(auto d : flip_vectors<C>(orthogonal_dtls))
     {
         bitboard_t remaining = lrook;
         for(vec4 p1 = p0 + d; remaining && inbound(p1, C); p1 = p1 + d)
@@ -501,7 +546,7 @@ std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_bishop_moves(
     std::vector<std::pair<vec4, bitboard_t>> result;
     std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t lbishop = b0_ptr->lbishop() & b0_ptr->friendly<C>();
-    for(auto d : diagonal_dtls)
+    for(auto d : flip_vectors<C>(diagonal_dtls))
     {
         bitboard_t remaining = lbishop;
         for(vec4 p1 = p0 + d; remaining && inbound(p1, C); p1 = p1 + d)
@@ -526,9 +571,7 @@ std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_knight_moves(
     std::vector<std::pair<vec4, bitboard_t>> result;
     std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t lknight = b0_ptr->lknight() & b0_ptr->friendly<C>();
-    const static std::vector<vec4> knight_pure_sp_delta = {vec4(0, 0, 2, 1), vec4(0, 0, 1, 2), vec4(0, 0, -2, 1), vec4(0, 0, 1, -2),
-        vec4(0, 0, 2, -1), vec4(0, 0, -1, 2), vec4(0, 0, -2, -1), vec4(0, 0, -1, -2)};
-    for(vec4 delta : knight_pure_sp_delta)
+    for(vec4 delta : flip_vectors<C>(knight_pure_sp_delta))
     {
         vec4 p1 = p0 + delta;
         if(inbound(p1, C))
@@ -681,59 +724,170 @@ void multiverse::gen_compound_moves(vec4 p, std::map<vec4, bitboard_t>& result) 
     bitboard_t occ, fri;
     bitboard_t copy_mask;
     
-    constexpr auto deltas = (TL==multiverse::axesmode::ORTHOGONAL) ? orthogonal_dtls : (TL==multiverse::axesmode::DIAGONAL) ? diagonal_dtls : both_dtls;
-    
     constexpr auto copy_mask_fn = (XY==multiverse::axesmode::ORTHOGONAL) ? rook_copy_mask : (XY==multiverse::axesmode::DIAGONAL) ? bishop_copy_mask : queen_copy_mask;
 
-    for(vec4 d : deltas)
+    if constexpr (TL==multiverse::axesmode::ORTHOGONAL)
     {
-        vec4 q = p;
-        occ = fri = 0;
-        for (int n = 1; n < 8; n++)
+        for(vec4 d : flip_vectors<C>(orthogonal_dtls))
         {
-            copy_mask = copy_mask_fn(pos, n);
-            q = q + d;
-            // if the corresponding board exists, copy the cone slice
-            if(inbound(q, C))
+            vec4 q = p;
+            occ = fri = 0;
+            for (int n = 1; n < 8; n++)
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
-                occ |= copy_mask & b_ptr->occupied();
-                fri |= copy_mask & b_ptr->friendly<C>();
+                copy_mask = copy_mask_fn(pos, n);
+                q = q + d;
+                // if the corresponding board exists, copy the cone slice
+                if(inbound(q, C))
+                {
+                    std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                    occ |= copy_mask & b_ptr->occupied();
+                    fri |= copy_mask & b_ptr->friendly<C>();
+                }
+                // otherwise, set the cone slice to a blocker of friendly pieces, which prevents the attacking move towards this non-existant board
+                else
+                {
+                    occ |= copy_mask;
+                    fri |= copy_mask;
+                    break;
+                }
             }
-            // otherwise, set the cone slice to a blocker of friendly pieces, which prevents the attacking move towards this non-existant board
-            else
+            bitboard_t loc = ~fri;
+            if constexpr (XY == multiverse::axesmode::ORTHOGONAL)
             {
-                occ |= copy_mask;
-                fri |= copy_mask;
-                break;
+                loc &= rook_attack(pos, occ);
             }
-        }
-        bitboard_t loc = ~fri;
-        if constexpr (XY == multiverse::axesmode::ORTHOGONAL)
-        {
-            loc &= rook_attack(pos, occ);
-        }
-        else if (XY == multiverse::axesmode::DIAGONAL)
-        {
-            loc &= bishop_attack(pos, occ);
-        }
-        else
-        {
-            loc &= queen_attack(pos, occ);
-        }
-        q = p;
-        for (int n = 1; n < 8; n++)
-        {
-            copy_mask = copy_mask_fn(pos, n);
-            q = q + d;
-            bitboard_t c = loc & copy_mask;
-            if(c)
+            else if (XY == multiverse::axesmode::DIAGONAL)
             {
-                result[q.tl()] |= c;
+                loc &= bishop_attack(pos, occ);
             }
             else
             {
-                break;
+                loc &= queen_attack(pos, occ);
+            }
+            q = p;
+            for (int n = 1; n < 8; n++)
+            {
+                copy_mask = copy_mask_fn(pos, n);
+                q = q + d;
+                bitboard_t c = loc & copy_mask;
+                if(c)
+                {
+                    result[q.tl()] |= c;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+    }
+    else if constexpr (TL==multiverse::axesmode::DIAGONAL)
+    {
+        for(vec4 d : flip_vectors<C>(diagonal_dtls))
+        {
+            vec4 q = p;
+            occ = fri = 0;
+            for (int n = 1; n < 8; n++)
+            {
+                copy_mask = copy_mask_fn(pos, n);
+                q = q + d;
+                // if the corresponding board exists, copy the cone slice
+                if(inbound(q, C))
+                {
+                    std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                    occ |= copy_mask & b_ptr->occupied();
+                    fri |= copy_mask & b_ptr->friendly<C>();
+                }
+                // otherwise, set the cone slice to a blocker of friendly pieces, which prevents the attacking move towards this non-existant board
+                else
+                {
+                    occ |= copy_mask;
+                    fri |= copy_mask;
+                    break;
+                }
+            }
+            bitboard_t loc = ~fri;
+            if constexpr (XY == multiverse::axesmode::ORTHOGONAL)
+            {
+                loc &= rook_attack(pos, occ);
+            }
+            else if (XY == multiverse::axesmode::DIAGONAL)
+            {
+                loc &= bishop_attack(pos, occ);
+            }
+            else
+            {
+                loc &= queen_attack(pos, occ);
+            }
+            q = p;
+            for (int n = 1; n < 8; n++)
+            {
+                copy_mask = copy_mask_fn(pos, n);
+                q = q + d;
+                bitboard_t c = loc & copy_mask;
+                if(c)
+                {
+                    result[q.tl()] |= c;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+    }
+    else
+    {
+        for(vec4 d : flip_vectors<C>(both_dtls))
+        {
+            vec4 q = p;
+            occ = fri = 0;
+            for (int n = 1; n < 8; n++)
+            {
+                copy_mask = copy_mask_fn(pos, n);
+                q = q + d;
+                // if the corresponding board exists, copy the cone slice
+                if(inbound(q, C))
+                {
+                    std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                    occ |= copy_mask & b_ptr->occupied();
+                    fri |= copy_mask & b_ptr->friendly<C>();
+                }
+                // otherwise, set the cone slice to a blocker of friendly pieces, which prevents the attacking move towards this non-existant board
+                else
+                {
+                    occ |= copy_mask;
+                    fri |= copy_mask;
+                    break;
+                }
+            }
+            bitboard_t loc = ~fri;
+            if constexpr (XY == multiverse::axesmode::ORTHOGONAL)
+            {
+                loc &= rook_attack(pos, occ);
+            }
+            else if (XY == multiverse::axesmode::DIAGONAL)
+            {
+                loc &= bishop_attack(pos, occ);
+            }
+            else
+            {
+                loc &= queen_attack(pos, occ);
+            }
+            q = p;
+            for (int n = 1; n < 8; n++)
+            {
+                copy_mask = copy_mask_fn(pos, n);
+                q = q + d;
+                bitboard_t c = loc & copy_mask;
+                if(c)
+                {
+                    result[q.tl()] |= c;
+                }
+                else
+                {
+                    break;
+                }
             }
         }
     }
@@ -753,7 +907,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
     }
     if constexpr (P == KING_W || P == KING_B || P == COMMON_KING_W || P == COMMON_KING_B || P == KING_UW || P == KING_UB)
     {
-        for(auto d : both_dtls)
+        for(auto d : flip_vectors<C>(both_dtls))
         {
             vec4 q = p+d;
             if(inbound(q, C))
@@ -1001,7 +1155,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                 co_yield std::make_pair(index.tl(), bb1);
             }
         }
-        for(auto d : orthogonal_dtls)
+        for(auto d : flip_vectors<C>(orthogonal_dtls))
         {
             vec4 q = p+d;
             if(inbound(q, C))
@@ -1014,7 +1168,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                 }
             }
         }
-        for(auto d : double_dtls)
+        for(auto d : flip_vectors<C>(double_dtls))
         {
             vec4 q = p+d;
             if(inbound(q, C))
@@ -1062,7 +1216,7 @@ generator<vec4> multiverse::gen_board_move_impl(vec4 p0) const
 {
     std::shared_ptr<board> b_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t bb = b_ptr->friendly<C>() & ~b_ptr->wall();
-    for(int pos : marked_pos(bb))
+    for(int pos : marked_pos<C>(bb))
     {
         vec4 p = vec4(pos, p0.tl());
         // TODO: optimize code below
@@ -1071,7 +1225,7 @@ generator<vec4> multiverse::gen_board_move_impl(vec4 p0) const
         movegen_t gen = C ? gen_moves<true>(p) : gen_moves<false>(p);
         for (const auto& [r, bb] : gen)
         {
-            for(int pos : marked_pos(bb))
+            for(int pos : marked_pos<C>(bb))
             {
                 vec4 q = vec4(pos, r);
                 co_yield q;

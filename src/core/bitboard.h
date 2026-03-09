@@ -78,7 +78,35 @@ constexpr int bb_get_pos(bitboard_t b)
     int n = std::countl_zero(b);
     return std::numeric_limits<bitboard_t>::digits - 1 - n;
 }
-std::vector<int> marked_pos(bitboard_t b);
+
+/*
+Returns the positions of all bits set to 1 in the bitboard, in ascending order if C is true, and in descending order if C is false.
+
+The reason why there are two versions is that we want to make movegen
+fair for both players.
+*/
+template<bool C>
+std::vector<int> marked_pos(bitboard_t b)
+{
+    std::vector<int> result;
+    while (b)
+    {
+        int n;
+        if constexpr (C)
+        {
+            n = std::countr_zero(b);
+            result.push_back(n);
+            b &= b - 1;
+        }
+        else
+        {
+            n = bb_get_pos(b);
+            result.push_back(n);
+            b &= ~(bitboard_t(1) << n);
+        }
+    }
+    return result;
+}
 
 inline bitboard_t white_pawn_attack(int pos)
 {

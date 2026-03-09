@@ -427,7 +427,7 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
         std::shared_ptr<board> b = s.get_board(l, t, c);
         bitboard_t pieces = c ? b->black()&~b->white() : b->white()&~b->black();
         // for each friendly piece on this board
-        for (int src_pos : marked_pos(pieces))
+        for (int src_pos : marked_pos<false>(pieces))
         {
             vec4 p = vec4(src_pos, vec4(0,0,t,l));
             // generate the aviliable moves
@@ -611,7 +611,7 @@ generator<full_move> state::find_checks_impl(std::vector<int> lines) const
         std::shared_ptr<board> b_ptr = m->get_board(l, t, C);
         bitboard_t b_pieces = b_ptr->friendly<C>() & ~b_ptr->wall();
         // for each friendly piece on this board
-        for (int src_pos : marked_pos(b_pieces))
+        for (int src_pos : marked_pos<C>(b_pieces))
         {
             vec4 p = vec4(src_pos, vec4(0,0,t,l));
             // generate the aviliable moves
@@ -626,7 +626,7 @@ generator<full_move> state::find_checks_impl(std::vector<int> lines) const
                     bitboard_t c_pieces = bb & b1_ptr->royal();
                     if (c_pieces)
                     {
-                        for(int dst_pos : marked_pos(c_pieces))
+                        for(int dst_pos : marked_pos<C>(c_pieces))
                         {
                             vec4 q = vec4(dst_pos, q0);
                             dprint("found check", full_move(p,q), "source:", p);
@@ -673,7 +673,7 @@ std::vector<vec4> state::gen_movable_pieces_impl(std::vector<int> lines) const
         std::shared_ptr<board> b_ptr = m->get_board(l, t, C);
         bitboard_t b_pieces = b_ptr->friendly<C>() & ~b_ptr->wall();
         // for each friendly piece on this board
-        for (int src_pos : marked_pos(b_pieces))
+        for (int src_pos : marked_pos<C>(b_pieces))
         {
             vec4 p = vec4(src_pos, p0);
             // generate the aviliable moves
@@ -862,7 +862,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
         {
             char piece = to_white(piece_name(get_piece(p, player)));
             bitboard_t bb = player ? m->gen_physical_moves<true>(p) : m->gen_physical_moves<false>(p);
-            for(int pos : marked_pos(bb))
+            for(int pos : marked_pos<false>(bb))
             {
                 vec4 q(pos, p.tl());
                 full_move fm(p,q);
@@ -913,7 +913,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
             auto gen = player ? m->gen_superphysical_moves<true>(p) : m->gen_superphysical_moves<false>(p);
             for(const auto& [p0, bb] : gen)
             {
-                for(int pos : marked_pos(bb))
+                for(int pos : marked_pos<false>(bb))
                 {
                     vec4 q(pos, p0);
                     full_move fm(p,q);

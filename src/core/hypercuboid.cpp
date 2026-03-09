@@ -91,11 +91,11 @@ std::tuple<std::vector<vec4>, int> get_move_path(const state &s, full_move fm, i
 bool has_physical_check(const board &b, bool c)
 {
     bitboard_t friendly =  c ? b.black() : b.white();
-    for(int pos : marked_pos(b.royal() & friendly))
+    for(int pos : marked_pos<false>(b.royal() & friendly))
     {
         if([[maybe_unused]] auto x = b.is_under_attack(pos, c))
         {
-            dprint("physical check", full_move(vec4(marked_pos(x)[0],vec4(0,0,0,0)),vec4(pos, vec4(0,0,0,0))));
+            dprint("physical check", full_move(vec4(marked_pos<false>(x)[0],vec4(0,0,0,0)),vec4(pos, vec4(0,0,0,0))));
             return true;
         }
     }

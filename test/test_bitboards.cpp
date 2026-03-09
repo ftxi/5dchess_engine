@@ -179,6 +179,23 @@ void test_attacks()
     cerr << "test_attacks passed" << endl;
 }
 
+void test_marked_pos_reverse()
+{
+    std::mt19937_64 gen(0xdecafbad);
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+
+    for(int i = 0; i < 1000; ++i)
+    {
+        bitboard_t b = dist(gen);
+        auto forward = marked_pos<false>(b);
+        auto reversed = marked_pos<true>(b);
+        std::reverse(forward.begin(), forward.end());
+        assert(forward == reversed);
+    }
+
+    cerr << "test_marked_pos_reverse passed" << endl;
+}
+
 //void test_bb_conversion()
 //{
 //    std::random_device rd;
@@ -197,6 +214,7 @@ void test_attacks()
  int main()
  {
      test_attacks();
+     test_marked_pos_reverse();
      //test_bb_conversion();
      cerr << "---= test_bitboards.cpp: all passed =---" << endl;
      return 0;

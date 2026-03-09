@@ -13,11 +13,14 @@
 #include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <climits>
 
 static_assert(-(1) == ~0, "two's complement required");
 
 typedef std::uint32_t vec4_t;
-constexpr vec4_t L_BITS = 8, T_BITS = 8, Y_BITS = 8, X_BITS = 8;
+constexpr vec4_t L_BITS = 12, T_BITS = 12, Y_BITS = 4, X_BITS = 4;
+
+static_assert(L_BITS + T_BITS + Y_BITS + X_BITS == sizeof(vec4_t) * CHAR_BIT, "L_BITS + T_BITS + Y_BITS + X_BITS must be equal to the number of bits in vec4_t (32 in this case)");
 
 class vec4 {
     vec4_t value;
