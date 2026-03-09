@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(5dchess_engine VERSION 0.0.0 LANGUAGES CXX)
 
+# Enable LTO for release builds when supported by the toolchain
+include(CheckIPOSupported)
+check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
+if(IPO_SUPPORTED)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+else()
+    message(STATUS "LTO not supported: ${IPO_ERROR}")
+endif()
+
 # Extract version from git tags with fallback to CMake project version
 find_package(Git QUIET)
 if(GIT_FOUND)
