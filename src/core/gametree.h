@@ -27,6 +27,7 @@ public:
     {
         return std::unique_ptr<gnode<T>>(new gnode<T>(parent, s, act, info));
     }
+
     std::unique_ptr<gnode<T>> clone(gnode<T>* new_parent = nullptr) const
     {
         auto node = std::unique_ptr<gnode<T>>(
@@ -37,6 +38,7 @@ public:
         }
         return node;
     }
+
     state get_state()
     {
         if(s)
@@ -53,30 +55,23 @@ public:
             throw std::runtime_error("gnode::get_state(): Root gnode has no state");
         }
     }
-    const action& get_action() const {
-        return act;
-    }
-    const T& get_info() const {
-        return info;
-    }
-    void set_info(const T &x)
+    const action& get_action() const { return act; }
+    const T& get_info() const { return info; }
+    void set_info(const T &x) { info = x; }
+    void set_info(T &&x) { info = x; }
+    gnode<T>* get_parent() const { return parent; }
+
+    gnode<T>* add_child(std::unique_ptr<gnode<T>> child) 
     {
-        info = x;
-    }
-    void set_info(T &&x)
-    {
-        info = x;
-    }
-    gnode<T>* get_parent() const {
-        return parent;
-    }
-    gnode<T>* add_child(std::unique_ptr<gnode<T>> child) {
         children.push_back(std::move(child));
         return children.back().get();
     }
-    const std::vector<std::unique_ptr<gnode>>& get_children() const {
+
+    const std::vector<std::unique_ptr<gnode>>& get_children() const 
+    {
         return children;
     }
+
     gnode<T>* find_child(const action &a)
     {
         for(const auto &child : children)
@@ -88,6 +83,7 @@ public:
         }
         return nullptr;
     }
+    
     std::string to_string(
         std::function<std::string(T)> show = [](T){return "";},
         uint16_t show_flags = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE,

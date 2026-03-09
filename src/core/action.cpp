@@ -75,9 +75,9 @@ std::ostream &operator<<(std::ostream &os, const full_move &fm)
 
 /*********************************/
 
-void action::sort(std::vector<ext_move> &mvs, const state &s)
+int action::sort(std::vector<ext_move> &mvs, const state &s)
 {
-    size_t branching_index = 0;
+    size_t rbranching_index = 0;
     auto [present, player] = s.get_present();
     std::set<int> moved_lines;
     for(size_t i=0; i<mvs.size(); i++)
@@ -90,34 +90,30 @@ void action::sort(std::vector<ext_move> &mvs, const state &s)
         moved_lines.insert(p.l());
         if(branching)
         {
-            std::swap(mvs[i], mvs[branching_index]);
-            branching_index++;
+            std::swap(mvs[i], mvs[rbranching_index]);
+            rbranching_index++;
         }
         else
         {
             moved_lines.insert(q.l());
         }
     }
-    if(branching_index < mvs.size())
+    if(rbranching_index < mvs.size())
     {
         int sign = player ? -1 : 1;
-        std::sort(mvs.begin()+branching_index, mvs.end(), [sign](ext_move m1, ext_move m2){
+        std::sort(mvs.begin()+rbranching_index, mvs.end(), [sign](ext_move m1, ext_move m2){
             return sign*m1.get_to().l() < sign*m2.get_to().l();
         });
-        std::rotate(mvs.begin(), mvs.begin()+branching_index, mvs.end());
+        std::rotate(mvs.begin(), mvs.begin()+rbranching_index, mvs.end());
     }
+    return static_cast<int>(mvs.size() - rbranching_index);
 }
 
 action action::from_vector(const std::vector<ext_move> &mvs, const state &s)
 {
     action a{mvs};
-    sort(a.mvs, s);
+    a.branching_index = sort(a.mvs, s);
     return a;
-}
-
-std::vector<ext_move> action::get_moves() const
-{
-    return mvs;
 }
 
 std::ostream& operator<<(std::ostream &os, const action &act)

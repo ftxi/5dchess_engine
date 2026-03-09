@@ -23,5 +23,5 @@ print(g.apply_move(fm))
 print(g.submit())
 
 print(g.get_current_boards())
-print(g.show_pgn(0))
+print(g.show_pgn(engine.SHOW_NOTHING))
 

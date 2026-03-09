@@ -45,18 +45,29 @@ using moveseq = std::vector<full_move>;
 
 class state; // forward declaration
 
-/* an action is a sequence of extended moves
- sorted in standard order
+/*
+ An action is a sequence of extended moves sorted in standard order
+ `branching_index` is the index of index branching move
+ (no branching move => branching_index = mvs.size())
+ i.e. mvs[0], ..., mvs[branching_index-1] ~> non-branching
+      mvs[branching_index], ..., mvs[mvs.size()-1] ~> branching
+ 
+ To construct an instance, use fatory `from_vector`.
  */
 class action
 {
     std::vector<ext_move> mvs;
+    int branching_index;
     action(std::vector<ext_move> mvs) : mvs(mvs) {}
 public:
-    action() : mvs{} {}
-    static void sort(std::vector<ext_move>& mvs, const state &s);
+    action() : mvs{}, branching_index{0} {}
+    /* Sort a vector of extended moves according to the standard order
+    as a side effact and return the branching index */
+    static int sort(std::vector<ext_move>& mvs, const state &s);
     static action from_vector(const std::vector<ext_move>& mvs, const state &s);
-    std::vector<ext_move> get_moves() const;
+    std::vector<ext_move> get_moves() const { return mvs; }
+    int get_length() const { return static_cast<int>(mvs.size()); }
+    int get_branching_index() const { return branching_index; }
     bool operator ==(const action &other) const = default;
     friend std::ostream& operator<<(std::ostream &os, const action &act);
 };
