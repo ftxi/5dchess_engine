@@ -86,8 +86,8 @@ struct HC_info
     // local variables
     const state s;
     const std::map<int, int> line_to_axis; // map from timeline index to axis index
-    const std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
-    const HC universe;
+    std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
+    HC universe;
     const int new_axis, dimension; // axes 0, 1, ..., new_axis-1 are playable lines
     // whereas new_axis, new_axis+1, ..., dimension-1 are the possible branching lines
     // identity: dimension = universe.axes.size() = axis_coords.size()
@@ -105,7 +105,6 @@ private:
     std::optional<slice> test_present(const point& p, const HC& hc) const;
     std::optional<slice> find_checks(const point& p, const HC& hc) const;
     moveseq to_action(const point& p) const;
-    
     //private aggregate constructor
     HC_info(state s, std::map<int, int> lm, std::vector<std::vector<semimove>> crds, HC uni, int ax, int dim, const std::vector<int> pl)
         : s(std::move(s)), line_to_axis(std::move(lm)), axis_coords(std::move(crds)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
@@ -115,6 +114,7 @@ public:
     generator<moveseq> search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
+    void shuffle(search_space& ss);
 };
 
 #endif /* HYPERCUBOID_H */

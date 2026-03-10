@@ -36,6 +36,8 @@ public:
     bool erase(int value);
     template <typename Predicate>
     void erase_if(Predicate pred);
+    template <typename UnaryOp>
+    constexpr void transform(UnaryOp op);
 
     void minus(const integer_set &other);
 };
@@ -44,6 +46,17 @@ template <typename Predicate>
 void integer_set::erase_if(Predicate pred)
 {
     data.erase(std::remove_if(data.begin(), data.end(), pred), data.end());
+}
+
+template <typename UnaryOp>
+constexpr void integer_set::transform(UnaryOp op)
+{
+    for(auto &value : data)
+    {
+        value = op(value);
+    }
+    std::sort(data.begin(), data.end());
+    data.erase(std::unique(data.begin(), data.end()), data.end());
 }
 
 inline constexpr integer_set::integer_set(std::initializer_list<int> values)

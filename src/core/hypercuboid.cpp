@@ -4,8 +4,10 @@
 
 
 // for debug
+#include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <random>
 //#define DEBUGMSG
 #include "debug.h"
 
@@ -427,7 +429,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
         }
         for(int i : ghost_arrive_indices)
         {
-            hc.axes[n].erase(i);
+            hc.axes[n].erase(i); //TODO: Rewrite with set minus
         }
         if(hc.axes[n].empty())
         {
@@ -1014,7 +1016,59 @@ moveseq HC_info::to_action(const point &p) const
     return mvs;
 }
 
+void HC_info::shuffle(search_space &ss)
+{
+    static thread_local std::mt19937 rng(std::random_device{}());
+    std::vector<std::vector<int>> inverses(dimension);
+    for(int n = 0; n < dimension; n++)
+    {
+        std::vector<int> permutation(universe.axes[n].begin(), universe.axes[n].end());
+        int axis_size = static_cast<int>(permutation.size());
+        int axis_coords_size = static_cast<int>(axis_coords[n].size());
+        inverses[n].assign(axis_coords_size, -1);
+        if(axis_size > 1)
+        {
+            std::shuffle(permutation.begin(), permutation.end(), rng);
+        }
+        for(int new_idx = 0; new_idx < axis_size; new_idx++)
+        {
+            inverses[n][permutation[new_idx]] = new_idx;
+        }
+        if(axis_size <= 1)
+        {
+            continue;
+        }
 
+        std::vector<semimove> old_axis = std::move(axis_coords[n]);
+        std::vector<semimove> shuffled;
+        shuffled.reserve(axis_size);
+        for(int new_idx = 0; new_idx < axis_size; new_idx++)
+        {
+            shuffled.push_back(std::move(old_axis[permutation[new_idx]]));
+        } 
+        axis_coords[n] = std::move(shuffled);
+
+        for(HC &hc : ss.hcs)
+        {
+            hc.axes[n].transform([&inverses, n](int old_index){
+                return inverses[n][old_index];
+            });
+        }
+    }
+    for(int n = 0; n < dimension; n++)
+    {
+        for(auto &sm : axis_coords[n])
+        {
+            if(auto *loc = std::get_if<arriving_move>(&sm))
+            {
+                int from_axis = line_to_axis.at(loc->m.from.l());
+                int old_idx = loc->idx;
+                int new_idx = inverses[from_axis][old_idx];
+                loc->idx = new_idx;
+            }
+        }
+    }
+}
 
 // ------------------------------------------------------------
 

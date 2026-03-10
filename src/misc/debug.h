@@ -34,7 +34,7 @@ void debug_print(Args... args)
 #define adprint(...) (detail::debug_print(__VA_ARGS__))
 
 #ifdef DEBUGMSG
-#define dprint(...) (detail::debug_print(__VA_ARGS__))
+#define dprint(...) (::detail::debug_print(__VA_ARGS__))
 #else
 #define dprint(...)
 #endif
