@@ -65,6 +65,7 @@ public:
     as a side effact and return the branching index */
     static int sort(std::vector<ext_move>& mvs, const state &s);
     static action from_vector(const std::vector<ext_move>& mvs, const state &s);
+    static action from_moveseq(const moveseq& mvs, const state &s);
     std::vector<ext_move> get_moves() const { return mvs; }
     int get_length() const { return static_cast<int>(mvs.size()); }
     int get_branching_index() const { return branching_index; }
