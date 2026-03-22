@@ -27,6 +27,7 @@ typedef enum {
     SOFTMATE, CHECKMATE, EVALUATION_SYM,
     PRESENT_MOVED,
     LEFT_PAREN, RIGHT_PAREN,
+    WHITE_WINS, BLACK_WINS, DRAW,
     END
 } token_t;
 
@@ -76,7 +77,9 @@ struct actions {
     friend std::ostream& operator<<(std::ostream& os, const actions& ac);
 };
 struct gametree {
-    std::vector<std::pair<actions, std::unique_ptr<gametree>>> variations;
+    using variation_t = std::pair<actions, std::unique_ptr<gametree>>;
+    using variations_t = std::vector<variation_t>;
+    std::variant<variations_t, token_t> variations_or_outcome;
     friend std::ostream& operator<<(std::ostream& os, const gametree& gt);
 };
 struct game {

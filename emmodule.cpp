@@ -103,6 +103,16 @@ inline val convert_action_to_js(const action &act)
     return js_act;
 }
 
+inline val convert_metadata_to_js(const std::map<std::string, std::string>& metadata)
+{
+    val js_metadata = val::object();
+    for (const auto& [key, value] : metadata)
+    {
+        js_metadata.set(key, value);
+    }
+    return js_metadata;
+}
+
 ///////////////////////////////
 // js objects ~> cpp objects //
 ///////////////////////////////
@@ -131,6 +141,25 @@ inline action convert_js_to_action(const val& js_action, const state& s)
     return action::from_vector(mvs, s);
 }
 
+inline std::map<std::string, std::string> convert_js_to_metadata(const val& js_metadata)
+{
+    std::map<std::string, std::string> metadata;
+    if (js_metadata.isNull() || js_metadata.isUndefined())
+    {
+        return metadata;
+    }
+
+    val object = val::global("Object");
+    val keys = object.call<val>("keys", js_metadata);
+    unsigned length = keys["length"].as<unsigned>();
+    for (unsigned i = 0; i < length; ++i)
+    {
+        std::string key = keys[i].as<std::string>();
+        metadata[key] = js_metadata[key].as<std::string>();
+    }
+    return metadata;
+}
+
 /////////////////////////
 // emscripten bindings //
 /////////////////////////
@@ -143,6 +172,12 @@ EMSCRIPTEN_BINDINGS(engine) {
     class_<game>("game")
         .smart_ptr<std::shared_ptr<game>>("game")
         .property("metadata", &game::metadata)
+        .function("get_metadata", optional_override([](const game& self) {
+            return convert_metadata_to_js(self.metadata);
+        }))
+        .function("set_metadata", optional_override([](game& self, val js_metadata) {
+            self.metadata = convert_js_to_metadata(js_metadata);
+        }))
         .function("get_current_present", optional_override([](const game& self) {
             const auto [t, c] = self.get_current_present();
             val obj = val::object();

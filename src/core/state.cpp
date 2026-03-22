@@ -3,6 +3,7 @@
 #include <cassert>
 #include <functional>
 #include "utils.h"
+#include "variants.h"
 #include "pgnparser.h"
 #include "hypercuboid.h"
 
@@ -17,142 +18,25 @@ state::state(multiverse &mtv) noexcept : m(mtv.clone())
 
 state::state(const pgnparser_ast::game &g)
 {
-    auto &metadata = g.headers;
-    // parse size
-    auto find_or_default = [](const std::map<std::string, std::string>& m, const std::string& key, const std::string& def) -> std::string {
-        auto it = m.find(key);
-        if (it != m.end()) {
-            return it->second;
-        } else {
-            return def;
-        }
-    };
-    std::string size_str = find_or_default(metadata, "size", "8x8");
-    int size_x, size_y;
-    auto pos = size_str.find('x');
-    if (pos == std::string::npos)
-        throw std::runtime_error("state(): Invalid board size format: " + size_str);
-    try {
-        size_x = std::stoi(size_str.substr(0, pos));
-        size_y = std::stoi(size_str.substr(pos + 1));
-        if(size_x <= 0 || size_y <= 0 || size_x > BOARD_LENGTH || size_y > BOARD_LENGTH)
-        {
-            throw std::out_of_range("");
-        }
-    } catch (const std::invalid_argument&) {
-        throw std::runtime_error("state(): Expect number in size value: " + size_str);
-    } catch (const std::out_of_range&) {
-        throw std::runtime_error("state(): Number out of range in size value: " + size_str + " (max board size allowed: " + std::to_string(BOARD_LENGTH) + ")");
-    }
-    // parse board
-    using board_t = std::vector<std::tuple<std::string, pgnparser_ast::token_t, int, int, bool>>;
-    board_t boards = g.boards;
-    std::optional<bool> is_even_timelines;
-    auto it = metadata.find("board");
-    if(it != metadata.end())
-    {
-        std::string board_str = it->second;
-        // none of the default variants should be named as "Custom[...]"
-        const static std::map<std::string, std::tuple<bool, int, int, board_t>> default_variants = {
-            {
-                "Standard",
-                {
-                    false, // Odd timelines
-                    8,8,
-                    {
-                        std::make_tuple("r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*", pgnparser_ast::NIL, 0, 1, false)
-                    }
-                }
-            },
-            {
-                "Standard - Turn Zero",
-                {
-                    false, // Odd timelines
-                    8,8,
-                    {
-                        std::make_tuple("r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*", pgnparser_ast::NIL, 0, 0, true),
-                        std::make_tuple("r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*", pgnparser_ast::NIL, 0, 1, false),
-                    }
-                }
-            },
-            {
-                "Very Small - Open",
-                {
-                    false, // Odd timelines
-                    4,4,
-                    {
-                        std::make_tuple("nbrk/3p*/P*3/KRBN", pgnparser_ast::NIL, 0, 1, false),
-                    }
-                }
-            },
-        };
-        
-        // Custom variant, can specify even/odd timelines here
-        if(board_str == "Custom - Even" || board_str == "Even")
-        {
-            is_even_timelines = true;
-        }
-        else if(board_str == "Custom - Odd" || board_str == "Odd")
-        {
-            is_even_timelines = false;
-        }
-        else if(board_str.starts_with("Custom"))
-        {
-            // do nothing
-        }
-        else if(boards.empty())
-        {
-            // if g.board is not empty, any description in "Board" header is ignored
-            try {
-                bool even;
-                std::tie(even, size_x, size_y, boards) = default_variants.at(board_str);
-                is_even_timelines = even;
-            } catch (const std::out_of_range&) {
-                throw std::runtime_error("state(): Unknown variant: " + board_str);
-            }
-        }
-    }
-    if(boards.empty())
-    {
-        throw std::runtime_error("state(): Variant is unspecific: no Board header or 5DFEN given");
-    }
-    if(!is_even_timelines.has_value())
-    {
-        bool even = false;
-        for(const auto& [fen, sign, l, t, c] : boards)
-        {
-            even |= (sign == pgnparser_ast::POSITIVE && l == 0);
-            even |= (sign == pgnparser_ast::NEGATIVE && l == 0);
-            if(even) break;
-        }
-        is_even_timelines = even;
-    }
-    // construct multiverse
-    std::vector<boards_info_t> boards_info(boards.size());
-    if(*is_even_timelines)
-    {
-        std::transform(boards.begin(), boards.end(), boards_info.begin(), [](const auto& tup) {
-            const auto& [fen, sign, l, t, c] = tup;
-            int signed_l = sign == pgnparser_ast::NEGATIVE ? ~l : l;
-            return std::make_tuple(signed_l, t, c, fen);
-        });
-        m = std::make_unique<multiverse_even>(boards_info, size_x, size_y);
-    }
-    else
-    {
-        std::transform(boards.begin(), boards.end(), boards_info.begin(), [](const auto& tup) {
-            const auto& [fen, sign, l, t, c] = tup;
-            int sgn = sign == pgnparser_ast::NEGATIVE ? -1 : 1;
-            return std::make_tuple(l*sgn, t, c, fen);
-        });
-        m = std::make_unique<multiverse_odd>(boards_info, size_x, size_y);
-    }
+    auto variant_setup = derive_variant_setup(g);
+    m = create_multiverse_from_variant_setup(variant_setup);
     std::tie(present, player) = m->get_present();
     // parse moves
     const pgnparser_ast::gametree *gt = &g.gt;
-    while(!gt->variations.empty())
+    while(true)
     {
-        const auto &[act, last_gt] = *(gt->variations.end() - 1);
+        if(!std::holds_alternative<pgnparser_ast::gametree::variations_t>(gt->variations_or_outcome))
+        {
+            // pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(gt->variations_or_outcome);
+            // (void)outcome;
+            break;
+        }
+
+        const auto &variations = std::get<pgnparser_ast::gametree::variations_t>(gt->variations_or_outcome);
+        if(variations.empty())
+            break;
+
+        const auto &[act, last_gt] = *(variations.end() - 1);
         //std::cout << act;
         for(const auto& mv: act.moves)
         {
@@ -196,23 +80,33 @@ state::state(const pgnparser_ast::game &g)
                 }
             }
         }
-        if(!last_gt->variations.empty())
+        if(std::holds_alternative<pgnparser_ast::gametree::variations_t>(last_gt->variations_or_outcome))
         {
-            bool flag = submit();
-            if(!flag)
+            const auto &last_variations = std::get<pgnparser_ast::gametree::variations_t>(last_gt->variations_or_outcome);
+            if(!last_variations.empty())
             {
-                std::ostringstream oss;
-                oss << "state(): Cannot submit after parsing these moves: " << act;
-                throw std::runtime_error(oss.str());
+                bool flag = submit();
+                if(!flag)
+                {
+                    std::ostringstream oss;
+                    oss << "state(): Cannot submit after parsing these moves: " << act;
+                    throw std::runtime_error(oss.str());
+                }
+            }
+            else
+            {
+                bool flag = submit();
+                if(!flag)
+                {
+                    std::cerr << "[WARNING]state(): Cannot submit after parsing these moves: " << act;
+                }
             }
         }
         else
         {
-            bool flag = submit();
-            if(!flag)
-            {
-                std::cerr << "[WARNING]state(): Cannot submit after parsing these moves: " << act;
-            }
+            pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(last_gt->variations_or_outcome);
+            (void)outcome;
+            // TODO: Handle game outcome token when checking continuation state.
         }
         gt = last_gt.get();
     }

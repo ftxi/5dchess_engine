@@ -33,7 +33,6 @@ class multiverse
 {
 private:
     const int size_x, size_y; // board size
-    //const int l0_min, l0_max; // initial timeline range
     std::vector<std::vector<std::shared_ptr<board>>> boards;
     // the following data are derivated from boards:
     int l_min, l_max, active_min, active_max;

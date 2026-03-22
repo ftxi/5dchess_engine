@@ -82,14 +82,14 @@ if(TEST)
 endif()
 
 # Find all source files in src/ and src/core/ directories
-file(GLOB_RECURSE ENGINE_SOURCES 
+file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bot/*.cpp"
 )
 
 # Find all header files
-file(GLOB_RECURSE ENGINE_HEADERS 
+file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/bot/*.h"

@@ -17,6 +17,32 @@ async function runTest() {
     const g = g0.game;
     console.log('Initial game object:', g);
 
+    // Metadata API test: get_metadata/set_metadata roundtrip
+    const initialMetadata = g.get_metadata();
+    console.log('Initial metadata:', initialMetadata);
+
+    const nextMetadata = {
+      Event: 'WASM Binding Test',
+      Site: 'Local',
+      Date: '2026.03.18',
+      Round: '1',
+      White: 'TesterA',
+      Black: 'TesterB',
+      Result: '*',
+      Variant: '5D Chess'
+    };
+    g.set_metadata(nextMetadata);
+
+    const roundtripMetadata = g.get_metadata();
+    console.log('Roundtrip metadata:', roundtripMetadata);
+
+    for (const [k, v] of Object.entries(nextMetadata)) {
+      if (roundtripMetadata[k] !== v) {
+        throw new Error(`Metadata mismatch for key ${k}: expected ${v}, got ${roundtripMetadata[k]}`);
+      }
+    }
+    console.log('Metadata roundtrip test passed');
+
     const mvs = g.gen_move_if_playable({ l: 0, t: 1, x: 1, y: 0, c: true });
     console.log(
       `moves: ${mvs.length}, first move: l=${mvs[0].l}, t=${mvs[0].t}, x=${mvs[0].x}, y=${mvs[0].y}`
