@@ -57,13 +57,21 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
         {
             oss << static_cast<char>(p.x() + 'a');
         }
-        else if constexpr(!(FLAGS & SHOW_PAWN) && (FLAGS & SHOW_CAPTURE))
+        else if constexpr(!(FLAGS & SHOW_PAWN))
         {
-            /* pawn captures include the file letter of the originating square
-            of the capturing pawn immediately prior to the "x" character. */
-            if(pic==PAWN_W && get_piece(q, player) != NO_PIECE)
+            if (pic==PAWN_W)
             {
-                oss << static_cast<char>(p.x() + 'a');
+                /* pawn captures include the file letter of the originating square
+                of the capturing pawn immediately prior to the "x" character. */
+                if((FLAGS & SHOW_CAPTURE) && get_piece(q, player) != NO_PIECE)
+                {
+                    oss << static_cast<char>(p.x() + 'a');
+                }
+                /* pawn jump should include the file letter */
+                else if ((p-q).tl()!=vec4(0,0,0,0))
+                {
+                    oss << static_cast<char>(p.x() + 'a');
+                }
             }
         }
         if(from_rank)
@@ -131,14 +139,18 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
     {
         bool success = false;
         /* policy: try hide everything first, if not successful,
-           1. display source TL; if fails again
-           2. display source and target TL; if fails
-           3. in addition, display file or rank
-           4. display everything (no need to check correctness anymore)
+            1. display source file; if fails again
+            2. display source rank; if fails
+            3. display source TL while hiding file and rank; if fails
+            4. display source and target TL; if fails
+            5. in addition, display file or rank
+            6. display everything (no need to check correctness anymore)
          */
         std::vector<std::tuple<bool, bool, bool, bool>> attempts = {
         //from: tl, file, rank; to: tl
             {false, false, false, false},
+            {false, true,  false, false},
+            {false, false, true,  false},
             {true,  false, false, false},
             {true,  false, false, true},
             {true,  true,  false, true},

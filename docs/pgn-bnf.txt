@@ -1,17 +1,17 @@
 <game> ::= {<space-comment>* <header>}* {<space-comment>* <board-fen>}* <space-comment>* <game-tree>
 <header> ::= '[' <header-key> <whitespace>+ '"' <header-value> '"]'
-<header-key> ::= 'Size' | 'Promotion' | 'Date' | 'Round' | 'White' | 'Black' | 'Result' | any sequence of words not containing whitespace or '"'
-<header-value> ::= any sequence of words not containing '"'
+<header-key> ::= 'Size' | 'Promotion' | 'Date' | 'Round' | 'White' | 'Black' | 'Result' | any string not containing whitespace or '"'
+<header-value> ::= any string not containing '"'
 <board-fen> ::= '[' <fen-string> ':' <line> ':' <time> ':' {'w' | 'b'} ']'
-<fen-string> ::= any sequence of words not containing ':' or ']' ;to be parsed separately
+<fen-string> ::= any string not containing ':' or ']' ;to be parsed separately
 
- <game-tree> ::= {'(' <space-comment>* <actions> <space-comment>* <game-tree>')' <space-comment>*}* [<actions> <space-comment>* <game-tree> <space-comment>*]
+<game-tree> ::= {'(' <space-comment>* <action> <space-comment>* <game-tree>')' <space-comment>*}* [<action> <space-comment>* <game-tree> <space-comment>*] | <outcome>
 
-<actions> ::= <turn-serial> <space-comment>* <move> {<space-comment>+ <move>}* <space-comment>*
+<action> ::= <turn-serial> <space-comment>* <move> {<space-comment>+ <move>}* <space-comment>*
 <turn-serial> ::= <number> ['w' | 'b'] '.' |  '/'
 <space-comment> ::= <whitespace> | <comment>
 <comment> ::= '{' <comment-text> '}' <whitespace>*
-<comment-text> ::= any sequence of words not containing '{' or '}'
+<comment-text> ::= any string not containing '{' or '}'
 
 <move> ::= <physical-move> | <superphysical-move>
 <physical-move> ::= [<absolute-board>] ([<piece-name>] [<file>] [<rank>] ['x'] <file> <rank> ['=' <promote-to>] | 'O-O' | 'O-O-O') [<check-symbol>] [<evaluation-symbol>]
@@ -32,5 +32,7 @@
 <line> ::= ['+' | '-'] <natural-number>
 <time> ::= <natural-number>
 <natural-number> ::= '0' | <positive-number>
-<positive-number> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | ...
+<positive-number> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | ...
 <whitespace> ::= {' ' | '\t' | '\n' | '\r'}+
+
+<outcome> ::= '1-0' | '0-1' | '1/2-1/2'

@@ -20,6 +20,15 @@
 //3. Nxc3
 //)";
 
+template <typename T>
+std::set<T> set_minus(const std::set<T>& a, const std::set<T>& b)
+{
+    std::set<T> result;
+    std::set_difference(a.begin(), a.end(), b.begin(), b.end(),
+                        std::inserter(result, result.begin()));
+    return result;
+}
+
 template<bool C>
 generator<moveseq> naive_search_impl(state s, moveseq mvs, int k, bool b)
 {
@@ -358,7 +367,7 @@ int main(int argc, const char *argv[])
         }
         pgnparser_ast::game g = *pgnparser(pgn).parse_game();
         pgnparser_ast::gametree gt_root = std::move(g.gt);
-        g.gt = pgnparser_ast::gametree{{}};
+        g.gt = pgnparser_ast::gametree{};
         pgnparser_ast::gametree *gt = &gt_root;
         
         state current_state = state(g);
@@ -379,73 +388,93 @@ int main(int argc, const char *argv[])
             if(mvs)
             {
                 std::putchar('1');
-                if(!gt->variations.empty())
+                if(std::holds_alternative<pgnparser_ast::gametree::variations_t>(gt->variations_or_outcome))
                 {
-                    const auto &[act, last_gt] = *(gt->variations.end() - 1);
-                    //std::cout << act;
-                    for(const auto& mv: act.moves)
+                    const auto &variations = std::get<pgnparser_ast::gametree::variations_t>(gt->variations_or_outcome);
+                    if(!variations.empty())
                     {
-                        auto [fm_opt, pt_opt, candidates] = current_state.parse_move(mv);
-                        if(!fm_opt.has_value())
+                        const auto &[act, last_gt] = *(variations.end() - 1);
+                        //std::cout << act;
+                        for(const auto& mv: act.moves)
                         {
-                            if(candidates.empty())
+                            auto [fm_opt, pt_opt, candidates] = current_state.parse_move(mv);
+                            if(!fm_opt.has_value())
                             {
-                                std::ostringstream oss;
-                                oss << "state(): Invalid move: " << mv;
-                                throw std::runtime_error(oss.str());
+                                if(candidates.empty())
+                                {
+                                    std::ostringstream oss;
+                                    oss << "state(): Invalid move: " << mv;
+                                    throw std::runtime_error(oss.str());
+                                }
+                                else
+                                {
+                                    std::ostringstream oss;
+                                    oss << "state(): Ambiguous move: " << mv << "; candidates: ";
+                                    oss << range_to_string(candidates, "", "");
+                                    throw std::runtime_error(oss.str());
+                                }
                             }
                             else
                             {
-                                std::ostringstream oss;
-                                oss << "state(): Ambiguous move: " << mv << "; candidates: ";
-                                oss << range_to_string(candidates, "", "");
-                                throw std::runtime_error(oss.str());
+                                full_move fm = fm_opt.value();
+                                bool flag;
+                                if(pt_opt.has_value())
+                                {
+                                    piece_t pt = to_white(*pt_opt);
+                                    flag = current_state.apply_move<false>(fm, pt);
+                                }
+                                else
+                                {
+                                    flag = current_state.apply_move<false>(fm);
+                                }
+                                if(!flag)
+                                {
+                                    std::ostringstream oss;
+                                    oss << "state(): Illegal move: " << mv << " (parsed as: " << fm << ")";
+                                    throw std::runtime_error(oss.str());
+                                }
+                            }
+                        }
+                        if(std::holds_alternative<pgnparser_ast::gametree::variations_t>(last_gt->variations_or_outcome))
+                        {
+                            const auto &last_variations = std::get<pgnparser_ast::gametree::variations_t>(last_gt->variations_or_outcome);
+                            if(!last_variations.empty())
+                            {
+                                bool flag = current_state.submit();
+                                if(!flag)
+                                {
+                                    std::ostringstream oss;
+                                    oss << "state(): Cannot submit after parsing these moves: " << act;
+                                    throw std::runtime_error(oss.str());
+                                }
+                            }
+                            else
+                            {
+                                bool flag = current_state.submit();
+                                if(!flag)
+                                {
+                                    std::cerr << "[WARNING]state(): Cannot submit after parsing these moves: " << act;
+                                }
                             }
                         }
                         else
                         {
-                            full_move fm = fm_opt.value();
-                            bool flag;
-                            if(pt_opt.has_value())
-                            {
-                                piece_t pt = to_white(*pt_opt);
-                                flag = current_state.apply_move<false>(fm, pt);
-                            }
-                            else
-                            {
-                                flag = current_state.apply_move<false>(fm);
-                            }
-                            if(!flag)
-                            {
-                                std::ostringstream oss;
-                                oss << "state(): Illegal move: " << mv << " (parsed as: " << fm << ")";
-                                throw std::runtime_error(oss.str());
-                            }
+                            pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(last_gt->variations_or_outcome);
+                            (void)outcome;
+                            // TODO: Handle game outcome token when checking continuation state.
                         }
-                    }
-                    if(!last_gt->variations.empty())
-                    {
-                        bool flag = current_state.submit();
-                        if(!flag)
-                        {
-                            std::ostringstream oss;
-                            oss << "state(): Cannot submit after parsing these moves: " << act;
-                            throw std::runtime_error(oss.str());
-                        }
+                        gt = last_gt.get();
                     }
                     else
                     {
-                        bool flag = current_state.submit();
-                        if(!flag)
-                        {
-                            std::cerr << "[WARNING]state(): Cannot submit after parsing these moves: " << act;
-                        }
+                        break;
                     }
-                    gt = last_gt.get();
                 }
                 else
                 {
-                    break;
+                    pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(gt->variations_or_outcome);
+                    (void)outcome;
+                    // TODO: Handle game outcome token in perftest traversal.
                 }
             }
             else
