@@ -154,6 +154,9 @@ worker.onmessage = (e) => {
         let options = msg.options.map(obj => obj.pgn);
         nextOptions = msg.options.map(obj => obj.action);
         UI.select.setOptions(options);
+        if (msg.selectedIndex !== undefined) {
+            UI.select.setSelectedIndex(msg.selectedIndex);
+        }
     }
     else if (msg.type === 'update_pgn')
     {

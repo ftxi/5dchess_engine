@@ -1,5 +1,6 @@
 import createModule from '../wasm/engine.js';
 import { parse_FEN } from './parse.js';
+import { hashAction, hashActionList } from './hash.js';
 
 function nextTurn(pos) {
     if (pos.c) {
@@ -13,6 +14,7 @@ createModule().then((engine) => {
     self.engine = engine;
     self.game = null;
     self.has_children;
+    self.memorizedActions = {};
 
     // Settings defaults
     self.settings = {
@@ -179,13 +181,28 @@ createModule().then((engine) => {
     function updateSelect() {
         let children = self.game.get_child_actions();
         self.has_children = children.length > 0;
-        self.postMessage({
-            type: 'update_select',
-            options: children,
-        });
+        let action = readMemorizedAction();
+        if (action) {
+            let found = children.findIndex(child => {
+                return hashAction(child.action) === hashAction(action);
+            });
+            self.postMessage({
+                type: 'update_select',
+                options: children,
+                selectedIndex: found
+            });
+        } else {
+            self.postMessage({
+                type: 'update_select',
+                options: children
+            });
+        }
     }
 
     function updateButtons() {
+        if (self.game === null) {
+            return;
+        }
         self.postMessage({
             type: 'update_buttons',
             undo: self.game.can_undo(),
@@ -205,6 +222,9 @@ createModule().then((engine) => {
     }
 
     function updateHudStatus() {
+        if (self.game === null) {
+            return;
+        }
         // Get match status and comments
         const matchStatus = self.game.get_match_status();
         const comments = self.game.get_comments();
@@ -218,6 +238,21 @@ createModule().then((engine) => {
             hudTitle: matchStatus,
             hudText: hudText,
         });
+    }
+
+    function updateMemorizedAction() {
+        let historyRaw = self.game.get_historical_actions();
+        let history = historyRaw.map((item) => item.action);
+        let action = history.pop();
+        let hash = hashActionList(history);
+        self.memorizedActions[hash] = action;
+    }
+
+    function readMemorizedAction() {
+        let historyRaw = self.game.get_historical_actions();
+        let history = historyRaw.map((item) => item.action);
+        let hash = hashActionList(history);
+        return self.memorizedActions[hash];
     }
 
     self.onmessage = (e) => {
@@ -240,6 +275,7 @@ createModule().then((engine) => {
         } else if (data.type === 'submit') {
             self.game.submit();
             updateSelect();
+            updateMemorizedAction();
             updateButtons();
             updateHudStatus();
             viewGame();
@@ -260,6 +296,7 @@ createModule().then((engine) => {
         } else if (data.type === 'next') {
             self.game.visit_child(data.action);
             updateSelect();
+            updateMemorizedAction();
             updateButtons();
             updateHudStatus();
             viewGame();
