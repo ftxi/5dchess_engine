@@ -76,15 +76,30 @@ std::ostream &operator<<(std::ostream &os, const actions &ac)
 std::ostream &operator<<(std::ostream &os, const gametree &gt)
 {
     os << "gametree[";
-    bool first = true;
-    for(auto& [a, v] : gt.variations)
+    if(std::holds_alternative<gametree::variations_t>(gt.variations_or_outcome))
     {
-        if(!first)
+        bool first = true;
+        for(const auto& [a, v] : std::get<gametree::variations_t>(gt.variations_or_outcome))
         {
-            os << ",";
+            if(!first)
+            {
+                os << ",";
+            }
             first = false;
+            os << "(" << a << "," << *v << ")";
         }
-        os << "(" << a << "," << *v << ")";
+    }
+    else
+    {
+        token_t outcome = std::get<token_t>(gt.variations_or_outcome);
+        os << "outcome:";
+        switch(outcome)
+        {
+            case WHITE_WINS: os << "1-0"; break;
+            case BLACK_WINS: os << "0-1"; break;
+            case DRAW: os << "1/2-1/2"; break;
+            default: os << static_cast<int>(outcome);
+        }
     }
     os << "]";
     return os;

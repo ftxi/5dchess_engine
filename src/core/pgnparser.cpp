@@ -115,8 +115,46 @@ void pgnparser::next_token()
         case '=':
             buffer.token = EQUAL; dprint("token:EQUAL"); buffer.current++; break;
         case '0':
-            buffer.token = ZERO; dprint("token:ZERO"); buffer.current++; break;
+            buffer.current++;
+            if(*buffer.current != '-')
+            {
+                buffer.token = ZERO;
+                dprint("token:ZERO");
+                break;
+            }
+            else
+            {
+                buffer.current++;
+                if(*buffer.current != '0')
+                {
+                    throw parse_error("next_token(): expected '0-1' after '0-': got '0-" + std::to_string(*buffer.current) + "'");
+                }
+                buffer.current++;
+                buffer.token = BLACK_WINS;
+            }
         case '1':
+            if(*(buffer.current+1) == '-')
+            {
+                buffer.current += 2;
+                if(*buffer.current != '0')
+                {
+                    throw parse_error("next_token(): expected '1-0' after '1-': got '1-" + std::to_string(*buffer.current) + "'");
+                }
+                buffer.current++;
+                buffer.token = WHITE_WINS;
+            }
+            else if(*(buffer.current+1) == '/' && *(buffer.current+2) == '2' && *(buffer.current+3) == '-')
+            {
+                constexpr std::string expected = "1/2-1/2";
+                std::string got(buffer.current, buffer.current + expected.size());
+                if(got != expected)
+                {
+                    throw parse_error("next_token(): expected '1/2-1/2' after '1/2-': got '" + got + "'");
+                }
+                buffer.current += expected.size();
+                buffer.token = DRAW;
+            }
+            // no else block; fall through
         case '2':
         case '3':
         case '4':
@@ -744,9 +782,14 @@ std::optional<gametree> pgnparser::parse_gametree()
 {
     PARSE_START;
     dprint("parse_gametree()");
-    gametree gt;
+    if (buffer.token == WHITE_WINS || buffer.token == BLACK_WINS || buffer.token == DRAW)
+    {
+        token_t outcome = buffer.token;
+        next_token();
+        return gametree{outcome};
+    }
+    gametree::variations_t variations;
     std::optional<actions> act_buffer;
-    std::vector<std::pair<actions,std::unique_ptr<gametree>>> &variations = gt.variations;
     std::optional<gametree> gt_buffer;
     turn_t branch_start_turn = buffer.turn;
     while (buffer.token == LEFT_PAREN)
@@ -775,7 +818,7 @@ std::optional<gametree> pgnparser::parse_gametree()
             throw parse_error("parse_gametree(): !!This should not happen!! Invalid game tree continuation: " + PARSED_MSG);
         variations.push_back(std::make_pair(*act_buffer, std::make_unique<gametree>(std::move(*gt_buffer))));
     }
-    return gt;
+    return gametree{std::move(variations)};
 }
 
 /*

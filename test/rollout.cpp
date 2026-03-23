@@ -51,7 +51,7 @@ simulation_result default_policy(state s, int max_actions)
     return {0.0f, num_actions, true};
 }
 
-constexpr int SIMULATION_NUM = 1000;
+constexpr int SIMULATION_NUM = 100;
 
 int main(int argc, char **argv)
 {
