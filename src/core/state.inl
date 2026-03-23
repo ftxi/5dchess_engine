@@ -21,7 +21,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
     std::ostringstream oss;
     vec4 p = fm.from, q = fm.to;
     piece_t pic = to_white(piece_name(get_piece(p, player)));
-    auto display = [&](bool from_tl, bool from_file, bool from_rank, bool to_tl) -> std::string {
+    auto display_from_tl = [&](bool from_tl) -> std::string {
         std::ostringstream oss;
         if(from_tl)
         {
@@ -42,6 +42,11 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
                 oss << "(L" << m->pretty_l(p.l()) << ")";
             }
         }
+        return oss.str();
+    };
+
+    auto display_rest = [&](bool from_file, bool from_rank, bool to_tl) -> std::string {
+        std::ostringstream oss;
         if constexpr(FLAGS & SHOW_PAWN)
         {
             oss << pic;
@@ -158,25 +163,43 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
         };
         for(const auto [from_tl, from_file, from_rank, to_tl] : attempts)
         {
-            std::string mv_str = display(from_tl, from_file, from_rank, to_tl);
+            std::string tl_part = display_from_tl(from_tl);
+            std::string rest_part = display_rest(from_file, from_rank, to_tl);
+            std::string mv_str = tl_part + rest_part;
             //check this move has no ambiguity
             auto res = parse_move(mv_str);
             auto mv_opt = std::get<0>(res);
             if(mv_opt.has_value())
             {
                 success = true;
+                /* extra work for castling in standard chessboard:
+                 Replace Ke1g1 and Ke8g8 with O-O
+                 Replace Ke1c1 and Ke8c8 with O-O-O */
+                if(pic == KING_W && std::abs(q.x() - p.x()) == 2 
+                && (q.y() == 0 || q.y() == 7)
+                && q.y() == p.y() && q.tl() == p.tl() )
+                {
+                    if(q.x() == 6)
+                    {
+                        mv_str = tl_part + "O-O";
+                    }
+                    else if(q.x() == 2)
+                    {
+                        mv_str = tl_part + "O-O-O";
+                    }
+                }
                 oss << mv_str;
                 break;
             }
         }
         if(!success)
         {
-            oss << display(true, true, true, true);
+            oss << display_from_tl(true) << display_rest(true, true, true);
         }
     }
     else
     {
-        oss << display(true, true, true, true);
+        oss << display_from_tl(true) << display_rest(true, true, true);
     }
     if constexpr(FLAGS & SHOW_PROMOTION)
     {
