@@ -25,7 +25,7 @@ export const UI = (() => {
     try {
         const storedAutoToggle = localStorage.getItem(AUTO_TOGGLE_KEY);
         autoToggleComments = storedAutoToggle !== null ? storedAutoToggle === 'true' : true;
-    } catch (error) {
+    } catch {
         autoToggleComments = true;
     }
 
@@ -468,7 +468,7 @@ export const UI = (() => {
         exportMateCheckbox.checked = storedMate !== null ? storedMate === 'true' : true;
         exportShortNotationCheckbox.checked = storedShortNotation !== null ? storedShortNotation === 'true' : false;
         exportRelativeNotationCheckbox.checked = storedRelativeNotation !== null ? storedRelativeNotation === 'true' : false;
-    } catch (error) {
+    } catch {
         // Fallback to defaults if localStorage is not available (e.g., Safari private mode)
         exportMateCheckbox.checked = true;
         exportShortNotationCheckbox.checked = false;
@@ -479,7 +479,7 @@ export const UI = (() => {
         exportMateCheckbox.addEventListener('change', () => {
             try {
                 localStorage.setItem(EXPORT_MATE_KEY, exportMateCheckbox.checked.toString());
-            } catch (error) {
+            } catch {
                 // Ignore storage errors
             }
             if (settingsChangeCallback) {
@@ -496,7 +496,7 @@ export const UI = (() => {
         exportShortNotationCheckbox.addEventListener('change', () => {
             try {
                 localStorage.setItem(EXPORT_SHORT_NOTATION_KEY, exportShortNotationCheckbox.checked.toString());
-            } catch (error) {
+            } catch {
                 // Ignore storage errors
             }
             if (settingsChangeCallback) {
@@ -513,7 +513,7 @@ export const UI = (() => {
         exportRelativeNotationCheckbox.addEventListener('change', () => {
             try {
                 localStorage.setItem(EXPORT_RELATIVE_NOTATION_KEY, exportRelativeNotationCheckbox.checked.toString());
-            } catch (error) {
+            } catch {
                 // Ignore storage errors
             }
             if (settingsChangeCallback) {
@@ -589,7 +589,7 @@ export const UI = (() => {
             autoToggleComments = autoToggleCommentsCheckbox.checked;
             try {
                 localStorage.setItem(AUTO_TOGGLE_KEY, autoToggleComments.toString());
-            } catch (error) {
+            } catch {
                 // Ignore storage errors (e.g. Safari private mode)
             }
             if (settingsChangeCallback) {
@@ -685,19 +685,6 @@ export const UI = (() => {
             }, 500);
         }
     }
-
-    // Store reference to show info popup for external use
-    const infoPopupManager = {
-        show() {
-            showPopup(null, 'popupInfo');
-        },
-        setShowOnStartup(value) {
-            localStorage.setItem(INFO_PAGE_KEY, value.toString());
-            if (showInfoPageCheckbox) {
-                showInfoPageCheckbox.checked = value;
-            }
-        }
-    };
 
     // Handle info popup tabs
     const infoTabBtns = document.querySelectorAll('.info-tab-btn');
@@ -919,20 +906,25 @@ export const UI = (() => {
          */
         init() {
             document.addEventListener('keydown', (e) => {
+                // Disable shortcuts when editing hud-text or other editable elements
+                const activeElement = document.activeElement;
+                const isEditable = activeElement && (
+                    activeElement.tagName === 'INPUT' ||
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.contentEditable === 'true'
+                );
+                
+                // Early return if in an editable element (let all keys work normally)
+                if (isEditable) {
+                    return;
+                }
+                
                 // Check if the key is a valid shortcut
                 let key = e.key;
                 
-                // For space key, we need to prevent default scrolling only when not in editable elements
+                // For space key, prevent default scrolling when not in editable elements
                 if (key === ' ') {
-                    const activeElement = document.activeElement;
-                    const isEditable = activeElement && (
-                        activeElement.tagName === 'INPUT' ||
-                        activeElement.tagName === 'TEXTAREA' ||
-                        activeElement.contentEditable === 'true'
-                    );
-                    if (!isEditable) {
-                        e.preventDefault();
-                    }
+                    e.preventDefault();
                 }
                 
                 // Check if the key matches any shortcut

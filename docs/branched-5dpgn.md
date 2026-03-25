@@ -111,6 +111,8 @@ Here are some other recommended headers:
 + `Promotions`: A list of capital letters, describing which piece pawns/brawns can promote to.
 + `Puzzle`: indicates what kind of puzzle it is (mate in N, aid mate, find the best move, etc.)
 
+If two or more of the headers within `Event` `Site` `Date` `Round` `White` `Black` `Result` are used, they should appear in this order.
+
 ### Default Behavior
 
 If the variant header is missing, then the starting state should be specified by 5DFEN.
@@ -352,7 +354,7 @@ This defines a syntax for writing a game tree as text. A game tree is expressed 
 Note:
 
 1. The branched syntax is compatible with the non-branched syntax. In fact, a game (no branch occurs) can be represented as a game tree with degree less than or equal to one, therefore it does not require any parenthesized group for variations.
-2. The lichess study file for traditional chess uses a different grammar: it puts branches after the first action of first variation. Since 5D Chess notation is much longer, it is not intuitive to track what the previous move is before the variation begins. Therefore, our standard decides to use another grammar.
+2. Lichess.org for traditional chess uses a different syntax called RAV (Recursive Annotation Variation, see [1](https://chess.stackexchange.com/questions/18214/valid-pgn-variations) and [2](http://portablegamenotation.com/LittlePGN.html)): it puts (sub)variations after the first action of main variation. Since 5D Chess notation is much longer and may contain multiple moves in an action, it is not intuitive to track what the previous move is before the variation begins. Therefore, our standard does not follow RAV and instead puts variations immediately after the action that creates them. Likewise, the triple dot syntax for Black's move in traditional chess is not used in our standard. Intuitively, `8...` may refer to continuing from a move after a move of turn `8`, instead of continuing from black's sub-turn. On the other hand, `8b.` is more comprehensible.
 
 ### Deduplication
 
@@ -433,3 +435,74 @@ And here is the BNF of 5DFEN:
 <white-piece> ::= 'P' | 'W' | 'K' | 'C' | 'Q' | 'Y' | 'S' | 'N' | 'R' | 'B' | 'U' | 'D' | 'P*' | 'W*' | 'K*' | 'R*'
 <black-piece> ::= 'p' | 'w' | 'k' | 'c' | 'q' | 'y' | 's' | 'n' | 'r' | 'b' | 'u' | 'd' | 'p*' | 'w*' | 'k*' | 'r*'
 ```
+
+Game Analysis
+-----------------
+
+This example game uses Branched 5DPGN encoding and includes commentary and analysis of some alternative moves.
+
+```
+[White "fantasie"]
+[Black "Mr.Nikita"]
+[Variant "Standard - Turn Zero"]
+[Timeline "odd"]
+[Size "8x8"]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
+
+1. Nf3 / Nf6 {Both player chose the standard Nf3/Nf6 opening to prevent the f7-sacrifice.}
+2. d4 / d5 
+3. c3 / c6 
+4. g3 / g6 
+5. Nbd2 / Bg7 
+6. Bg2 / O-O 
+7. Nf1 / Nbd7 
+8. Ne3 / Ne4 
+9. O-O / Ndf6 
+10. Qc2 / h5 
+11. Ne5 / Qe8 
+12. b3 / Nxf2 {Black attacks f7 directly -- possibly because of a misunderstanding in this blindfold game.}
+13. Rxf2 / Ne4 
+14. Bxe4 / dxe4 
+15. Qxe4 / f5 
+16. Qd3 / Be6 
+17. Ba3 {At this moment, Black must exchange his bishop with White's knight.}(17b. Bxe5 
+ 18. dxe5 / Qf7 
+ 19. Raf1 / Rad8 
+ 20. Qc2 / Qg7 
+ 21. Nxf5 / gxf5 
+ 22. Rxf5 / Rxf5 
+ 23. Rxf5 / Bxf5 
+ 24. Qxf5 / Rd1+ {White lost control of the bottom line. The only legal moves are, move the king or blocked with the queen.}
+ (25w. Kf2 {The correct response. White escaped from the danger. Now Black is in trouble!}(25b. Qf8 {Black chose to exchange the queens. This simplifies the situation, and protects the pawn on e7.}
+   26. Qxf8+ / Kxf8 
+   27. Bc5 {Now white moves the bishop on path a3-c5-e3-g5, threatening black king's history.}/ Ra1 
+   28. Be3 {Black will not sit idly and wait for defeat. A rook is powerful in 5d chess endgame -- a Jurassic rook!}/ R>>xa1+ {White must carefully choose which piece to use to block.}
+   29. Nf1 {In the actual game, white chose to move knight to f1.}/ Rd8 
+   30. Qc2 / c5 {Now white's goal is simple: try play as many turns without time travel as possible. If the Present shifts again to T29, the chance of winning is very high.}
+   31. (-1T21)c4 / Qc6 
+   32. Bac1 / Rxc1 
+   33. Qxc1 {In the meanwhile, white moves the Queen to c1. It not only protects the bottom line, but also prepare for a travel that attacks Black's rook on square c1, timeline 0. The windows opens on T26 and closes on T28.}/ f4 
+   34. e3 / fxg3 
+   35. Rxf8+ {Black, on the other hand, is targeting the diagonal on a8-h1. By the time White realizes, it was late.}/ Rxf8 {White is dangerous.}
+   (36w. (-1T26)Q>>x(0T25)d1 {In actual combat, white starts an attack immediately.}/ Qg4 {Black is trying to force white to exchange the Queen. Black queen's position is carefully chosen so that White cannot ignore the ongoing exchange and check Black's king.}
+    37. (1T26)Q>>(0T26)g6* {But black cannot block this time-check.}(37b. (L-1)Q>>e4 {Instead, black chose to move to this line.}
+     38. Rf3 {White scarifies his rook to buy time.}/ Bf5 
+     39. (-2T26)Nd2 / (L-2)B>>xf5 
+     40. Bac1 {The game stops here. Now black can hardly avoid the softmate on next turn.}/ Qg4 
+     41. (-3T26)a3 )
+    37b. (L-1)Q>>h1+ {Unfortunately, black is one turn early for playing this move. Had this travel begins later, the double queen checkmates White.})
+   36w. Nxg3 {Capturing this pawn maybe result in a softmate in this line --or maybe not. That's not something white wants to calculate.}/ Rf2+ )
+  25b. Re1+ {Black cannot play the same move again, because White can capture black's rook with the king.}
+  26. Kxe1 )
+ (25w. Qf1 {Losing a queen in this game is not acceptable.}/ Rxf1+ 
+  26. Kxf1 / Qf7+ 
+  27. Ke1 / Qxb3 
+  28. Kf1 / Qd1+ 
+  29. Kg2 / Kf8# )
+ 25w. Kg2 {White cannot move the king here. Otherwise, black's rook can go to White's king's starting position and checkmate the historical king long ago.}/ Re1# )
+17b. Rc8 {If not, White can capture the pawn at e7 for free.}
+18. Bxe7 {Black's Queen cannot capture the bishop, because if it fails to protect the pawn at g6, White will win immediately.}/ Qxe7 
+19. Nxg6# 
+```
+

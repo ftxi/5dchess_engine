@@ -6,6 +6,7 @@
 #include <cassert>
 #include <optional>
 #include <variant>
+#include <array>
 #include "pgnparser.h"
 #include "hypercuboid.h"
 #include "variants.h"
@@ -454,17 +455,72 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
 std::string game::show_pgn(uint16_t show_flags)
 {
     std::ostringstream oss;
-    for(const auto &[k, v] : metadata)
+    constexpr static std::array<std::string, 9> ordered_keys = {
+        "event", "site", "date", "round", "white", "black", "variant", "timeline", "size"
+    };
+
+    for(const auto &k : ordered_keys)
     {
-        std::string key = k;
+        auto it = metadata.find(k);
+        if(it == metadata.end())
+        {
+            continue;
+        }
+        std::string key = it->first;
         if(!key.empty())
         {
             // Capitalize the first letter of the key
             key[0] = toupper(key[0]);
         }
+        oss << "[" << key << " \"" << it->second << "\"]\n";
+    }
+    for(const auto &[k, v] : metadata)
+    {
+        if(std::find(ordered_keys.begin(), ordered_keys.end(), k) != ordered_keys.end())
+        {
+            continue;
+        }
+        std::string key = k;
+        if(!key.empty())
+        {
+            key[0] = toupper(key[0]);
+        }
         oss << "[" << key << " \"" << v << "\"]\n";
     }
-    oss << gametree->get_state().show_fen() << "\n";
+    oss << gametree->get_state().show_fen();
     oss << gametree->to_string(show_comments, show_flags);
-    return oss.str();
+    oss << "\n";
+    /* indent by 1 space * number of nested parentheses
+    do not indent inside comments */
+    int parentheses_level = 0;
+    int curly_brace_level = 0;
+    std::string result;
+    for(char c : oss.str())
+    {
+        result += c;
+        if(c == '(')
+        {
+            parentheses_level++;
+        }
+        else if(c == ')')
+        {
+            parentheses_level--;
+        }
+        else if(c == '{')
+        {
+            curly_brace_level++;
+        }
+        else if(c == '}')
+        {
+            curly_brace_level--;
+        }
+        else
+        {
+            if(curly_brace_level == 0 && c == '\n')
+            {
+                result += std::string(parentheses_level, ' ');
+            }
+        }
+    }
+    return result;
 }

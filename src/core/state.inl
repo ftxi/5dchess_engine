@@ -151,15 +151,15 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
             5. in addition, display file or rank
             6. display everything (no need to check correctness anymore)
          */
-        std::vector<std::tuple<bool, bool, bool, bool>> attempts = {
+        constexpr static auto attempts = std::array{
         //from: tl, file, rank; to: tl
-            {false, false, false, false},
-            {false, true,  false, false},
-            {false, false, true,  false},
-            {true,  false, false, false},
-            {true,  false, false, true},
-            {true,  true,  false, true},
-            {true,  false, true,  true},
+            std::tuple{false, false, false, false},
+            std::tuple{false, true,  false, false},
+            std::tuple{false, false, true,  false},
+            std::tuple{true,  false, false, false},
+            std::tuple{true,  false, false, true},
+            std::tuple{true,  true,  false, true},
+            std::tuple{true,  false, true,  true},
         };
         for(const auto [from_tl, from_file, from_rank, to_tl] : attempts)
         {
