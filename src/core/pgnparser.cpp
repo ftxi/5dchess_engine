@@ -132,6 +132,7 @@ void pgnparser::next_token()
                 buffer.current++;
                 buffer.token = BLACK_WINS;
             }
+            [[fallthrough]];
         case '1':
             if(*(buffer.current+1) == '-')
             {
@@ -145,7 +146,7 @@ void pgnparser::next_token()
             }
             else if(*(buffer.current+1) == '/' && *(buffer.current+2) == '2' && *(buffer.current+3) == '-')
             {
-                constexpr std::string expected = "1/2-1/2";
+                const static std::string expected = "1/2-1/2";
                 std::string got(buffer.current, buffer.current + expected.size());
                 if(got != expected)
                 {
@@ -154,7 +155,7 @@ void pgnparser::next_token()
                 buffer.current += expected.size();
                 buffer.token = DRAW;
             }
-            // no else block; fall through
+            [[fallthrough]];
         case '2':
         case '3':
         case '4':
@@ -747,7 +748,7 @@ std::optional<actions> pgnparser::parse_actions()
 {
     PARSE_START;
     if(buffer.token != TURN) PARSE_FAIL;
-    turn_t turn = buffer.turn;
+    //turn_t turn = buffer.turn;
     next_token();
     while(buffer.token == WHITE_SPACE || buffer.token == COMMENT)
     {
@@ -890,7 +891,7 @@ std::optional<game> pgnparser::parse_game()
                     throw parse_error("parse_game(): Expect time in board string:" + s);
                 t = stoi(std::string(s.begin() + prev, s.begin() + now));
             }
-            catch(std::invalid_argument e)
+            catch(const std::invalid_argument& e)
             {
                 throw parse_error("parse_game(): Expect number after ':': " + s + "\n" + e.what());
             }

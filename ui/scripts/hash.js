@@ -13,7 +13,7 @@ function hashStringList(list) {
 }
 
 function hashAction(action) {
-    let hash = 1818; // Seed
+    let hash = 2046; // Seed
     for (let move of action) {
         let a = move.from.x | move.from.y << 4 | move.from.l << 8 | move.from.t << 16;
         let b = move.to.x | move.to.y << 4 | move.to.l << 8 | move.to.t << 16;
@@ -25,7 +25,7 @@ function hashAction(action) {
 }
 
 function hashActionList(actionList) {
-    let hash = 2046; // Seed
+    let hash = 2047; // Seed
     for (let action of actionList) {
         hash = ((hash << 5) + hash) ^ hashAction(action);
         hash |= 0; // Force to 32-bit integer

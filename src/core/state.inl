@@ -161,7 +161,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
             std::tuple{true,  true,  false, true},
             std::tuple{true,  false, true,  true},
         };
-        for(const auto [from_tl, from_file, from_rank, to_tl] : attempts)
+        for(const auto &[from_tl, from_file, from_rank, to_tl] : attempts)
         {
             std::string tl_part = display_from_tl(from_tl);
             std::string rest_part = display_rest(from_file, from_rank, to_tl);

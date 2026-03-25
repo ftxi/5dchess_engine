@@ -240,10 +240,10 @@ int main(int argc, const char *argv[])
     try {
         pgnparser_ast::game g = *pgnparser(pgn).parse_game();
         ps = std::make_unique<state>(g);
-    } catch (parse_error e) {
+    } catch (const parse_error& e) {
         std::cerr << "Parse Error: " << e.what() << std::endl;
         return 2;
-    } catch (std::runtime_error e) {
+    } catch (const std::runtime_error& e) {
         std::cerr << "Runtime error: " << e.what() << std::endl;
         return 1;
     }
