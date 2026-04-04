@@ -9,6 +9,10 @@ foreach(TEST_FILE ${TEST_SOURCES})
 
     # Create an executable for each test file
     add_executable(${TEST_NAME} ${TEST_FILE})
+    # Disable LTO/IPO for this test target
+    set_target_properties(${TEST_NAME} PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION FALSE
+    )
 
     # Link against the core engine library
     target_link_libraries(${TEST_NAME} PRIVATE 5dchess_engine_core)
