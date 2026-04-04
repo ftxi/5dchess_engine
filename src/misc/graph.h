@@ -2,7 +2,7 @@
 #include <optional>
 #include <vector>
 #include <cassert>
-
+#include <cstdint>
 
 class graph
 {
