@@ -90,8 +90,8 @@ void ASSERT_EQ(auto lhs, auto rhs)
         std::cout << "assertion failed:\n";
         std::cout << "lhs = " << lhs << std::endl;
         std::cout << "rhs = " << rhs << std::endl;
+        throw std::runtime_error("ASSERT_EQ failed");
     }
-    assert(lhs == rhs);
 }
 
 std::string generate_random_fen(std::mt19937& gen)

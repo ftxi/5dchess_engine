@@ -6,21 +6,21 @@
 
 #include <iostream>
 
-void graph::add_edge(int u, int v)
+void graph::add_edge(uint32_t u, uint32_t v)
 {
     assert(u!=v && "loops are not allowed");
     adj[u][v] = true;
     adj[v][u] = true;
 }
 
-void graph::remove_edge(int u, int v)
+void graph::remove_edge(uint32_t u, uint32_t v)
 {
     adj[u][v] = false;
     adj[v][u] = false;
 }
 
 
-bool graph::not_isolated(int u) const
+bool graph::not_isolated(uint32_t u) const
 {
     for(bool b : adj[u])
     {
@@ -29,11 +29,11 @@ bool graph::not_isolated(int u) const
     return false;
 }
 
-std::vector<int> graph::neighbors(int u) const
+std::vector<uint32_t> graph::neighbors(uint32_t u) const
 {
-    std::vector<int> result;
+    std::vector<uint32_t> result;
     result.reserve(n_vertices);
-    for(int v = 0; v < n_vertices; v++)
+    for(uint32_t v = 0; v < n_vertices; v++)
     {
         if(adj[u][v])
         {
@@ -48,20 +48,20 @@ std::vector<int> graph::neighbors(int u) const
 // --- means connected, ... means not connected
 struct pathnode
 {
-    int a; // first vertex
-    int b; // second vertex (not matched to the first one)
-    int previous; // previous pathnode
+    uint32_t a; // first vertex
+    uint32_t b; // second vertex (not matched to the first one)
+    uint32_t previous; // previous pathnode
 };
 
-std::optional<std::vector<std::pair<int, int>>> graph::find_matching(std::vector<int> &include) const
+std::optional<std::vector<std::pair<uint32_t, uint32_t>>> graph::find_matching(std::vector<uint32_t> &include) const
 {
     graph matched(n_vertices);
     std::vector<bool> must_include(n_vertices, false);
-    for(int n : include)
+    for(uint32_t n : include)
     {
         must_include[n] = true;
     }
-    for(int n : include)
+    for(uint32_t n : include)
     {
         //std::cerr << "n=" << n << "\n";
         // if n is already matched, skip
@@ -69,19 +69,19 @@ std::optional<std::vector<std::pair<int, int>>> graph::find_matching(std::vector
         // otherwise, try to find a augumentation path starting from n
         std::vector<bool> seen = adj[n];
         seen[n] = true; // seen will be some nodes of odd distance from n (and n itself)
-        std::vector<pathnode> pn = {{-1,-1,0}}; // pn[0] is a placeholder
+        std::vector<pathnode> pn = {{n_vertices, n_vertices, n_vertices}}; // pn[0] is a placeholder
         pn.reserve(n_vertices);
-        std::queue<int> q; // maintan a queue for BFS search
-        for (int m : neighbors(n))
+        std::queue<uint32_t> q; // maintan a queue for BFS search
+        for (uint32_t m : neighbors(n))
         {
-            int index = static_cast<int>(pn.size());
+            uint32_t index = static_cast<uint32_t>(pn.size());
             pn.push_back({.a=n, .b=m, .previous=0});
             q.push(index);
         }
-        int augpathend = 0;
+        uint32_t augpathend = 0;
         while(!q.empty() && augpathend==0)
         {
-            int index = q.front();
+            uint32_t index = q.front();
             pathnode p = pn[index];
             q.pop();
             auto us = matched.neighbors(p.b);
@@ -94,7 +94,7 @@ std::optional<std::vector<std::pair<int, int>>> graph::find_matching(std::vector
             else
             {
                 // otherwise, p.b is matched to some u (the new a)
-                int u = us[0];
+                uint32_t u = us[0];
                 if(!must_include[u])
                 {
                     // if we don't have to include u, we can just drop the match p.b -- u
@@ -105,11 +105,11 @@ std::optional<std::vector<std::pair<int, int>>> graph::find_matching(std::vector
                 else
                 {
                     // in the last case, continue the bfs search for all possible v (the new b)
-                    for(int v : neighbors(u))
+                    for(uint32_t v : neighbors(u))
                     {
                         if(!seen[v])
                         {
-                            int new_index = static_cast<int>(pn.size());
+                            uint32_t new_index = static_cast<uint32_t>(pn.size());
                             pn.push_back({.a=u, .b=v, .previous=index});
                             q.push(new_index);
                             seen[v] = true;
@@ -136,10 +136,10 @@ std::optional<std::vector<std::pair<int, int>>> graph::find_matching(std::vector
         }
         //std::cerr << matched.to_string();
     }
-    std::vector<std::pair<int,int>> result;
-    for(int i = 0; i < n_vertices; i++)
+    std::vector<std::pair<uint32_t,uint32_t>> result;
+    for(uint32_t i = 0; i < n_vertices; i++)
     {
-        for(int j = 0; j < i; j++)
+        for(uint32_t j = 0; j < i; j++)
         {
             if(matched.adj[i][j])
             {
@@ -156,14 +156,14 @@ std::string graph::to_string() const
     oss << "Graph with vertices "; // << n_vertices << " vertices:\n";
     if (n_vertices <= 3) {
         oss << "{";
-        for (int i = 0; i < n_vertices; ++i)
+        for (uint32_t i = 0; i < n_vertices; ++i)
             oss << (i ? "," : "") << i;
         oss << "}";
     } else {
         oss << "{0,1,...," << (n_vertices - 1) << "}";
     }
     oss << " and edges:\n";
-    for(int i = 0; i < n_vertices; i++)
+    for(uint32_t i = 0; i < n_vertices; i++)
     {
 //        if(std::any_of(adj[i].begin(), adj[i].begin()+i, [](bool x){return x;}))
 //        {
@@ -177,7 +177,7 @@ std::string graph::to_string() const
 //            }
 //            oss << "\n";
 //        }
-        for(int j = 0; j < n_vertices; j++)
+        for(uint32_t j = 0; j < n_vertices; j++)
         {
             oss << adj[i][j];
         }

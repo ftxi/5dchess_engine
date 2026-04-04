@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <limits>
 #include <random>
 //#define DEBUGMSG
 #include "debug.h"
@@ -108,10 +109,10 @@ bool has_physical_check(const board &b, bool c)
 std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
 {
     dprint("HC_info::build_HC()");
-    std::map<int, int> line_to_axis; // map from timeline index to axis index
+    std::map<int, uint32_t> line_to_axis; // map from timeline index to axis index
     std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
     HC universe;
-    int new_axis, dimension;
+    uint32_t new_axis, dimension;
     std::vector<integer_set> nonbranching_axes, branching_axes;
     auto [mandatory_timelines, optional_timelines, unplayable_timelines] = s.get_timeline_status();
     auto playable_timelines = concat_vectors(mandatory_timelines, optional_timelines);
@@ -123,7 +124,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     std::map<int, std::vector<full_move>> arrives_to, stays_on;
     std::map<int, std::vector<vec4>> departs_from;
     // to track the corresponding departing moves for each arriving move
-    std::map<vec4, int> jump_indices;
+    std::map<vec4, uint32_t> jump_indices;
     
     //TODO: support promotion to other pieces
     static const piece_t promote_to = QUEEN_W;
@@ -238,13 +239,13 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 bool flag = has_physical_check(*newboard, player);
                 if(!flag)
                 {
-                    locs.push_back(arriving_move{m, newboard, -1});
+                    locs.push_back(arriving_move{m, newboard, std::numeric_limits<uint32_t>::max()});
                 }
             }
         }
         // save this axis
         locs.shrink_to_fit();
-        line_to_axis[l] = static_cast<int>(axis_coords.size());
+        line_to_axis[l] = static_cast<uint32_t>(axis_coords.size());
         dprint("above in axis", line_to_axis[l]);
         axis_coords.push_back(std::move(locs));
     }
@@ -252,7 +253,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     new_axis = static_cast<int>(axis_coords.size());
 
     // build branching axes
-    int max_branch = 0;
+    uint32_t max_branch = 0;
     for(const auto& [l, froms] : departs_from)
     {
         // determine the number of branching axes
@@ -291,32 +292,32 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     // replicate this axis max_branch times
     const int new_l = s.new_line();
     const int sign = signum(s.new_line()); // sign for the new lines
-    for(int i = 0; i < max_branch; i++)
+    for(uint32_t i = 0; i < max_branch; i++)
     {
         assert(!line_to_axis.contains(new_l+sign*i));
         line_to_axis[new_l+sign*i] = new_axis + i;
         axis_coords.push_back(locs);
     }
-    dimension = static_cast<int>(axis_coords.size());
+    dimension = static_cast<uint32_t>(axis_coords.size());
     
     // build the whole space
     universe.axes.reserve(dimension);
-    for(int n = 0; n < dimension; n++)
+    for(uint32_t n = 0; n < dimension; n++)
     {
         integer_set coords;
         // on nth dimension, the hypercube has coordinates 0, 1, ..., m avialible
         // which corresponds to axis_coords[n][0], axis_coords[n][1], ...
-        for(int i = 0; i < static_cast<int>(axis_coords[n].size()); i++)
+        for(uint32_t i = 0; i < static_cast<uint32_t>(axis_coords[n].size()); i++)
         {
-            coords.insert(coords.end(), i);
+            coords.insert(i);
         }
         universe.axes.push_back(std::move(coords));
     }
     
     // fill the idx of arriving moves
-    for(int n = 0; n < static_cast<int>(axis_coords.size()); n++)
+    for(uint32_t n = 0; n < static_cast<uint32_t>(axis_coords.size()); n++)
     {
-        for(int i = 0; i < static_cast<int>(axis_coords[n].size()); i++)
+        for(uint32_t i = 0; i < static_cast<uint32_t>(axis_coords[n].size()); i++)
         {
             semimove& loc = axis_coords[n][i];
             if(auto* p = std::get_if<arriving_move>(&loc))
@@ -326,7 +327,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                     p->idx = jump_indices[p->m.from];
 #ifndef NDEBUG
                     assert(line_to_axis.contains(p->m.from.l()));
-                    int nfrom = line_to_axis[p->m.from.l()];
+                    uint32_t nfrom = line_to_axis[p->m.from.l()];
                     assert(p->m.from == std::get<departing_move>(axis_coords[nfrom][p->idx]).from);
 #endif
                 }
@@ -355,16 +356,16 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     integer_set singleton = {0}, non_null;
     if(new_axis < dimension)
     {
-        for(int i = 1; i < static_cast<int>(axis_coords[new_axis].size()); i++)
+        for(uint32_t i = 1; i < static_cast<uint32_t>(axis_coords[new_axis].size()); i++)
         {
-            non_null.insert(non_null.end(), i);
+            non_null.insert(i);
         }
         // non_null = {1,2,...,number of branching moves}
         std::fill(hc_n_lines.axes.begin() + new_axis,
                   hc_n_lines.axes.end(), singleton);
     }
     search_space ss{{hc_n_lines}};
-    for(int n = new_axis; n < dimension; n++)
+    for(uint32_t n = new_axis; n < dimension; n++)
     {
         hc_n_lines.axes[n] = non_null;
         ss.hcs.push_front(hc_n_lines); // prefer lesser branching moves
@@ -377,17 +378,18 @@ std::optional<point> HC_info::take_point(HC &hc) const
 {
     dprint("take_point()");
     graph g(dimension);
-    std::vector<int> must_include;
+    std::vector<uint32_t> must_include;
     // store a pair of departing/arriving move for each edge
     // edge_refs[{p,q}] = the corresponding move on axis p
-    std::map<std::pair<int,int>, int> edge_refs;
-    point result = std::vector<int>(dimension, -1);
+    std::map<std::pair<uint32_t,uint32_t>, uint32_t> edge_refs;
+    constexpr uint32_t invalid_index = std::numeric_limits<uint32_t>::max();
+    point result = std::vector<uint32_t>(dimension, invalid_index);
     //build edge_refs and fill default physical moves in result
-    for(int n = 0; n < dimension; n++)
+    for(uint32_t n = 0; n < dimension; n++)
     {
         bool has_nonjump = false;
         integer_set ghost_arrive_indices;
-        for(int i : hc[n])
+        for(uint32_t i : hc[n])
         {
             const semimove& loc = axis_coords[n][i];
             std::visit(overloads {
@@ -399,9 +401,8 @@ std::optional<point> HC_info::take_point(HC &hc) const
                     }
                 },
                 [&](const arriving_move& loc) {
-                    int from_axis = line_to_axis.at(loc.m.from.l());
-                    auto it = hc.axes[from_axis].find(loc.idx);
-                    if(it == hc.axes[from_axis].end())
+                    uint32_t from_axis = line_to_axis.at(loc.m.from.l());
+                    if(hc.axes[from_axis].contains(loc.idx))
                     {
                         ghost_arrive_indices.insert(i);
                         dprint("ghost arriving move",n,i, "(source", from_axis, loc.idx,")");//,show_semimove(loc));
@@ -414,7 +415,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
                         assert(from_axis!=n);
                         edge_refs[std::make_pair(from_axis, n)] = loc.idx;
                         edge_refs[std::make_pair(n, from_axis)] = i;
-                        assert(loc.idx != -1);
+                        assert(loc.idx != invalid_index);
                     }
                 },
                 [](const departing_move&) {},
@@ -427,7 +428,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
                 },
             }, loc);
         }
-        for(int i : ghost_arrive_indices)
+        for(uint32_t i : ghost_arrive_indices)
         {
             hc.axes[n].erase(i); //TODO: Rewrite with set minus
         }
@@ -455,17 +456,17 @@ std::optional<point> HC_info::take_point(HC &hc) const
             result[v] = edge_refs[std::make_pair(v,u)];
         }
 #ifndef NDEBUG
-        for(int i:result)
+        for(uint32_t i:result)
         {
-            assert(i != -1 && "some axis is still null");
+            assert(i != invalid_index && "some axis is still null");
         }
 #endif // !NDEBUG
         dprint("final result:", range_to_string(result));
         assert(hc.contains(result));
 #ifdef DEBUGMSG
-        for(size_t n = 0; n < result.size(); n++)
+        for(uint32_t n = 0; n < static_cast<uint32_t>(result.size()); n++)
         {
-            int i = result[n];
+            uint32_t i = result[n];
             dprint("n=",n,",i=",i,",loc=",show_semimove(axis_coords[n][i]));
         }
 #endif // DEBUGMSG
@@ -497,13 +498,13 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
     so p[new_l] is a arriving move from (l0, t0) that jumps to (l, t) which create a branch
     remember t, l are stored as the higher part of a vec4
      */
-    std::map<vec4, int> jump_map;
+    std::map<vec4, uint32_t> jump_map;
     auto [t, c] = s.get_present();
     
-    for(int n = new_axis; n < dimension; n++)
+    for(uint32_t n = new_axis; n < dimension; n++)
     {
         // within this loop, n is the axis for new_l
-        const int in = p[n];
+        const uint32_t in = p[n];
         const semimove& loc = axis_coords[n][in];
         if(std::holds_alternative<null_move>(loc))
         {
@@ -518,8 +519,8 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
          is a pass */
         if(line_to_axis.contains(to.l()))
         {
-            const int m = line_to_axis.at(to.l());
-            const int im = p[m];
+            const uint32_t m = line_to_axis.at(to.l());
+            const uint32_t im = p[m];
             const semimove& loc2 = axis_coords[m][im];
             if(std::holds_alternative<null_move>(loc2)
                && s.get_timeline_end(to.l()) == std::make_pair(to.t(), c))
@@ -530,7 +531,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                  i.e. all moves >> (l',t') then creates branch new_l
                  */
                 integer_set s;
-                for(int i : hc[n])
+                for(uint32_t i : hc[n])
                 {
                     const semimove& loc3 = axis_coords[n][i];
                     if(std::holds_alternative<arriving_move>(loc3))
@@ -542,7 +543,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                         }
                     }
                 }
-                std::map<int, integer_set> fixed_axes {{n, s}, {m, integer_set{im}}};
+                std::map<uint32_t, integer_set> fixed_axes {{n, s}, {m, integer_set{im}}};
                 slice problem(fixed_axes);
                 dprint("case one; point:", range_to_string(p));
                 dprint("problem", problem.to_string());
@@ -562,9 +563,9 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                 -[s1] on axis n, any move starts from (l,t); with
                 -[s2] on axis for new_l0, any move goes to (l,t)
             */
-            int axis_branch = jump_map[critical_tl];
+            uint32_t axis_branch = jump_map[critical_tl];
             integer_set s1, s2;
-            for(int i : hc.axes[n])
+            for(uint32_t i : hc.axes[n])
             {
                 const semimove& l1 = axis_coords[n][i];
                 if(std::holds_alternative<arriving_move>(l1))
@@ -576,7 +577,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                     }
                 }
             }
-            for(int i : hc.axes[axis_branch])
+            for(uint32_t i : hc.axes[axis_branch])
             {
                 const semimove& l2 = axis_coords[axis_branch][i];
                 if(std::holds_alternative<arriving_move>(l2))
@@ -588,7 +589,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                     }
                 }
             }
-            std::map<int, integer_set> fixed_axes {{n, s1}, {axis_branch, s2}};
+            std::map<uint32_t, integer_set> fixed_axes {{n, s1}, {axis_branch, s2}};
             slice problem(fixed_axes);
             dprint("case two; point:", range_to_string(p));
             dprint("problem", problem.to_string());
@@ -616,22 +617,22 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
     auto [active_min, active_max] = s.get_active_range();
     // step one: find the new present
     int mint = old_present; // mint is the new present
-    std::optional<std::pair<int,int>> pass_coord = std::nullopt; // record the axis of the problematic pass
-    std::optional<int> reactivate_move_axis = std::nullopt;
+    std::optional<std::pair<uint32_t,uint32_t>> pass_coord = std::nullopt; // record the axis of the problematic pass
+    std::optional<uint32_t> reactivate_move_axis = std::nullopt;
     for(int l : mandatory_lines)
     {
         assert(line_to_axis.contains(l));
-        int n = line_to_axis.at(l);
+        uint32_t n = line_to_axis.at(l);
         if(std::holds_alternative<null_move>(axis_coords[n][p[n]]))
         {
             // if there is a pass in playable line, then it could be problematic
             pass_coord = {n, p[n]};
         }
     }
-    for(int n = new_axis; n < dimension; n++)
+    for(uint32_t n = new_axis; n < dimension; n++)
     {
         // for all branching moves
-        int i = p[n];
+        uint32_t i = p[n];
         // present may need to move to the time of this arrive
         semimove loc = axis_coords[n][i];
         if(std::holds_alternative<null_move>(loc))
@@ -694,7 +695,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
                 mint = newline_t;
                 // could be a problem if played a pass on reactivated line
                 assert(line_to_axis.contains(*reactivated));
-                int n1 = line_to_axis.at(*reactivated);
+                uint32_t n1 = line_to_axis.at(*reactivated);
                 if(std::holds_alternative<null_move>(axis_coords[n1][p[n1]]))
                 {
                     pass_coord = {n1, p[n1]};
@@ -724,14 +725,16 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
         int blacks_lines = l0_min - l_min;
         int timeline_advantage = c ? (whites_lines - blacks_lines) : (blacks_lines - whites_lines);
         
-        for(int n = new_axis; n <= std::min(timeline_advantage+new_axis, dimension-1); n++)
+        for(uint32_t n = new_axis;
+            static_cast<int>(n) <= std::min<int>(timeline_advantage + static_cast<int>(new_axis), static_cast<int>(dimension) - 1);
+            n++)
         {
-            if(reactivate_move_axis == std::make_optional<int>(n))
+            if(reactivate_move_axis == n)
             {
                 continue;
             }
             integer_set s;
-            for(int i : hc[n])
+            for(uint32_t i : hc[n])
             {
                 semimove loc = axis_coords[n][i];
                 if(std::holds_alternative<null_move>(loc))
@@ -805,9 +808,9 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         slice problem;
         if(line_to_axis.contains(check.from.l()))
         {
-            int n1 = line_to_axis.at(check.from.l());
+            uint32_t n1 = line_to_axis.at(check.from.l());
             integer_set not_taking;
-            for(int i : hc.axes[n1])
+            for(uint32_t i : hc.axes[n1])
             {
                 semimove loc = axis_coords[n1][i];
                 /* if there isn't a new board on the same place, it won't create the same check*/
@@ -865,7 +868,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
 //        }
         if(line_to_axis.contains(l2))
         {
-            int n2 = line_to_axis.at(l2);
+            uint32_t n2 = line_to_axis.at(l2);
             semimove loc0 = axis_coords[n2][p[n2]];
             if(std::holds_alternative<null_move>(loc0) || !is_next(extract_tl(loc0).first, check.to.t()))
             {
@@ -874,7 +877,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
             else
             {
                 integer_set expose_royal;
-                for(int i : hc.axes[n2])
+                for(uint32_t i : hc.axes[n2])
                 {
                     semimove loc = axis_coords[n2][i];
                     std::shared_ptr<board> newboard;
@@ -909,7 +912,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
 //            dprint("should cross", crossed.l());
             if(line_to_axis.contains(crossed.l()))
             {
-                int n = line_to_axis.at(crossed.l());
+                uint32_t n = line_to_axis.at(crossed.l());
                 semimove loc0 = axis_coords[n][p[n]];
                 if(std::holds_alternative<null_move>(loc0) || !is_next(extract_tl(loc0).first, crossed.t()))
                 {
@@ -919,7 +922,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                 {
                     bitboard_t z = pmask(crossed.xy());
                     integer_set not_blocking;
-                    for(int i : hc.axes[n])
+                    for(uint32_t i : hc.axes[n])
                     {
                         semimove loc = axis_coords[n][i];
                         /* if there isn't a board, then nothing pass through it*/
@@ -1020,17 +1023,17 @@ void HC_info::shuffle(search_space &ss)
 {
     static thread_local std::mt19937 rng(std::random_device{}());
     std::vector<std::vector<int>> inverses(dimension);
-    for(int n = 0; n < dimension; n++)
+    for(uint32_t n = 0; n < dimension; n++)
     {
-        std::vector<int> permutation(universe.axes[n].begin(), universe.axes[n].end());
-        int axis_size = static_cast<int>(permutation.size());
-        int axis_coords_size = static_cast<int>(axis_coords[n].size());
+        std::vector<uint32_t> permutation(universe.axes[n].begin(), universe.axes[n].end());
+        uint32_t axis_size = static_cast<uint32_t>(permutation.size());
+        uint32_t axis_coords_size = static_cast<uint32_t>(axis_coords[n].size());
         inverses[n].assign(axis_coords_size, -1);
         if(axis_size > 1)
         {
             std::shuffle(permutation.begin(), permutation.end(), rng);
         }
-        for(int new_idx = 0; new_idx < axis_size; new_idx++)
+        for(uint32_t new_idx = 0; new_idx < axis_size; new_idx++)
         {
             inverses[n][permutation[new_idx]] = new_idx;
         }
@@ -1042,7 +1045,7 @@ void HC_info::shuffle(search_space &ss)
         std::vector<semimove> old_axis = std::move(axis_coords[n]);
         std::vector<semimove> shuffled;
         shuffled.reserve(axis_size);
-        for(int new_idx = 0; new_idx < axis_size; new_idx++)
+        for(uint32_t new_idx = 0; new_idx < axis_size; new_idx++)
         {
             shuffled.push_back(std::move(old_axis[permutation[new_idx]]));
         } 
@@ -1050,20 +1053,20 @@ void HC_info::shuffle(search_space &ss)
 
         for(HC &hc : ss.hcs)
         {
-            hc.axes[n].transform([&inverses, n](int old_index){
+            hc.axes[n] = hc.axes[n].transform([&inverses, n](uint32_t old_index){
                 return inverses[n][old_index];
             });
         }
     }
-    for(int n = 0; n < dimension; n++)
+    for(uint32_t n = 0; n < dimension; n++)
     {
         for(auto &sm : axis_coords[n])
         {
             if(auto *loc = std::get_if<arriving_move>(&sm))
             {
-                int from_axis = line_to_axis.at(loc->m.from.l());
-                int old_idx = loc->idx;
-                int new_idx = inverses[from_axis][old_idx];
+                uint32_t from_axis = line_to_axis.at(loc->m.from.l());
+                uint32_t old_idx = loc->idx;
+                uint32_t new_idx = inverses[from_axis][old_idx];
                 loc->idx = new_idx;
             }
         }

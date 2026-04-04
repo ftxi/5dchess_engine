@@ -11,7 +11,7 @@ const integer_set &HC::operator[](size_t i) const
 bool HC::contains(point loc) const
 {
     assert(loc.size() == axes.size());
-    for(int i = 0; i < static_cast<int>(axes.size()); i++)
+    for(uint32_t i = 0; i < static_cast<uint32_t>(axes.size()); i++)
     {
         if(!axes[i].contains(loc[i]))
             return false;
@@ -65,7 +65,7 @@ search_space HC::remove_point(const point &p) const
 {
     search_space result;
     HC remaining = *this;
-    for(size_t i = 0; i < p.size(); i++)
+    for(uint32_t i = 0; i < static_cast<uint32_t>(p.size()); i++)
     {
         HC x = remaining;
         x.axes[i].erase(p[i]);

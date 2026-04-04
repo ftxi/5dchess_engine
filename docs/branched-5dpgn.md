@@ -12,7 +12,7 @@ The Branched 5DPGN is an extension to Shad's 5D Chess algebraic notation (5DPGN)
 + Explicit odd/even timeline
 + Game result
 
-Goals
+The goals of Branched 5DPGN are:
 + accuracy of transcription of game trees
 + ease of reading by a human
 + ease of parsing by a computer program

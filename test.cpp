@@ -1,27 +1,28 @@
 #include <tuple>
 #include <ranges>
 #include <cassert>
-#include "game.h"
+#include "state.h"
+#include "pgnparser.h"
 
 std::string str = R"(
-[Board "Standard - Turn Zero"]{comment 0}
-[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
-[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
-
-{comment 1}
-{{comment} 2}
-
-1. (0T1)e2e4 / (0T1)f7f5 
-2. (0T2)Qd1h5+ 
+[Board "Standard"]
+[Mode "5D"]
+1. e3 / Nf6
+2. Bb5 / e6
+3. c3 / Ne4
+4. Qb3 / Qf6
+5. (0T5)Qb3>>x(0T1)f7~ (>L1) / (1T1)Kxf7
+6. (1T2)Nf3 / (1T2)e6
+7. (1T3)Nf3>>(1T2)f5 (>L2) / (1T3)Qh4
+8. (1T4)e3 / (0T5)Qf6>>x(0T1)f2~ (>L-1)
 )";
 
 int main()
 {
-    game g = game::from_pgn(str);
-    std::cout << g.show_pgn() << "\n";
-    for (auto& [l, t, c, fen] : g.get_phantom_boards_and_checks().first)
+    std::unique_ptr<state> s = nullptr;
     {
-        std::cout << "L" << l << " T" << t << " " << (c?"b":"w") << ": " << fen << "\n";
+        s = std::make_unique<state>(*pgnparser(str).parse_game());
     }
+    std::cout << static_cast<int>(s->get_mate_type()) << "\n";
     return 0;
 }

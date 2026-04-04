@@ -11,7 +11,7 @@
 #include "integer_set.h"
 
 // a point in the multi-dimensional space
-using point = std::vector<int>;
+using point = std::vector<uint32_t>;
 
 struct search_space;
 struct slice;
@@ -32,7 +32,7 @@ struct HC
 
 struct slice
 {
-    std::map<int, integer_set> fixed_axes; // map from axis index to all options of the fixed value
+    std::map<uint32_t, integer_set> fixed_axes; // map from axis index to all options of the fixed value
     // other axes are free, i.e. all included in the slice represented
     bool contains(const point &p) const;
     std::string to_string() const;
