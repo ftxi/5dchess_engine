@@ -402,7 +402,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
                 },
                 [&](const arriving_move& loc) {
                     uint32_t from_axis = line_to_axis.at(loc.m.from.l());
-                    if(hc.axes[from_axis].contains(loc.idx))
+                    if(!hc.axes[from_axis].contains(loc.idx))
                     {
                         ghost_arrive_indices.insert(i);
                         dprint("ghost arriving move",n,i, "(source", from_axis, loc.idx,")");//,show_semimove(loc));
@@ -428,10 +428,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
                 },
             }, loc);
         }
-        for(uint32_t i : ghost_arrive_indices)
-        {
-            hc.axes[n].erase(i); //TODO: Rewrite with set minus
-        }
+        hc.axes[n].minus(ghost_arrive_indices);
         if(hc.axes[n].empty())
         {
             // search space is empty after prune; abort
