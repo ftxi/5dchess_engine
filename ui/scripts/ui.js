@@ -264,6 +264,15 @@ export const UI = (() => {
         console.log('Edit button clicked');
     };
 
+    let flipped = false;
+
+    document.getElementById('btnFlip').onclick = () => {
+        flipped = !flipped;
+        if(settingsChangeCallback) {
+            settingsChangeCallback({ flipped });
+        }
+    };
+
     /* ================= Pop-up System ================= */
     const popupOverlay = document.getElementById('popupOverlay');
     let activeButton = null;

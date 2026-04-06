@@ -243,6 +243,10 @@ UI.setSettingsChangeCallback((settings) => {
         worker.postMessage({ type: 'view' });
     } else if (settings.autoToggleComments !== undefined) {
         // Auto toggle of the HUD comments area is handled entirely within UI.js
+    } else if (settings.flipped !== undefined) {
+        if (window.chessBoardCanvas) {
+            window.chessBoardCanvas.setFlipped(settings.flipped);
+        }
     }
 });
 

@@ -28,10 +28,12 @@ export default class ChessBoardCanvas
         this.boardSkipX = 100;
         this.boardSkipY = 122;
         this.fontSizeforLT = 16;
+        this.fontSizeforXY = 3;
         
         this.focusPoints = [{ l: 0, t: 0, c: 0 }];
         this.focusIndex = 0;
         
+        this.flipped = false;
         // Board data
         this.data = null;
         
@@ -95,6 +97,57 @@ export default class ChessBoardCanvas
         this._activeFade = null;
     }
 
+    setFlipped(flipped) {
+        if (this.flipped === flipped) {
+            return;
+        }
+
+        this.flipped = flipped;
+
+        // Invalidate visibility cache and remap camera Y through the same flip transform used by board centers:
+        // worldY' = -worldY + boardPixelHeight
+        // cameraY' = -cameraY - boardPixelHeight
+        const boardPixelHeight = this.boardLengthY * this.squareSize;
+        this.filterCache.bounds = [null, null, null, null, null];
+        this.infCanvas.cameraTarget.y = -this.infCanvas.cameraTarget.y - boardPixelHeight;
+        this.infCanvas.cameraCurrent.y = -this.infCanvas.cameraCurrent.y - boardPixelHeight;
+        this.infCanvas.startAnimation();
+    }
+
+    // Map logical timeline index to the displayed timeline index.
+    _displayL(l) {
+        return this.flipped ? -l : l;
+    }
+
+    // Map board-array row (top-origin) to the displayed row on canvas.
+    _displayBoardRow(row) {
+        return this.flipped ? (this.boardLengthY - 1 - row) : row;
+    }
+
+    // Map chess coordinate y (bottom-origin) to the displayed row on canvas.
+    _displayCoordYRow(y) {
+        return this.flipped ? y : (this.boardLengthY - 1 - y);
+    }
+
+    // Rank text associated with a board-array row index.
+    _displayRankForRow(row) {
+        return this.boardLengthY - row;
+    }
+
+    // Choose contrasting label color based on the underlying square color.
+    _getLabelTextColor(boardRow, boardCol) {
+        const isWhiteSquare = ((boardRow + boardCol) % 2) === 0;
+        return isWhiteSquare ? this.colors.squareBlack : this.colors.squareWhite;
+    }
+
+    // Convert displayed L bounds back to logical L bounds for filtering data.
+    _actualLRangeFromDisplay(displayLMin, displayLMax) {
+        if (!this.flipped) {
+            return [displayLMin, displayLMax];
+        }
+        return [-displayLMax, -displayLMin];
+    }
+
     // Set the board data (replaces global data variable)
     setData(data) {
         this.data = data;
@@ -131,12 +184,13 @@ export default class ChessBoardCanvas
     }
 
     // Filter board data based on visible bounds (with caching)
-    _filterBoardData(lMin, lMax, vMin, vMax) {
+    _filterBoardData(displayLMin, displayLMax, vMin, vMax) {
         const cache = this.filterCache;
-        const bounds = [lMin, lMax, vMin, vMax];
+        const bounds = [displayLMin, displayLMax, vMin, vMax, this.flipped];
+        const [lMin, lMax] = this._actualLRangeFromDisplay(displayLMin, displayLMax);
         
         // Check if cache is still valid
-        if (cache.bounds.every((v, i) => v === bounds[i])) {
+        if (cache.bounds.length === bounds.length && cache.bounds.every((v, i) => v === bounds[i])) {
             return; // Cache is valid, no need to refilter
         }
         
@@ -200,12 +254,14 @@ export default class ChessBoardCanvas
 
     // Helper: convert board position to pixel coordinate
     _getCoordinate(pos) {
-        const l = pos.l, v = pos.t << 1 | pos.c;
+        const l = this._displayL(pos.l);
+        const v = pos.t << 1 | pos.c;
         const shiftX = v * this.boardSkipX;
         const shiftY = l * this.boardSkipY;
+        const row = this._displayCoordYRow(pos.y);
         return [
             pos.x * this.squareSize + shiftX,
-            (this.boardLengthY - 1 - pos.y) * this.squareSize + shiftY
+            row * this.squareSize + shiftY
         ];
     }
 
@@ -290,7 +346,7 @@ export default class ChessBoardCanvas
                 let t = opacityValues.t;
                 if ((l + t) % 2 === 0) {
                     ctx.fillText(
-                        `L${l}`,
+                        `L${this._displayL(l)}`,
                         t * 2 * this.boardSkipX - this.backgroundShiftX - 2,
                         l * this.boardSkipY - this.backgroundShiftY + this.fontSizeforLT
                     );
@@ -301,7 +357,7 @@ export default class ChessBoardCanvas
                 let t = opacityValues.t;
                 if ((l + t) % 2 !== 0) {
                     ctx.fillText(
-                        `L${l}`,
+                        `L${this._displayL(l)}`,
                         t * 2 * this.boardSkipX - this.backgroundShiftX - 2,
                         l * this.boardSkipY - this.backgroundShiftY + this.fontSizeforLT
                     );
@@ -352,7 +408,7 @@ export default class ChessBoardCanvas
         
         // Layer 2: Board margins
         for (const board of cache.filteredBoards) {
-            let l = board.l, v = board.t << 1 | board.c;
+            let l = this._displayL(board.l), v = board.t << 1 | board.c;
             const shiftX = v * this.boardSkipX;
             const shiftY = l * this.boardSkipY;
             
@@ -369,7 +425,7 @@ export default class ChessBoardCanvas
         for (let color in cache.filteredBoardHighlight) {
             ctx.fillStyle = color;
             for (let pos of cache.filteredBoardHighlight[color]) {
-                let l = pos.l, v = pos.t << 1 | pos.c;
+                let l = this._displayL(pos.l), v = pos.t << 1 | pos.c;
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 ctx.fillRect(
@@ -385,7 +441,7 @@ export default class ChessBoardCanvas
         if(squareLength > 0.7) {
             // Checkerboard pattern
             for (const board of cache.filteredBoards) {
-                let l = board.l, v = board.t << 1 | board.c;
+                let l = this._displayL(board.l), v = board.t << 1 | board.c;
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 
@@ -396,9 +452,10 @@ export default class ChessBoardCanvas
                 for (let row = 0; row < this.boardLengthY; row++) {
                     for (let col = 0; col < this.boardLengthX; col++) {
                         if ((row + col) % 2 === 0) {
+                            const drawRow = this._displayBoardRow(row);
                             ctx.fillRect(
                                 col * this.squareSize + shiftX,
-                                row * this.squareSize + shiftY,
+                                drawRow * this.squareSize + shiftY,
                                 this.squareSize,
                                 this.squareSize
                             );
@@ -408,7 +465,7 @@ export default class ChessBoardCanvas
             }
         } else {
             for (const board of cache.filteredBoards) {
-                let l = board.l, v = board.t << 1 | board.c;
+                let l = this._displayL(board.l), v = board.t << 1 | board.c;
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 
@@ -416,7 +473,66 @@ export default class ChessBoardCanvas
                 ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
             }
         }
-            
+        
+        // Layer 2.1: file/rank labels
+        const labelOpacity = smoothClamp(30.0, 50.0, squareLength);
+        if (labelOpacity > 0) {
+            ctx.save();
+            ctx.font = `${this.fontSizeforXY}px serif`;
+            ctx.globalAlpha = labelOpacity;
+            for (const board of cache.filteredBoards) {
+                let l = this._displayL(board.l), v = board.t << 1 | board.c;
+                const shiftX = v * this.boardSkipX;
+                const shiftY = l * this.boardSkipY;
+
+                const bottomBoardRow = this.flipped ? 0 : (this.boardLengthY - 1);
+                for (let i = 1; i < this.boardLengthX; i+=2) {
+                    ctx.fillStyle = this._getLabelTextColor(bottomBoardRow, i);
+                    ctx.fillText(
+                        String.fromCharCode(97 + i),
+                        shiftX + i * this.squareSize,
+                        shiftY + this.boardLengthY * this.squareSize
+                    );
+                }
+                for (let i = 0; i < this.boardLengthY; i+=2) {
+                    const drawRow = this._displayBoardRow(i);
+                    ctx.fillStyle = this._getLabelTextColor(i, 0);
+                    ctx.fillText(
+                        `${this._displayRankForRow(i)}`,
+                        shiftX,
+                        shiftY + drawRow * this.squareSize + this.fontSizeforXY
+                    );
+                }
+            }
+            for (const board of cache.filteredBoards) {
+                let l = this._displayL(board.l), v = board.t << 1 | board.c;
+                const shiftX = v * this.boardSkipX;
+                const shiftY = l * this.boardSkipY;
+
+                const bottomBoardRow = this.flipped ? 0 : (this.boardLengthY - 1);
+                for (let i = 0; i < this.boardLengthX; i+=2) {
+                    ctx.fillStyle = this._getLabelTextColor(bottomBoardRow, i);
+                    ctx.fillText(
+                        String.fromCharCode(97 + i),
+                        shiftX + i * this.squareSize,
+                        shiftY + this.boardLengthY * this.squareSize
+                    );
+                }
+                for (let i = 1; i < this.boardLengthY; i+=2) {
+                    const drawRow = this._displayBoardRow(i);
+                    ctx.fillStyle = this._getLabelTextColor(i, 0);
+                    ctx.fillText(
+                        `${this._displayRankForRow(i)}`,
+                        shiftX,
+                        shiftY + drawRow * this.squareSize + this.fontSizeforXY
+                    );
+                }
+            }
+            ctx.restore();
+        }
+
+        this.cameraElement.innerHTML = `SquareLength: ${squareLength.toFixed(2)}`;
+
         // Layer 3: Highlighted squares
         ctx.save();
         //ctx.globalAlpha = 0.5;
@@ -432,7 +548,7 @@ export default class ChessBoardCanvas
             // Layer 4: Pieces
             const imgs = chooseLOD(squareLength);
             for (const board of cache.filteredBoards) {
-                let l = board.l, v = board.t << 1 | board.c;
+                let l = this._displayL(board.l), v = board.t << 1 | board.c;
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
                 
@@ -441,10 +557,11 @@ export default class ChessBoardCanvas
                     for (let col = 0; col < this.boardLengthX; col++) {
                         const piece = parsedBoard[row][col];
                         if (isNaN(piece) && imgs[piece]) {
+                            const drawRow = this._displayBoardRow(row);
                             ctx.drawImage(
                                 imgs[piece],
                                 col * this.squareSize + shiftX,
-                                row * this.squareSize + shiftY,
+                                drawRow * this.squareSize + shiftY,
                                 this.squareSize,
                                 this.squareSize
                             );
@@ -549,12 +666,14 @@ export default class ChessBoardCanvas
     }
 
     worldToBoard(worldX, worldY) {
-        const l = Math.floor(worldY / this.boardSkipY);
+        const displayL = Math.floor(worldY / this.boardSkipY);
+        const l = this._displayL(displayL);
         const v = Math.floor(worldX / this.boardSkipX);
         const c = (v & 1) !== 0;
         const t = v >> 1;
         const x = Math.floor((worldX - v * this.boardSkipX) / this.squareSize);
-        const y = this.boardLengthY - 1 - Math.floor((worldY - l * this.boardSkipY) / this.squareSize);
+        const row = Math.floor((worldY - displayL * this.boardSkipY) / this.squareSize);
+        const y = this.flipped ? row : (this.boardLengthY - 1 - row);
         
         return { l, t, c, x, y };
     }
@@ -606,7 +725,7 @@ export default class ChessBoardCanvas
             const actualScale = this.infCanvas.canvas.width / 120 / 3;
             const targetScale = Math.log2(actualScale);
             const targetX = this.boardSkipX * (focus.t << 1 | focus.c) + this.boardLengthX * this.squareSize / 2;
-            const targetY = this.boardSkipY * focus.l + this.boardLengthY * this.squareSize / 2;
+            const targetY = this.boardSkipY * this._displayL(focus.l) + this.boardLengthY * this.squareSize / 2;
             
             this.infCanvas.moveTo(targetX, targetY, targetScale);
         }
