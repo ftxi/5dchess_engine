@@ -1,0 +1,9 @@
+[Board "Custom"]
+[Size "5x5"]
+[K4/4k/4r/5/5:0:1:w]
+[K4/4k/5/5/R4:-1:1:w]
+[3rk/5/K2r1/5/5:1:1:w]
+[4r/5/2k2/5/4K:2:1:w]
+
+1. (-1T1)Ka5b5 (0T1)Ka5a4 (1T1)Ka3a4 (2T1)Ke1d1 / (2T1)Re5d5 (1T1)Rd3d4 (0T1)Ke4e5 (-1T1)Ke4e5 
+2. (-1T2)Kb5a5 (1T2)Ka4>(0T2)a5 (2T2)Kd1e1 / (2T2)Rd5d2 (1T2)Rd4d2 (0T2)Re3e1 (-1T2)Ke5d5

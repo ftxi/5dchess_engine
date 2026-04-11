@@ -11,12 +11,22 @@ const integer_set &HC::operator[](size_t i) const
 bool HC::contains(point loc) const
 {
     assert(loc.size() == axes.size());
-    for(uint32_t i = 0; i < static_cast<uint32_t>(axes.size()); i++)
+    for(index_t i = 0; i < static_cast<index_t>(axes.size()); i++)
     {
         if(!axes[i].contains(loc[i]))
             return false;
     }
     return true;
+}
+
+size_t HC::volume() const
+{
+    size_t result = 1;
+    for(const auto& axis : axes)
+    {
+        result *= axis.size();
+    }
+    return result;
 }
 
 bool slice::contains(const point &p) const
@@ -27,6 +37,16 @@ bool slice::contains(const point &p) const
             return false;
     }
     return true;
+}
+
+size_t search_space::volume() const
+{
+    size_t result = 0;
+    for(const auto& hc : hcs)
+    {
+        result += hc.volume();
+    }
+    return result;
 }
 
 bool search_space::contains(point loc) const
@@ -65,7 +85,7 @@ search_space HC::remove_point(const point &p) const
 {
     search_space result;
     HC remaining = *this;
-    for(uint32_t i = 0; i < static_cast<uint32_t>(p.size()); i++)
+    for(index_t i = 0; i < static_cast<index_t>(p.size()); i++)
     {
         HC x = remaining;
         x.axes[i].erase(p[i]);
@@ -77,6 +97,48 @@ search_space HC::remove_point(const point &p) const
         }
     }
     return result;
+}
+
+search_space HC::remove_slice_carefully(const slice &s) const
+{
+    search_space result;
+    HC remaining = *this;
+    slice s1 = s;
+    for(auto& [i, fixed_coords] : s1.fixed_axes)
+    {
+        if(!remaining.axes[i].intersects(fixed_coords))
+        {
+            return search_space({{*this}});
+        }
+        else
+        {
+            fixed_coords &= remaining.axes[i];
+            assert(!fixed_coords.empty());
+        }
+    }
+    for(const auto& [i, fixed_coords] : s1.fixed_axes)
+    {
+        HC x = remaining;
+        x.axes[i].minus(fixed_coords);
+        remaining.axes[i] = fixed_coords;
+        if(!x.axes[i].empty()) // do not include empty hc
+        {
+            result.hcs.push_back(std::move(x));
+        }
+    }
+    return result;
+}
+
+search_space HC::remove_point_carefully(const point &p) const
+{
+    if(!contains(p))
+    {
+        return search_space({{*this}});
+    }
+    else
+    {
+        return remove_point(p);
+    }
 }
 
 std::string HC::to_string(bool verbose) const

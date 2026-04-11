@@ -11,6 +11,8 @@
 #include <type_traits>
 #include <cassert>
 
+using index_t = std::uint_fast16_t;
+
 /* dynamic integer bit-set 
 store a set of non-negative integers
 unlike std::bitset<N>, the size of integer_set is dynamic and can grow as needed
@@ -19,14 +21,15 @@ class integer_set
 {
     using block_t = uint64_t;
     // block_bits = 64
-    constexpr static uint32_t block_bits = sizeof(block_t) * 8;
+    constexpr static index_t block_bits = sizeof(block_t) * 8;
     // block_mask = 63 = 0b111111
-    constexpr static uint32_t block_mask = block_bits - 1;
+    constexpr static index_t block_mask = block_bits - 1;
     // block_shift = 6 = log2(64)
-    constexpr static uint32_t block_shift = std::bit_width(block_mask);
+    constexpr static index_t block_shift = std::bit_width(block_mask);
+
     std::vector<block_t> data;
 public:
-    using value_type = uint32_t;
+    using value_type = index_t;
     using size_type = std::size_t;
 private:
     template <bool Const>
@@ -142,9 +145,10 @@ public:
     integer_set() = default;
     constexpr integer_set(std::initializer_list<value_type> values);
 
-    bool contains(value_type value) const;
-    bool empty() const noexcept;
-    size_type size() const noexcept;
+    [[nodiscard]] bool contains(value_type value) const;
+    [[nodiscard]] bool empty() const noexcept;
+    [[nodiscard]] size_type size() const noexcept;
+    [[nodiscard]] bool intersects(const integer_set &other) const noexcept;
 
     iterator begin() { return iterator(this, 0, 0); }
     iterator end() { return iterator(this, static_cast<value_type>(data.size()), 0); }
@@ -160,7 +164,12 @@ public:
     template <typename UnaryOp>
     [[nodiscard]] constexpr integer_set transform(UnaryOp op) const;
 
+    integer_set operator |(const integer_set &other) const;
+    integer_set operator &(const integer_set &other) const;
+
     void minus(const integer_set &other);
+    integer_set operator |=(const integer_set &other);
+    integer_set operator &=(const integer_set &other);
 };
 
 template<>

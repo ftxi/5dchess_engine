@@ -1,6 +1,8 @@
 #ifndef DEBUG_H
 #define DEBUG_H
 
+#include <iostream>
+
 /*
 A simple debug printing utility.
 To enable debug printing, define DEBUGMSG in the .cpp file before including this header.
@@ -34,7 +36,7 @@ void debug_print(Args... args)
 #define adprint(...) (detail::debug_print(__VA_ARGS__))
 
 #ifdef DEBUGMSG
-#define dprint(...) (::detail::debug_print(__VA_ARGS__))
+#define dprint(...) (detail::debug_print(__VA_ARGS__))
 #else
 #define dprint(...)
 #endif
