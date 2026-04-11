@@ -84,6 +84,23 @@ int main()
         print_range("reference: ", _u);
         return 1;
     }
+    u |= integer_set{1, 2, 3, 200, 300};
+    _u.insert({1, 2, 3, 200, 300});
+    print_range("u after union with {1,2,3,200,300}: ", u);
+    if(snapshot(u) != snapshot(_u))    {
+        std::cerr << "Test failed after union\n";
+        print_range("reference: ", _u);
+        return 1;
+    }
+    u &= integer_set{2, 3, 4, 200};
+    std::erase_if(_u, [](uint32_t x) { return !(x == 2 || x == 3 || x == 4 || x == 200); });
+    print_range("u after intersection with {2,3,4,200}: ", u);
+    if(snapshot(u) != snapshot(_u))
+    {   
+        std::cerr << "Test failed after intersection\n";
+        print_range("reference: ", _u);
+        return 1;
+    }
     std::cerr << "---= integer_set.cpp: all passed =---" << std::endl;
     return 0;
 }

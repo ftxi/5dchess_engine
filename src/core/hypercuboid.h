@@ -41,7 +41,7 @@ struct arriving_move
 {
     full_move m;
     std::shared_ptr<board> b;
-    uint32_t idx; // index of corresponding departing move
+    index_t idx; // index of corresponding departing move
     // not storing the axis of departing move because it can be found by `line_to_axis[m.from.l()]`
 };
 struct departing_move
@@ -85,15 +85,15 @@ struct HC_info
 {
     // local variables
     const state s;
-    const std::map<int, uint32_t> line_to_axis; // map from timeline index to axis index
+    const std::map<int, index_t> line_to_axis; // map from timeline index to axis index
     std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
     HC universe;
-    const uint32_t new_axis, dimension; // axes 0, 1, ..., new_axis-1 are playable lines
+    const index_t new_axis, dimension; // axes 0, 1, ..., new_axis-1 are playable lines
     // whereas new_axis, new_axis+1, ..., dimension-1 are the possible branching lines
     // identity: dimension = universe.axes.size() = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
-private:
+//private:
     /*
      take_point(): takes a point in hc while making sure arrives matches departures
      if it finds an arrive with its departure no longer in hc, then this arrives get
@@ -106,7 +106,7 @@ private:
     std::optional<slice> find_checks(const point& p, const HC& hc) const;
     moveseq to_action(const point& p) const;
     //private aggregate constructor
-    HC_info(state s, std::map<int, uint32_t> lm, std::vector<std::vector<semimove>> crds, HC uni, uint32_t ax, uint32_t dim, const std::vector<int> pl)
+    HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<semimove>> crds, HC uni, index_t ax, index_t dim, const std::vector<int> pl)
         : s(std::move(s)), line_to_axis(std::move(lm)), axis_coords(std::move(crds)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
 
 public:
@@ -114,6 +114,7 @@ public:
     generator<moveseq> search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
+    generator<moveseq> psearch(search_space ss) const;
     void shuffle(search_space& ss);
 };
 

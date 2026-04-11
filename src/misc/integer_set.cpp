@@ -34,6 +34,18 @@ integer_set::size_type integer_set::size() const noexcept
     return count;
 }
 
+bool integer_set::intersects(const integer_set &other) const noexcept
+{
+    size_t min_size = std::min(data.size(), other.data.size());
+    for(size_t i = 0; i < min_size; i++)
+    {
+        if(data[i] & other.data[i])
+        {
+            return true;
+        }
+    }
+    return false;
+}
 
 bool integer_set::erase(value_type value)
 {
@@ -49,6 +61,20 @@ bool integer_set::erase(value_type value)
     return was_set;
 }
 
+integer_set integer_set::operator|(const integer_set &other) const
+{
+    integer_set result = *this;
+    result |= other;
+    return result;
+}
+
+integer_set integer_set::operator&(const integer_set &other) const
+{
+    integer_set result = *this;
+    result &= other;
+    return result;
+}
+
 void integer_set::minus(const integer_set &other)
 {
     size_t min_size = std::min(data.size(), other.data.size());
@@ -56,4 +82,26 @@ void integer_set::minus(const integer_set &other)
     {
         data[i] &= ~other.data[i];
     }
+}
+
+integer_set integer_set::operator|=(const integer_set &other)
+{
+    size_t max_size = std::max(data.size(), other.data.size());
+    data.resize(max_size, 0);
+    for(size_t i = 0; i < other.data.size(); i++)
+    {
+        data[i] |= other.data[i];
+    }
+    return *this;
+}
+
+integer_set integer_set::operator&=(const integer_set &other)
+{
+    size_t min_size = std::min(data.size(), other.data.size());
+    data.resize(min_size, 0);
+    for(size_t i = 0; i < min_size; i++)
+    {
+        data[i] &= other.data[i];
+    }
+    return *this;
 }
