@@ -1170,3 +1170,78 @@ moveseq HC_info::to_action(const point &p) const
     }
     return mvs;
 }
+
+generator<moveseq> HC_info::psearch(search_space ss) const
+{
+    size_t vol = ss.volume();
+    size_t new_vol = vol;
+    dprint("begining psearch: ", ss.to_string());
+    while(!ss.hcs.empty())
+    {
+        HC hc = ss.hcs.back();
+        dprint("searching ", hc.to_string());
+        ss.hcs.pop_back();
+        auto pt_opt = take_point(hc);
+        if(pt_opt)
+        {
+            point pt = pt_opt.value();
+            dprint("got point: ", range_to_string(pt));
+            auto problem = find_problem(pt, hc);
+            if(problem)
+            {
+                dprint("found problem:", problem.value().to_string());
+                // Remove this slice from every remaining hypercuboid and re-join all pieces.
+                search_space adjoined;
+                adjoined.concat(hc.remove_slice(*problem));
+                for(HC other_hc : ss.hcs)
+                {
+                    size_t v1 = other_hc.volume();
+                    search_space sstemp = other_hc.remove_slice_carefully(*problem);
+                    size_t v2 = sstemp.volume();
+                    if(v2 > v1)
+                    {
+                        std::cout << "Old: " << v1 << other_hc.to_string() << std::endl;
+                        std::cout << "Slice: " << problem->to_string() << std::endl;
+                        bool intersects = true;
+                        for(const auto& [i, fixed_coords] : problem->fixed_axes)
+                        {
+                            if(!other_hc.axes[i].intersects(fixed_coords))
+                            {
+                                intersects = false;
+                            }
+                        }
+                        std::cout << "Old intersects slice: " << intersects << std::endl;
+                        std::cout << "New: " << v2 << sstemp.to_string() << std::endl;
+                        throw std::exception();
+                    }
+                    adjoined.concat(std::move(sstemp));
+                }
+                // make sure when a leave is removed, so is the corresponding arrive
+                dprint("removed problem from all hcs, continue search:", adjoined.to_string());
+                ss = std::move(adjoined);
+                new_vol = ss.volume();
+                //std::cerr << new_vol << std::endl;
+                if(new_vol > vol)
+                {
+                    throw std::exception();
+                }
+                vol = new_vol;
+            }
+            else
+            {
+                dprint("point is okay, removing it from this hc");
+                co_yield to_action(pt);
+                search_space new_ss = hc.remove_point(pt);
+                dprint("removed point, continue search:", new_ss.to_string());
+                ss.concat(std::move(new_ss));
+            }
+        }
+        else
+        {
+            dprint("didn't secure any point in the first hypercuboid;");
+            dprint("continue searching the remaining part");
+        }
+    }
+    dprint("search space is empty; finish.");
+    co_return;
+}

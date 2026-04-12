@@ -93,7 +93,7 @@ struct HC_info
     // identity: dimension = universe.axes.size() = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
-private:
+//private:
     /*
      take_point(): takes a point in hc while making sure arrives matches departures
      if it finds an arrive with its departure no longer in hc, then this arrives get
@@ -114,6 +114,7 @@ public:
     generator<moveseq> search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
+    generator<moveseq> psearch(search_space ss) const;
     void shuffle(search_space& ss);
 };
 
