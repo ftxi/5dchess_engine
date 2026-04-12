@@ -1170,8 +1170,6 @@ moveseq HC_info::to_action(const point &p) const
     }
     return mvs;
 }
-<<<<<<< Updated upstream
-=======
 
 generator<moveseq> HC_info::psearch(search_space ss) const
 {
@@ -1247,4 +1245,3 @@ generator<moveseq> HC_info::psearch(search_space ss) const
     dprint("search space is empty; finish.");
     co_return;
 }
->>>>>>> Stashed changes
