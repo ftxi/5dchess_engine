@@ -93,7 +93,6 @@ struct HC_info
     // identity: dimension = universe.axes.size() = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
-private:
     /*
      take_point(): takes a point in hc while making sure arrives matches departures
      if it finds an arrive with its departure no longer in hc, then this arrives get
@@ -105,6 +104,7 @@ private:
     std::optional<slice> test_present(const point& p, const HC& hc) const;
     std::optional<slice> find_checks(const point& p, const HC& hc) const;
     moveseq to_action(const point& p) const;
+private:
     //private aggregate constructor
     HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<semimove>> crds, HC uni, index_t ax, index_t dim, const std::vector<int> pl)
         : s(std::move(s)), line_to_axis(std::move(lm)), axis_coords(std::move(crds)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
