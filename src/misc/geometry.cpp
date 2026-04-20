@@ -141,6 +141,15 @@ search_space HC::remove_point_carefully(const point &p) const
     }
 }
 
+std::pair<HC, HC> HC::split(index_t n, index_t i) const
+{
+    assert(axes[n].contains(i));
+    std::pair<HC, HC> result{*this, *this};
+    result.first.axes[n] = integer_set{i};
+    result.second.axes[n].erase(i);
+    return result;
+}
+
 std::string HC::to_string(bool verbose) const
 {
     std::ostringstream oss;

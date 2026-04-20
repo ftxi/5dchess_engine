@@ -33,6 +33,10 @@ struct HC
     /* general purpose methods that includes a safety check */
     search_space remove_slice_carefully(const slice &s) const;
     search_space remove_point_carefully(const point &p) const;
+    /* split the hypercuboid along the nth axis at the ith value 
+    returns {part with ith value, part without ith value}
+    */
+    std::pair<HC, HC> split(index_t n, index_t i) const;
 
     std::string to_string(bool verbose=true) const;
 };

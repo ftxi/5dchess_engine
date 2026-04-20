@@ -1,8 +1,9 @@
 #include "finetree.h"
 #include "debug.h"
+#include <cassert>
 
 fine_node::fine_node(fine_node *parent, state s)
-: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{-1}, i{-1}, cells{}
+: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-1)}, i{index_t(-1)}, cells{}
 {
     auto [info, ss] = HC_info::build_HC(s);
     pocessed_context = std::make_unique<nodal_pocession>(nodal_pocession{std::move(info), {}});
@@ -24,12 +25,12 @@ std::unique_ptr<fine_node> fine_node::make_nodal(fine_node *parent, state s)
     return std::make_unique<fine_node>(parent, s);
 }
 
-std::unique_ptr<fine_node> fine_node::make_temproary(fine_node *parent, HC_info *info, index_t n, index_t i)
+std::unique_ptr<fine_node> fine_node::make_temproary(fine_node *parent, index_t n, index_t i)
 {
     return std::make_unique<fine_node>(parent, n, i);
 }
 
-std::optional<point> fine_node::explore()
+std::optional<std::tuple<fine_node::fine_cell*, point>> fine_node::explore()
 {
     HC_info &info = context->info;
     for(fine_cell &cell : cells)
@@ -54,7 +55,7 @@ std::optional<point> fine_node::explore()
                 else
                 {
                     // otherwise we are done
-                    return pt_opt;
+                    return {std::make_tuple(&cell, *pt_opt)};
                 }
             }
         }
@@ -80,5 +81,59 @@ void fine_node::remove_slice(const slice &s)
 
 fine_node* fine_node::isolate(point p, fine_cell *target_cell)
 {
-    
+    // auto isolate_subprocess = [&p, this](fine_cell *target_cell)->std::tuple<fine_node*, fine_cell*> {
+    //     assert(target_cell->space.contains(p));
+    //     auto &hcs = target_cell->subspace.hcs;
+    //     auto it = std::find_if(hcs.begin(), hcs.end(), [p](const HC &hc) {
+    //         return hc.contains(p);
+    //     });
+    //     assert(it != hcs.end());
+    //     index_t next_n = is_nodal() ? 0 : n + 1;
+    //     index_t next_i = p[next_n];
+    //     const auto &[with_i, without_i] = it->split(next_n, next_i);
+
+    //     std::unique_ptr<fine_node> next_node = make_temproary(this, next_n, i);
+    //     context->node_pool.push_back(std::move(next_node));
+
+    //     next_node->cells.push_back(fine_cell{
+    //         .space = with_i,
+    //         .children = {},
+    //         .subspace = search_space{.hcs = {with_i}}
+    //     });
+
+    //     *it = std::move(without_i);
+    //     return {context->node_pool.back().get(), &next_node->cells.back()};
+    // };
+    fine_node *current_node = this;
+    fine_node *ans = nullptr;
+    while(current_node->n != context->info.dimension)
+    {
+        [&current_node, &p, &ans](){
+        fine_cell *target_cell = nullptr;
+        assert(target_cell->space.contains(p));
+        auto &hcs = target_cell->subspace.hcs;
+        auto it = std::find_if(hcs.begin(), hcs.end(), [p](const HC &hc) {
+            return hc.contains(p);
+        });
+        assert(it != hcs.end());
+        index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
+        index_t next_i = p[next_n];
+        const auto &[with_i, without_i] = it->split(next_n, next_i);
+
+        std::unique_ptr<fine_node> next_node = make_temproary(current_node, next_n, next_i);
+        next_node->cells.push_back(fine_cell{
+            .space = with_i,
+            .children = {},
+            .subspace = search_space{.hcs = {with_i}}
+        });
+        current_node->context->node_pool.push_back(std::move(next_node));
+        *it = std::move(without_i);
+        current_node = current_node->context->node_pool.back().get();
+        if(!ans)
+        {
+            ans = current_node;
+        }
+        }();
+    }
+    return ans;
 }

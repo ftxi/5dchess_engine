@@ -35,11 +35,13 @@ public:
     fine_node(fine_node *parent, state s);
     fine_node(fine_node *parent, index_t n, index_t i);
     static std::unique_ptr<fine_node> make_nodal(fine_node *parent, state s);
-    static std::unique_ptr<fine_node> make_temproary(fine_node *parent, HC_info *info, index_t n, index_t i);
+    static std::unique_ptr<fine_node> make_temproary(fine_node *parent, index_t n, index_t i);
+
+    bool is_nodal() const { return pocessed_context != nullptr; }
 
     generator<index_t> search();
     fine_node *expand();
-    std::optional<point> explore();
+    std::optional<std::tuple<fine_cell*, point>> explore();
     void remove_slice(const slice &);
     fine_node *isolate(point, fine_cell*);
     void normalize();
