@@ -2,11 +2,20 @@
 #define GAMETREE_H
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <sstream>
+#include <string>
+#include <vector>
 #include "action.h"
 #include "state.h"
 #include "turn.h"
+#include "hypercuboid.h"
+
+template<typename T>
+class gnode;
+
+std::unique_ptr<gnode<std::vector<std::string>>> build_gametree_from_pgn(std::string input);
 
 template<typename T>
 class gnode {
@@ -67,6 +76,25 @@ public:
         return children.back().get();
     }
 
+    std::optional<action> new_child() {
+        const state &s = get_state();
+        auto [w, ss] = HC_info::build_HC(s);
+        for(moveseq mvs : w.search(ss))
+        {
+            std::vector<ext_move> emvs;
+            std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
+                return ext_move(m);
+            });
+            action act = action::from_vector(emvs, s);
+            if(!find_child(act))
+            {
+                create_child(this, s.can_apply(act), act, T{});
+                return act;
+            }
+        }
+        return std::nullopt;
+    }
+
     const std::vector<std::unique_ptr<gnode>>& get_children() const 
     {
         return children;
@@ -83,7 +111,7 @@ public:
         }
         return nullptr;
     }
-    
+
     std::string to_string(
         std::function<std::string(T)> show = [](T){return "";},
         uint16_t show_flags = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE,
