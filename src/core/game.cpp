@@ -272,7 +272,7 @@ std::pair<int, int> game::get_board_size() const
 
 bool game::suggest_action()
 {
-    auto act = gametree->new_child();
+    auto act = current_node->new_child();
     return act.has_value();
 }
 

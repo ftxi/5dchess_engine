@@ -656,6 +656,24 @@ state::mate_type state::get_mate_type() const
     }
 }
 
+match_status_t state::get_match_status() const
+{
+    auto [w, ss] = HC_info::build_HC(*this);
+    if(w.search(ss).first().has_value())
+    {
+        return match_status_t::PLAYING;
+    }
+    auto [t, c] = get_present();
+    if(phantom().find_checks(!c).first().has_value())
+    {
+        return c ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;
+    }
+    else
+    {
+        return match_status_t::STALEMATE;
+    }
+}
+
 std::pair<int, int> state::get_board_size() const
 {
     return m->get_board_size();

@@ -152,6 +152,7 @@ public:
     
     enum class mate_type {NONE, CHECKMATE, SOFTMATE, STALEMATE};
     mate_type get_mate_type() const;
+    match_status_t get_match_status() const;
 
     // wrappers for low-level functions
     std::pair<int, int> get_board_size() const;
