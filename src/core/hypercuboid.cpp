@@ -60,7 +60,7 @@ std::pair<int, int> extract_tl(const semimove& loc)
  - sliding_type = 4 : dragon move
  the endpoints are excluded in checking path
  */
-std::tuple<std::vector<vec4>, int> get_move_path(const state &s, full_move fm, int c)
+std::tuple<std::vector<vec4>, int> get_move_path(const state &s, full_move fm, bool c)
 {
     const vec4 p = fm.from, q = fm.to, d = q - p;
     std::shared_ptr<board> b_ptr = s.get_board(p.l(), p.t(), c);
@@ -495,7 +495,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
     if(p == point{2,8,10,9,1,15,31,2,2,0})
     {
         std::cout << hc.to_string() << std::endl;
-        for(int n=0; n < dimension; n++)
+        for(index_t n = 0; n < dimension; n++)
         {
             std::cout << n << ", " << p[n] << std::endl;
             std::cout << show_semimove(axis_coords[n][p[n]]) << std::endl;

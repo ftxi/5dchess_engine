@@ -12,6 +12,9 @@ std::string str = R"(
 int main()
 {
     game g = game::from_pgn(str);
+    auto guard = [](bool x){ if(!x) exit(1);};
+    guard(g.suggest_action());
+    guard(g.suggest_action());
     std::cout << g.show_pgn() << "\n";
     return 0;
 }

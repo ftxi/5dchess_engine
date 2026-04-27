@@ -20,7 +20,7 @@ std::unique_ptr<gnode<std::vector<std::string>>> build_gametree_from_pgn(std::st
 template<typename T>
 class gnode {
     gnode<T> *parent;
-    std::optional<state> s;
+    mutable std::optional<state> s;
     action act;
     T info;
     std::vector<std::unique_ptr<gnode>> children;
@@ -48,7 +48,7 @@ public:
         return node;
     }
 
-    state get_state()
+    state get_state() const
     {
         if(s)
         {
@@ -76,7 +76,8 @@ public:
         return children.back().get();
     }
 
-    std::optional<action> new_child() {
+    std::optional<action> new_child()
+    {
         const state &s = get_state();
         auto [w, ss] = HC_info::build_HC(s);
         for(moveseq mvs : w.search(ss))
@@ -88,16 +89,22 @@ public:
             action act = action::from_vector(emvs, s);
             if(!find_child(act))
             {
-                create_child(this, s.can_apply(act), act, T{});
+                add_child(create_child(this, s.can_apply(act), act, T{}));
                 return act;
             }
         }
         return std::nullopt;
     }
 
-    const std::vector<std::unique_ptr<gnode>>& get_children() const 
+    std::vector<gnode<T>*> get_children() const 
     {
-        return children;
+        std::vector<gnode<T>*> result;
+        result.reserve(children.size());
+        for (const auto& child : children)
+        {
+            result.push_back(child.get());
+        }
+        return result;
     }
 
     gnode<T>* find_child(const action &a)
@@ -117,7 +124,7 @@ public:
         uint16_t show_flags = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE,
         turn_t start_turn = {1,false},
         bool full_turn_display=true
-    )
+    ) const
     {
         std::ostringstream oss;
         size_t num_children = children.size();
@@ -160,7 +167,58 @@ public:
             auto it = (children.end() - 1);
             oss << (**it).to_string(show, show_flags, start_turn, num_children > 1);
         }
-        return oss.str();
+        /* indent by 1 space * number of nested parentheses
+        do not indent inside comments */
+        int parentheses_level = 0;
+        int curly_brace_level = 0;
+        std::string result;
+        for(char c : oss.str())
+        {
+            result += c;
+            if(c == '(')
+            {
+                parentheses_level++;
+            }
+            else if(c == ')')
+            {
+                parentheses_level--;
+            }
+            else if(c == '{')
+            {
+                curly_brace_level++;
+            }
+            else if(c == '}')
+            {
+                curly_brace_level--;
+            }
+            else
+            {
+                if(curly_brace_level == 0 && c == '\n')
+                {
+                    result += std::string(parentheses_level, ' ');
+                }
+            }
+        }
+        return result;
+    }
+
+    match_status_t get_match_status() const
+    {
+        const state &s = get_state();
+        auto [w, ss] = HC_info::build_HC(s);
+        if(w.search(ss).first().has_value())
+        {
+            return match_status_t::PLAYING;
+        }
+        auto [t, c] = s.get_present();
+        if(s.phantom().find_checks(!c).first().has_value())
+        {
+            return c ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;
+        }
+        else
+        {
+            return match_status_t::STALEMATE;
+        }
     }
 };
 

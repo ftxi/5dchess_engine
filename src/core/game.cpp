@@ -16,7 +16,7 @@ gnode<std::vector<std::string>>* get_last_dfs_node(gnode<std::vector<std::string
 {
     while(node && !node->get_children().empty())
     {
-        node = node->get_children().back().get();
+        node = node->get_children().back();
     }
     return node;
 }
@@ -149,21 +149,7 @@ std::vector<vec4> game::gen_move_if_playable(vec4 p) const
 
 match_status_t game::get_match_status() const
 {
-    const state &s = current_node->get_state();
-    auto [w, ss] = HC_info::build_HC(s);
-    if(w.search(ss).first().has_value())
-    {
-        return match_status_t::PLAYING;
-    }
-    auto [t, c] = s.get_present();
-    if(s.phantom().find_checks(!c).first().has_value())
-    {
-        return c ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;
-    }
-    else
-    {
-        return match_status_t::STALEMATE;
-    }
+    return current_node->get_match_status();
 }
 
 std::vector<vec4> game::get_movable_pieces() const
@@ -320,7 +306,7 @@ void game::visit_parent()
 std::vector<std::tuple<action, std::string>> game::get_child_actions() const
 {
     std::vector<std::tuple<action, std::string>> result;
-    auto &children = current_node->get_children();
+    const auto children = current_node->get_children();
     state s = current_node->get_state();
     for(const auto &child : children)
     {
@@ -354,12 +340,12 @@ std::vector<std::tuple<action, std::string>> game::get_historical_actions() cons
 bool game::visit_child(action act, comments_t comments, std::optional<state> newstate)
 {
     // check if the child already exists
-    auto &children = current_node->get_children();
-    for(auto &child : children)
+    const auto children = current_node->get_children();
+    for(auto child : children)
     {
         if(child->get_action().get_moves() == act.get_moves())
         {
-            current_node = child.get();
+            current_node = child;
             fresh();
             return true;
         }
@@ -374,7 +360,7 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
 std::string game::show_pgn(uint16_t show_flags)
 {
     std::ostringstream oss;
-    constexpr static std::array<std::string, 9> ordered_keys = {
+    const static std::array<std::string, 9> ordered_keys = {
         "event", "site", "date", "round", "white", "black", "variant", "timeline", "size"
     };
 
@@ -409,37 +395,5 @@ std::string game::show_pgn(uint16_t show_flags)
     oss << gametree->get_state().show_fen();
     oss << gametree->to_string(show_comments, show_flags);
     oss << "\n";
-    /* indent by 1 space * number of nested parentheses
-    do not indent inside comments */
-    int parentheses_level = 0;
-    int curly_brace_level = 0;
-    std::string result;
-    for(char c : oss.str())
-    {
-        result += c;
-        if(c == '(')
-        {
-            parentheses_level++;
-        }
-        else if(c == ')')
-        {
-            parentheses_level--;
-        }
-        else if(c == '{')
-        {
-            curly_brace_level++;
-        }
-        else if(c == '}')
-        {
-            curly_brace_level--;
-        }
-        else
-        {
-            if(curly_brace_level == 0 && c == '\n')
-            {
-                result += std::string(parentheses_level, ' ');
-            }
-        }
-    }
-    return result;
+    return oss.str();
 }
