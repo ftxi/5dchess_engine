@@ -56,12 +56,32 @@ size_t HC::volume() const
 
 bool slice::contains(const point &p) const
 {
-    for(auto [n, coords] : fixed_axes)
+    for(const auto& [n, coords] : fixed_axes)
     {
         if(!coords.contains(p[n]))
             return false;
     }
     return true;
+}
+
+slice::slice(std::map<index_t, integer_set> init_fixed_axes)
+    : fixed_axes(std::move(init_fixed_axes))
+{
+}
+
+const std::map<index_t, integer_set> &slice::get_fixed_axes() const
+{
+    return fixed_axes;
+}
+
+void slice::fix_axis(index_t n, integer_set values)
+{
+    fixed_axes[n] = std::move(values);
+}
+
+void slice::free_axis(index_t n)
+{
+    fixed_axes.erase(n);
 }
 
 size_t search_space::volume() const
@@ -160,7 +180,7 @@ search_space HC::remove_slice(const slice &s) const
 {
     search_space result;
     HC remaining = *this;
-    for(const auto& [i, fixed_coords] : s.fixed_axes)
+    for(const auto& [i, fixed_coords] : s.get_fixed_axes())
     {
         HC x = remaining;
         x.axes[i].minus(fixed_coords);
@@ -195,8 +215,8 @@ search_space HC::remove_slice_carefully(const slice &s) const
 {
     search_space result;
     HC remaining = *this;
-    slice s1 = s;
-    for(auto& [i, fixed_coords] : s1.fixed_axes)
+    auto fixed_axes = s.get_fixed_axes();
+    for(auto& [i, fixed_coords] : fixed_axes)
     {
         if(!remaining.axes[i].intersects(fixed_coords))
         {
@@ -208,7 +228,7 @@ search_space HC::remove_slice_carefully(const slice &s) const
             assert(!fixed_coords.empty());
         }
     }
-    for(const auto& [i, fixed_coords] : s1.fixed_axes)
+    for(const auto& [i, fixed_coords] : fixed_axes)
     {
         HC x = remaining;
         x.axes[i].minus(fixed_coords);

@@ -719,7 +719,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
         slice problem;
         /* on the axis for pass, ban this pass */
         const auto [pass_n, pass_i] = *pass_coord;
-        problem.fixed_axes[pass_n] = {pass_i};
+        problem.fix_axis(pass_n, integer_set{pass_i});
         //if(pass_n >= new_axis)
         
         /*
@@ -761,7 +761,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
                     }
                 }
             }
-            problem.fixed_axes[n] = s;
+            problem.fix_axis(n, s);
         
         }
         dprint("point:", range_to_string(p));
@@ -864,7 +864,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     not_taking.insert(i);
                 }
             }
-                problem.fixed_axes.insert({n1, not_taking});
+                problem.fix_axis(n1, not_taking);
         }
         /* on axis for check.to.l():
          if the board of checks.to is what just played, ban all moves that leave
@@ -909,7 +909,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         expose_royal.insert(i);
                     }
                 }
-                problem.fixed_axes.insert({n2, expose_royal});
+                problem.fix_axis(n2, expose_royal);
             }
         }
         /* on axes for checking path crossings:
@@ -993,7 +993,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                             continue;
                         }
                     }
-                    problem.fixed_axes[n] = not_blocking;
+                    problem.fix_axis(n, not_blocking);
                 }
             }
         }

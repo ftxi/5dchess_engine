@@ -14,7 +14,7 @@
 using point = std::vector<index_t>;
 
 class search_space;
-struct slice;
+class slice;
 
 class HC
 {
@@ -46,10 +46,19 @@ public:
     std::string to_string(bool verbose=true) const;
 };
 
-struct slice
+class slice
 {
-    std::map<index_t, integer_set> fixed_axes; // map from axis index to all options of the fixed value
+    // map from axis index to all options of the fixed value
+    std::map<index_t, integer_set> fixed_axes;
     // other axes are free, i.e. all included in the slice represented
+public:
+    slice() = default;
+    explicit slice(std::map<index_t, integer_set> init_fixed_axes);
+
+    const std::map<index_t, integer_set> &get_fixed_axes() const;
+    void fix_axis(index_t n, integer_set values);
+    void free_axis(index_t n);
+
     bool contains(const point &p) const;
     std::string to_string() const;
 };
