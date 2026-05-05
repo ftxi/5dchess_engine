@@ -1,36 +1,83 @@
 #include "finetree.h"
-#include "debug.h"
 #include <cassert>
+#include <sstream>
 
-fine_node::fine_node(fine_node *parent, state s)
+#define DEBUGMSG
+#include "debug.h"
+
+fine_node::fine_node(fine_cell *parent, state s)
 : parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-1)}, i{index_t(-1)}, cells{}
 {
     auto [info, ss] = HC_info::build_HC(s);
     pocessed_context = std::make_unique<nodal_pocession>(nodal_pocession{std::move(info), {}});
     context = pocessed_context.get();
-    cells.push_back(fine_cell{
-        .space = context->info.universe,
-        .children = {},
-        .subspace = ss
-    });
+    cells.push_back(fine_cell{this, context->info.universe, std::move(ss)});
 }
 
-fine_node::fine_node(fine_node *parent, index_t n, index_t i)
-: parent{parent}, pocessed_context{nullptr}, context{parent->context}, n{n}, i{i}, cells{}
+fine_node::fine_node(fine_cell *parent, index_t n, index_t i)
+: parent{parent}, pocessed_context{nullptr}, context{parent->node->context}, n{n}, i{i}, cells{} {}
+
+fine_node::fine_cell::fine_cell(fine_cell&& other) noexcept
+: node{other.node}, space{std::move(other.space)}, children{std::move(other.children)}, subspace{std::move(other.subspace)}
 {
+    // Update all children's parent pointers to point to this cell
+    for(auto child : children)
+    {
+        child->parent = this;
+    }
 }
 
-std::unique_ptr<fine_node> fine_node::make_nodal(fine_node *parent, state s)
+fine_node::fine_node(fine_node&& other) noexcept
+: parent{other.parent}, pocessed_context{std::move(other.pocessed_context)}, context{other.context}, n{other.n}, i{other.i}, cells{std::move(other.cells)}
+{
+    // Update all cell.node pointers to point to this node
+    for(auto& cell : cells)
+    {
+        cell.node = this;
+    }
+}
+
+fine_node::fine_cell& fine_node::fine_cell::operator=(fine_cell&& other) noexcept
+{
+    node = other.node;
+    space = std::move(other.space);
+    children = std::move(other.children);
+    subspace = std::move(other.subspace);
+    // Update all children's parent pointers to point to this cell
+    for(auto child : children)
+    {
+        child->parent = this;
+    }
+    return *this;
+}
+
+fine_node& fine_node::operator=(fine_node&& other) noexcept
+{
+    parent = other.parent;
+    pocessed_context = std::move(other.pocessed_context);
+    context = other.context;
+    n = other.n;
+    i = other.i;
+    cells = std::move(other.cells);
+    // Update all cell.node pointers to point to this node
+    for(auto& cell : cells)
+    {
+        cell.node = this;
+    }
+    return *this;
+}
+
+std::unique_ptr<fine_node> fine_node::make_nodal(fine_cell *parent, state s)
 {
     return std::make_unique<fine_node>(parent, s);
 }
 
-std::unique_ptr<fine_node> fine_node::make_temproary(fine_node *parent, index_t n, index_t i)
+std::unique_ptr<fine_node> fine_node::make_temproary(fine_cell *parent, index_t n, index_t i)
 {
     return std::make_unique<fine_node>(parent, n, i);
 }
 
-std::optional<std::tuple<fine_node::fine_cell*, point>> fine_node::explore()
+std::optional<std::tuple<fine_node::fine_cell*, HC*, point>> fine_node::explore()
 {
     HC_info &info = context->info;
     for(fine_cell &cell : cells)
@@ -39,13 +86,13 @@ std::optional<std::tuple<fine_node::fine_cell*, point>> fine_node::explore()
         while(!cell.subspace.hcs.empty())
         {
             // while the search space of this cell is not exhausted
-            HC hc = cell.subspace.hcs.back();
+            HC *hc = &cell.subspace.hcs.back();
             //cell.subspace.hcs.pop_back();
             // try to take a point in this hc
-            auto pt_opt = info.take_point(hc);
+            auto pt_opt = info.take_point(*hc);
             if(pt_opt)
             {
-                auto problem = info.find_problem(*pt_opt, hc);
+                auto problem = info.find_problem(*pt_opt, *hc);
                 if(problem)
                 {
                     // if there is a problem with this point
@@ -55,7 +102,7 @@ std::optional<std::tuple<fine_node::fine_cell*, point>> fine_node::explore()
                 else
                 {
                     // otherwise we are done
-                    return {std::make_tuple(&cell, *pt_opt)};
+                    return {std::make_tuple(&cell, hc, *pt_opt)};
                 }
             }
         }
@@ -79,61 +126,92 @@ void fine_node::remove_slice(const slice &s)
     }
 }
 
-fine_node* fine_node::isolate(point p, fine_cell *target_cell)
+fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
 {
-    // auto isolate_subprocess = [&p, this](fine_cell *target_cell)->std::tuple<fine_node*, fine_cell*> {
-    //     assert(target_cell->space.contains(p));
-    //     auto &hcs = target_cell->subspace.hcs;
-    //     auto it = std::find_if(hcs.begin(), hcs.end(), [p](const HC &hc) {
-    //         return hc.contains(p);
-    //     });
-    //     assert(it != hcs.end());
-    //     index_t next_n = is_nodal() ? 0 : n + 1;
-    //     index_t next_i = p[next_n];
-    //     const auto &[with_i, without_i] = it->split(next_n, next_i);
+    dprint("n =", n);
+    assert(target_cell->space.contains(p));
+    assert(target_hc->contains(p));
+    index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
+    index_t next_i = p[next_n];
 
-    //     std::unique_ptr<fine_node> next_node = make_temproary(this, next_n, i);
-    //     context->node_pool.push_back(std::move(next_node));
-
-    //     next_node->cells.push_back(fine_cell{
-    //         .space = with_i,
-    //         .children = {},
-    //         .subspace = search_space{.hcs = {with_i}}
-    //     });
-
-    //     *it = std::move(without_i);
-    //     return {context->node_pool.back().get(), &next_node->cells.back()};
-    // };
-    fine_node *current_node = this;
-    fine_node *ans = nullptr;
-    while(current_node->n != context->info.dimension)
+    current_node->context->node_pool.push_back(make_temproary(current_cell, next_n, next_i));
+    fine_node *ptr_next = current_node->context->node_pool.back().get();
+    const auto &[with_i, without_i] = it->split(next_n, next_i);
+    ptr_next->cells.push_back(fine_cell{ptr_next, with_i, search_space{.hcs = {with_i}}});
+    current_cell->children.push_back(ptr_next);
+    if(!without_i.empty())
     {
-        [&current_node, &p, &ans](){
-        fine_cell *target_cell = nullptr;
-        assert(target_cell->space.contains(p));
-        auto &hcs = target_cell->subspace.hcs;
-        auto it = std::find_if(hcs.begin(), hcs.end(), [p](const HC &hc) {
-            return hc.contains(p);
-        });
-        assert(it != hcs.end());
-        index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
-        index_t next_i = p[next_n];
-        const auto &[with_i, without_i] = it->split(next_n, next_i);
-
-        std::unique_ptr<fine_node> next_node = make_temproary(current_node, next_n, next_i);
-        next_node->cells.push_back(fine_cell{
-            .space = with_i,
-            .children = {},
-            .subspace = search_space{.hcs = {with_i}}
-        });
-        current_node->context->node_pool.push_back(std::move(next_node));
         *it = std::move(without_i);
-        current_node = current_node->context->node_pool.back().get();
-        if(!ans)
-        {
-            ans = current_node;
-        }
-        }();
     }
-    return ans;
+    else
+    {
+        hcs.erase(it);
+    }
+    current_node = ptr_next;
+    current_cell = &current_node->cells.back();
+    return current_node;
+}
+
+
+void fine_node::normalize(point pt, fine_cell *target_cell)
+{
+    auto get_subseq_length = [](const point &p, const HC &hc, index_t n0) -> index_t {
+        index_t length = 0;
+        for(index_t n = n0; n < hc.axes.size(); n++)
+        {
+            if(!hc.axes[n].contains(p[n]))
+            {
+                break;
+            }
+            ++length;
+        }
+        return length;
+    };
+    for(HC &hc : target_cell->subspace.hcs)
+    {
+        index_t length = get_subseq_length(pt, hc, n);
+        if(length > 0)
+        {
+            isolate()
+        }
+    }
+}
+
+std::string fine_node::to_string() const
+{
+    std::ostringstream oss;
+
+    const auto dump_node = [&](const fine_node &node, size_t depth, const auto &self) -> void {
+        const std::string indent(depth * 2, ' ');
+
+        oss << indent << "fine_node{";
+        if(node.is_nodal())
+        {
+            oss << "nodal";
+        }
+        else
+        {
+            oss << "temporary n=" << node.n << ", i=" << node.i;
+        }
+        oss << ", cells#=" << node.cells.size() << "}\n";
+
+        for(size_t cell_index = 0; cell_index < node.cells.size(); ++cell_index)
+        {
+            const auto &cell = node.cells[cell_index];
+            oss << indent << "  cell[" << cell_index << "]\n";
+            oss << indent << "    space:\n";
+            oss << cell.space.to_string(false);
+            oss << indent << "    subspace:\n";
+            oss << cell.subspace.to_string();
+            oss << indent << "    children#=" << cell.children.size() << "\n";
+            for(size_t child_index = 0; child_index < cell.children.size(); ++child_index)
+            {
+                oss << indent << "      child[" << child_index << "]\n";
+                self(*cell.children[child_index], depth + 4, self);
+            }
+        }
+    };
+
+    dump_node(*this, 0, dump_node);
+    return oss.str();
 }

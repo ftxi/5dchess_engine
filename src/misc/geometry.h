@@ -25,6 +25,7 @@ struct HC
     std::vector<integer_set> axes;
     const integer_set &operator[](size_t i) const;
     bool contains(point p) const;
+    bool empty() const;
     size_t volume() const;
     /* remove_slice and remove_point only work when it actually contains
     the stuff to be removed; otherwise, expect duplicate hcs */
@@ -54,6 +55,7 @@ struct search_space
     // the search space is a union of hypercuboids
     // represented as a list of hypercuboids
     std::list<HC> hcs;
+    bool empty() const;
     size_t volume() const;
     bool contains(point p) const;
     void concat(search_space &&other);

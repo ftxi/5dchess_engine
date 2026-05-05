@@ -30,5 +30,11 @@ int main()
     std::cout << "cell space: " << cell->space.to_string() << std::endl;
     print_range("Found point:", pt);
     
+    std::cout << root.to_string() << std::endl;
+    
+    root.isolate(pt, cell);
+    std::cout << "Isolate completed." << std::endl;
+    std::cout << root.to_string() << std::endl;
+    
     return 0;
 }

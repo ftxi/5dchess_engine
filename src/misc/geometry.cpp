@@ -3,7 +3,7 @@
 #include <sstream>
 #include "utils.h"
 
-const integer_set &HC::operator[](size_t i) const
+integer_set &HC::operator[](size_t i) const
 {
     return axes[i];
 }
@@ -17,6 +17,16 @@ bool HC::contains(point loc) const
             return false;
     }
     return true;
+}
+
+bool HC::empty() const
+{
+    for(const auto& axis : axes)
+    {
+        if(axis.empty())
+            return true;
+    }
+    return false;
 }
 
 size_t HC::volume() const
@@ -34,6 +44,16 @@ bool slice::contains(const point &p) const
     for(auto [n, coords] : fixed_axes)
     {
         if(!coords.contains(p[n]))
+            return false;
+    }
+    return true;
+}
+
+bool search_space::empty() const
+{
+    for(const auto& hc : hcs)
+    {
+        if(!hc.empty())
             return false;
     }
     return true;
