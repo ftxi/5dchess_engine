@@ -587,9 +587,9 @@ state::mate_type state::get_mate_type() const
 {
     dprint("state::get_mate_type()");
     auto [w, ss] = HC_info::build_HC(*this);
-    auto hc = ss.hcs.back();
+    auto hc = ss.back();
     search_space ss1 {{hc}};
-    ss.hcs.pop_back();
+    ss.pop_back();
     // check if there is a non-branching move
     if(w.search(ss1).first())
     {
@@ -606,13 +606,13 @@ state::mate_type state::get_mate_type() const
     /* Build the search space `ss2` from `ss` so that
     1. On new lines that are active, erase all moves traveling back in time
     2. On other lines, do nothing */
-    for(HC &hc : ss2.hcs)
+    for(HC &hc : ss2)
     {
         //NOTE: because most axes are the same, the following code can be optimized
         int max_axis = std::min(w.new_axis+timeline_advantage+1, w.dimension-1);
         for(int n = w.new_axis; n <= max_axis; n++)
         {
-            hc.axes[n].erase_if([&w, n, old_t=present](int i){
+            hc[n].erase_if([&w, n, old_t=present](int i){
                 if(std::holds_alternative<arriving_move>(w.axis_coords[n][i]))
                 {
                     auto am = std::get<arriving_move>(w.axis_coords[n][i]);

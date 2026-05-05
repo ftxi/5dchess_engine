@@ -111,7 +111,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     dprint("HC_info::build_HC()");
     std::map<int, index_t> line_to_axis; // map from timeline index to axis index
     std::vector<std::vector<semimove>> axis_coords; // axis_coords[i] is the set of all moves on i-th playable board
-    HC universe;
+    std::vector<integer_set> universe_axes;
     index_t new_axis, dimension;
     std::vector<integer_set> nonbranching_axes, branching_axes;
     auto [mandatory_timelines, optional_timelines, unplayable_timelines] = s.get_timeline_status();
@@ -301,7 +301,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     dimension = static_cast<index_t>(axis_coords.size());
     
     // build the whole space
-    universe.axes.reserve(dimension);
+    universe_axes.reserve(dimension);
     for(index_t n = 0; n < dimension; n++)
     {
         integer_set coords;
@@ -311,8 +311,9 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
         {
             coords.insert(i);
         }
-        universe.axes.push_back(std::move(coords));
+        universe_axes.push_back(std::move(coords));
     }
+    HC universe(std::move(universe_axes));
     
     // fill the idx of arriving moves
     for(index_t n = 0; n < static_cast<index_t>(axis_coords.size()); n++)
@@ -334,7 +335,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 else
                 {
                     dprint("ghost arrive at axis:", n, ";no:", i,";move pruned:", p->m);
-                    [[maybe_unused]] auto flag = universe.axes[n].erase(i);
+                    [[maybe_unused]] auto flag = universe[n].erase(i);
                     assert(flag);
                 }
             }
@@ -361,14 +362,16 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
             non_null.insert(i);
         }
         // non_null = {1,2,...,number of branching moves}
-        std::fill(hc_n_lines.axes.begin() + new_axis,
-                  hc_n_lines.axes.end(), singleton);
+        for(index_t n = new_axis; n < dimension; n++)
+        {
+            hc_n_lines[n] = singleton;
+        }
     }
     search_space ss{{hc_n_lines}};
     for(index_t n = new_axis; n < dimension; n++)
     {
-        hc_n_lines.axes[n] = non_null;
-        ss.hcs.push_front(hc_n_lines); // prefer lesser branching moves
+        hc_n_lines[n] = non_null;
+        ss.push_front(hc_n_lines); // prefer lesser branching moves
     }
     return std::make_tuple(info, ss);
 }
@@ -402,7 +405,7 @@ std::optional<point> HC_info::take_point(HC &hc) const
                 },
                 [&](const arriving_move& loc) {
                     index_t from_axis = line_to_axis.at(loc.m.from.l());
-                    if(!hc.axes[from_axis].contains(loc.idx))
+                    if(!hc[from_axis].contains(loc.idx))
                     {
                         ghost_arrive_indices.insert(i);
                         dprint("ghost arriving move",n,i, "(source", from_axis, loc.idx,")");//,show_semimove(loc));
@@ -428,8 +431,8 @@ std::optional<point> HC_info::take_point(HC &hc) const
                 },
             }, loc);
         }
-        hc.axes[n].minus(ghost_arrive_indices);
-        if(hc.axes[n].empty())
+        hc[n].minus(ghost_arrive_indices);
+        if(hc[n].empty())
         {
             // search space is empty after prune; abort
             return std::nullopt;
@@ -573,7 +576,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
             */
             index_t axis_branch = jump_map[critical_tl];
             integer_set s1, s2;
-            for(index_t i : hc.axes[n])
+            for(index_t i : hc[n])
             {
                 const semimove& l1 = axis_coords[n][i];
                 if(std::holds_alternative<arriving_move>(l1))
@@ -585,7 +588,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc
                     }
                 }
             }
-            for(index_t i : hc.axes[axis_branch])
+            for(index_t i : hc[axis_branch])
             {
                 const semimove& l2 = axis_coords[axis_branch][i];
                 if(std::holds_alternative<arriving_move>(l2))
@@ -716,7 +719,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
         slice problem;
         /* on the axis for pass, ban this pass */
         const auto [pass_n, pass_i] = *pass_coord;
-        problem.fixed_axes[pass_n] = {pass_i};
+        problem.fix_axis(pass_n, integer_set{pass_i});
         //if(pass_n >= new_axis)
         
         /*
@@ -758,7 +761,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
                     }
                 }
             }
-            problem.fixed_axes[n] = s;
+            problem.fix_axis(n, s);
         
         }
         dprint("point:", range_to_string(p));
@@ -817,7 +820,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         {
             index_t n1 = line_to_axis.at(check.from.l());
             integer_set not_taking;
-            for(index_t i : hc.axes[n1])
+            for(index_t i : hc[n1])
             {
                 semimove loc = axis_coords[n1][i];
                 /* if there isn't a new board on the same place, it won't create the same check*/
@@ -861,7 +864,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     not_taking.insert(i);
                 }
             }
-                problem.fixed_axes.insert({n1, not_taking});
+                problem.fix_axis(n1, not_taking);
         }
         /* on axis for check.to.l():
          if the board of checks.to is what just played, ban all moves that leave
@@ -884,7 +887,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
             else
             {
                 integer_set expose_royal;
-                for(index_t i : hc.axes[n2])
+                for(index_t i : hc[n2])
                 {
                     semimove loc = axis_coords[n2][i];
                     std::shared_ptr<board> newboard;
@@ -906,7 +909,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         expose_royal.insert(i);
                     }
                 }
-                problem.fixed_axes.insert({n2, expose_royal});
+                problem.fix_axis(n2, expose_royal);
             }
         }
         /* on axes for checking path crossings:
@@ -929,7 +932,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                 {
                     bitboard_t z = pmask(crossed.xy());
                     integer_set not_blocking;
-                    for(index_t i : hc.axes[n])
+                    for(index_t i : hc[n])
                     {
                         semimove loc = axis_coords[n][i];
                         /* if there isn't a board, then nothing pass through it*/
@@ -990,7 +993,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                             continue;
                         }
                     }
-                    problem.fixed_axes[n] = not_blocking;
+                    problem.fix_axis(n, not_blocking);
                 }
             }
         }
@@ -1009,7 +1012,7 @@ void HC_info::shuffle(search_space &ss)
     std::vector<std::vector<int>> inverses(dimension);
     for(index_t n = 0; n < dimension; n++)
     {
-        std::vector<index_t> permutation(universe.axes[n].begin(), universe.axes[n].end());
+        std::vector<index_t> permutation(universe[n].begin(), universe[n].end());
         index_t axis_size = static_cast<index_t>(permutation.size());
         index_t axis_coords_size = static_cast<index_t>(axis_coords[n].size());
         inverses[n].assign(axis_coords_size, -1);
@@ -1035,9 +1038,9 @@ void HC_info::shuffle(search_space &ss)
         } 
         axis_coords[n] = std::move(shuffled);
 
-        for(HC &hc : ss.hcs)
+        for(HC &hc : ss)
         {
-            hc.axes[n] = hc.axes[n].transform([&inverses, n](index_t old_index){
+            hc[n] = hc[n].transform([&inverses, n](index_t old_index){
                 return inverses[n][old_index];
             });
         }
@@ -1063,11 +1066,11 @@ void HC_info::shuffle(search_space &ss)
 generator<moveseq> HC_info::search(search_space ss) const
 {
     dprint("begining search: ", ss.to_string());
-    while(!ss.hcs.empty())
+    while(!ss.empty())
     {
-        HC hc = ss.hcs.back();
+        HC hc = ss.back();
         dprint("searching ", hc.to_string());
-        ss.hcs.pop_back();
+        ss.pop_back();
         auto pt_opt = take_point(hc);
         if(pt_opt)
         {
@@ -1107,11 +1110,11 @@ generator<moveseq> HC_info::search(search_space ss) const
 //{
 //    std::vector<moveseq> result;
 //    adprint("begining search: ", ss.to_string());
-//    while(!ss.hcs.empty())
+//    while(!ss.empty())
 //    {
-//        HC hc = ss.hcs.back();
+//        HC hc = ss.back();
 //        adprint("searching ", hc.to_string());
-//        ss.hcs.pop_back();
+//        ss.pop_back();
 //        auto pt_opt = take_point(hc);
 //        if(pt_opt)
 //        {

@@ -90,7 +90,7 @@ struct HC_info
     HC universe;
     const index_t new_axis, dimension; // axes 0, 1, ..., new_axis-1 are playable lines
     // whereas new_axis, new_axis+1, ..., dimension-1 are the possible branching lines
-    // identity: dimension = universe.axes.size() = axis_coords.size()
+    // identity: dimension = universe axis count = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
     /*

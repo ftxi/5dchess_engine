@@ -13,17 +13,21 @@
 // a point in the multi-dimensional space
 using point = std::vector<index_t>;
 
-struct search_space;
-struct slice;
+class search_space;
+class slice;
 
-struct HC
+class HC
 {
     // a hypercuboid is represented as a list axes
     // it looks like: {axis_0, axis_1, ...}
     // where each axis_i is a sorted set of integers representing the allowed values on that axis
     // in actual computation, we only store the indices
     std::vector<integer_set> axes;
+public:
+    HC(std::initializer_list<integer_set> init_axes);
+    explicit HC(std::vector<integer_set> &&init_axes);
     const integer_set &operator[](size_t i) const;
+    integer_set &operator[](size_t i);
     bool contains(point p) const;
     bool empty() const;
     size_t volume() const;
@@ -42,24 +46,48 @@ struct HC
     std::string to_string(bool verbose=true) const;
 };
 
-struct slice
+class slice
 {
-    std::map<index_t, integer_set> fixed_axes; // map from axis index to all options of the fixed value
+    // map from axis index to all options of the fixed value
+    std::map<index_t, integer_set> fixed_axes;
     // other axes are free, i.e. all included in the slice represented
+public:
+    slice() = default;
+    explicit slice(std::map<index_t, integer_set> init_fixed_axes);
+
+    const std::map<index_t, integer_set> &get_fixed_axes() const;
+    void fix_axis(index_t n, integer_set values);
+    void free_axis(index_t n);
+
     bool contains(const point &p) const;
     std::string to_string() const;
 };
 
-struct search_space
+class search_space
 {
     // the search space is a union of hypercuboids
     // represented as a list of hypercuboids
     std::list<HC> hcs;
+public:
+    search_space() = default;
+    search_space(std::initializer_list<HC> init_hcs);
     bool empty() const;
     size_t volume() const;
     bool contains(point p) const;
     void concat(search_space &&other);
+    void prune_empty();
     std::string to_string() const;
+
+    void push_back(HC hc);
+    void push_front(HC hc);
+    HC &back();
+    const HC &back() const;
+    void pop_back();
+
+    std::list<HC>::iterator begin();
+    std::list<HC>::iterator end();
+    std::list<HC>::const_iterator begin() const;
+    std::list<HC>::const_iterator end() const;
 };
 
 #endif /* GEOMETRY_H */

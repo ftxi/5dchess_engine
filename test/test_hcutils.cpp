@@ -67,7 +67,7 @@ void test_hc()
 
 void test_remove()
 {
-    HC hc {{{0}, {2}}};
+    HC hc {integer_set{0}, integer_set{2}};
     std::cout << hc.to_string() << "\n";
     std::map<index_t, integer_set> fixed_axes = {{0,{0}}};
     slice sl {fixed_axes};
