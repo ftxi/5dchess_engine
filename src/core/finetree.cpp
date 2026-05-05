@@ -77,22 +77,22 @@ std::unique_ptr<fine_node> fine_node::make_temproary(fine_cell *parent, index_t 
     return std::make_unique<fine_node>(parent, n, i);
 }
 
-std::optional<std::tuple<fine_node::fine_cell*, HC*, point>> fine_node::explore()
+std::optional<std::tuple<point, fine_node::fine_cell*, HC&>> fine_node::explore()
 {
     HC_info &info = context->info;
     for(fine_cell &cell : cells)
     {
         // search for each cell in cells
-        while(!cell.subspace.hcs.empty())
+        while(!cell.subspace.empty())
         {
             // while the search space of this cell is not exhausted
-            HC *hc = &cell.subspace.hcs.back();
+            HC &hc = cell.subspace.back();
             //cell.subspace.hcs.pop_back();
             // try to take a point in this hc
-            auto pt_opt = info.take_point(*hc);
+            auto pt_opt = info.take_point(hc);
             if(pt_opt)
             {
-                auto problem = info.find_problem(*pt_opt, *hc);
+                auto problem = info.find_problem(*pt_opt, hc);
                 if(problem)
                 {
                     // if there is a problem with this point
@@ -102,7 +102,7 @@ std::optional<std::tuple<fine_node::fine_cell*, HC*, point>> fine_node::explore(
                 else
                 {
                     // otherwise we are done
-                    return {std::make_tuple(&cell, hc, *pt_opt)};
+                    return std::optional<std::tuple<point, fine_cell*, HC&>>{std::in_place, *pt_opt, &cell, hc};
                 }
             }
         }
@@ -117,7 +117,7 @@ void fine_node::remove_slice(const slice &s)
     for(fine_cell &cell : cells)
     {
         search_space adjoined;
-        for(const HC &hc : cell.subspace.hcs)
+        for(const HC &hc : cell.subspace)
         {
             search_space new_ss = hc.remove_slice_carefully(s);
             adjoined.concat(std::move(new_ss));
@@ -126,55 +126,63 @@ void fine_node::remove_slice(const slice &s)
     }
 }
 
-fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
+fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC &target_hc)
 {
     dprint("n =", n);
     assert(target_cell->space.contains(p));
-    assert(target_hc->contains(p));
+    assert(target_hc.contains(p));
+    fine_node *current_node = this;
+    fine_cell *current_cell = target_cell;
     index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
     index_t next_i = p[next_n];
+    while(next_n < context->info.dimension)
+    {
 
-    current_node->context->node_pool.push_back(make_temproary(current_cell, next_n, next_i));
-    fine_node *ptr_next = current_node->context->node_pool.back().get();
-    const auto &[with_i, without_i] = it->split(next_n, next_i);
-    ptr_next->cells.push_back(fine_cell{ptr_next, with_i, search_space{.hcs = {with_i}}});
-    current_cell->children.push_back(ptr_next);
-    if(!without_i.empty())
-    {
-        *it = std::move(without_i);
+        current_node->context->node_pool.push_back(make_temproary(current_cell, next_n, next_i));
+        fine_node *ptr_next = current_node->context->node_pool.back().get();
+        const auto &[with_i, without_i] = target_hc.split(next_n, next_i);
+        ptr_next->cells.push_back(fine_cell{ptr_next, with_i, search_space{with_i}});
+        current_cell->children.push_back(ptr_next);
+        target_hc = without_i;
+        // if(!without_i.empty())
+        // {
+        //     *it = std::move(without_i);
+        // }
+        // else
+        // {
+        //     hcs.erase(it);
+        // }
+        current_node = ptr_next;
+        current_cell = &current_node->cells.back();
+        index_t next_n = current_node->n + 1;
+        index_t next_i = p[next_n];
     }
-    else
-    {
-        hcs.erase(it);
-    }
-    current_node = ptr_next;
-    current_cell = &current_node->cells.back();
     return current_node;
 }
 
 
 void fine_node::normalize(point pt, fine_cell *target_cell)
 {
-    auto get_subseq_length = [](const point &p, const HC &hc, index_t n0) -> index_t {
-        index_t length = 0;
-        for(index_t n = n0; n < hc.axes.size(); n++)
-        {
-            if(!hc.axes[n].contains(p[n]))
-            {
-                break;
-            }
-            ++length;
-        }
-        return length;
-    };
-    for(HC &hc : target_cell->subspace.hcs)
-    {
-        index_t length = get_subseq_length(pt, hc, n);
-        if(length > 0)
-        {
-            isolate()
-        }
-    }
+    // auto get_subseq_length = [](const point &p, const HC &hc, index_t n0) -> index_t {
+    //     index_t length = 0;
+    //     for(index_t n = n0; n < hc.axes.size(); n++)
+    //     {
+    //         if(!hc.axes[n].contains(p[n]))
+    //         {
+    //             break;
+    //         }
+    //         ++length;
+    //     }
+    //     return length;
+    // };
+    // for(HC &hc : target_cell->subspace.hcs)
+    // {
+    //     index_t length = get_subseq_length(pt, hc, n);
+    //     if(length > 0)
+    //     {
+    //         isolate()
+    //     }
+    // }
 }
 
 std::string fine_node::to_string() const

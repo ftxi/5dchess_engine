@@ -26,13 +26,13 @@ int main()
         return 1;
     }
     
-    auto [cell, pt] = *ans;
+    auto [pt, cell, hc] = *ans;
     std::cout << "cell space: " << cell->space.to_string() << std::endl;
     print_range("Found point:", pt);
     
     std::cout << root.to_string() << std::endl;
     
-    root.isolate(pt, cell);
+    root.isolate(pt, cell, hc);
     std::cout << "Isolate completed." << std::endl;
     std::cout << root.to_string() << std::endl;
     

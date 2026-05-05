@@ -60,10 +60,10 @@ public:
 
     generator<index_t> search();
     fine_node *expand();
-    std::optional<std::tuple<fine_cell*, HC*, point>> explore();
+    std::optional<std::tuple<point, fine_cell*, HC&>> explore();
     void remove_slice(const slice &);
 
-    fine_node *isolate(point, fine_cell*, HC*);
+    fine_node *isolate(point, fine_cell*, HC&);
     void normalize(point, fine_cell*);
 
     std::string to_string() const;
