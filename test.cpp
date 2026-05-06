@@ -32,9 +32,10 @@ int main()
     
     std::cout << root.to_string() << std::endl;
     
-    root.isolate(pt, cell, hc);
+    fine_node *final_node = root.isolate(pt, cell, hc);
     std::cout << "Isolate completed." << std::endl;
     std::cout << root.to_string() << std::endl;
     
+    root.normalize(pt, cell, final_node);
     return 0;
 }

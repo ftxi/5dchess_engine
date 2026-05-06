@@ -10,85 +10,46 @@ fine_node::fine_node(fine_node *parent, state s)
 : parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-1)}, i{index_t(-1)}, cells{}
 {
     auto [info, ss] = HC_info::build_HC(s);
-    pocessed_context = std::make_unique<nodal_pocession>(nodal_pocession{std::move(info), {}});
+    HC universe = info.universe;
+    pocessed_context = std::make_unique<nodal_pocession>(nodal_pocession{
+        .info = std::move(info),
+        .node_pool = {},
+        .cell_pool = {
+            fine_cell{
+                .parent = nullptr,
+                .node = this,
+                .space = std::move(universe),
+                .subspace = std::move(ss)
+            }
+        }
+    });
     context = pocessed_context.get();
-    cells.push_back(fine_cell{nullptr, this, context->info.universe, std::move(ss)});
+    cells.push_back(&context->cell_pool.back());
 }
 
 fine_node::fine_node(fine_node *parent, index_t n, index_t i)
 : parent{parent}, pocessed_context{nullptr}, context{parent->context}, n{n}, i{i}, cells{} {}
 
-fine_node::fine_cell::fine_cell(fine_cell&& other) noexcept
-: node{other.node}, space{std::move(other.space)}, children{std::move(other.children)}, subspace{std::move(other.subspace)}
-{
-    // Update all children's parent pointers to point to this cell
-    for(auto child : children)
-    {
-        child->parent = this;
-        child->node->parent = node;
-    }
-}
-
-fine_node::fine_node(fine_node&& other) noexcept
-: parent{other.parent}, pocessed_context{std::move(other.pocessed_context)}, context{other.context}, n{other.n}, i{other.i}, cells{std::move(other.cells)}
-{
-    // Update all cell.node pointers to point to this node
-    for(auto& cell : cells)
-    {
-        cell.node = this;
-    }
-}
-
-fine_node::fine_cell& fine_node::fine_cell::operator=(fine_cell&& other) noexcept
-{
-    node = other.node;
-    space = std::move(other.space);
-    children = std::move(other.children);
-    subspace = std::move(other.subspace);
-    // Update all children's parent pointers to point to this cell
-    for(auto child : children)
-    {
-        child->parent = this;
-    }
-    return *this;
-}
-
-fine_node& fine_node::operator=(fine_node&& other) noexcept
-{
-    parent = other.parent;
-    pocessed_context = std::move(other.pocessed_context);
-    context = other.context;
-    n = other.n;
-    i = other.i;
-    cells = std::move(other.cells);
-    // Update all cell.node pointers to point to this node
-    for(auto& cell : cells)
-    {
-        cell.node = this;
-    }
-    return *this;
-}
-
 std::unique_ptr<fine_node> fine_node::make_nodal(fine_node *parent, state s)
 {
-    return std::make_unique<fine_node>(parent, s);
+    return std::unique_ptr<fine_node>(new fine_node(parent, s));
 }
 
 std::unique_ptr<fine_node> fine_node::make_temproary(fine_node *parent, index_t n, index_t i)
 {
-    return std::make_unique<fine_node>(parent, n, i);
+    return std::unique_ptr<fine_node>(new fine_node(parent, n, i));
 }
 
-std::optional<std::tuple<point, fine_node::fine_cell*, HC*>> fine_node::explore()
+std::optional<std::tuple<point, fine_cell *, HC *>> fine_node::explore()
 {
     HC_info &info = context->info;
-    for(fine_cell &cell : cells)
+    for(fine_cell *cell : cells)
     {
         // search for each cell in cells
-        while(!cell.subspace.empty())
+        while(!cell->subspace.empty())
         {
             // while the search space of this cell is not exhausted
-            HC &hc = cell.subspace.back();
+            HC &hc = cell->subspace.back();
             //cell.subspace.hcs.pop_back();
             // try to take a point in this hc
             auto pt_opt = info.take_point(hc);
@@ -104,13 +65,13 @@ std::optional<std::tuple<point, fine_node::fine_cell*, HC*>> fine_node::explore(
                 else
                 {
                     // otherwise we are done
-                    return std::optional<std::tuple<point, fine_cell*, HC*>>{std::in_place, *pt_opt, &cell, &hc};
+                    return std::optional<std::tuple<point, fine_cell*, HC*>>{std::in_place, *pt_opt, cell, &hc};
                 }
             }
             else
             {
                 // if there is no more point, remove this hc
-                cell.subspace.pop_back();
+                cell->subspace.pop_back();
             }
         }
     }
@@ -121,15 +82,15 @@ std::optional<std::tuple<point, fine_node::fine_cell*, HC*>> fine_node::explore(
 void fine_node::remove_slice(const slice &s)
 {
     //current policy: remove slices just for cells in this node
-    for(fine_cell &cell : cells)
+    for(fine_cell *cell : cells)
     {
         search_space adjoined;
-        for(const HC &hc : cell.subspace)
+        for(const HC &hc : cell->subspace)
         {
             search_space new_ss = hc.remove_slice_carefully(s);
             adjoined.concat(std::move(new_ss));
         }
-        cell.subspace = std::move(adjoined);
+        cell->subspace = std::move(adjoined);
     }
 }
 
@@ -145,57 +106,77 @@ fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
     while(next_n < context->info.dimension)
     {
         index_t next_i = p[next_n];
-        if(!(*current_hc)[next_n].contains(next_i))
-        {
-            // this branching should only be for full separation
-            // can be made more strict using templates
-            break;
-        }
-        auto &pool = current_node->context->node_pool;
-        pool.push_back(make_temproary(current_cell, next_n, next_i));
-        fine_node *ptr_next = current_node->context->node_pool.back().get();
+        context->node_pool.emplace_back(current_node, next_n, next_i);
+        fine_node *next_node = &context->node_pool.back();
         const auto &[with_i, without_i] = current_hc->split(next_n, next_i);
-        ptr_next->cells.push_back(fine_cell{ptr_next, with_i, search_space{with_i}});
-        current_cell->children.push_back(ptr_next);
+        context->cell_pool.emplace_back(fine_cell{
+            .parent = current_cell,
+            .node = next_node,
+            .space = *current_hc,
+            .subspace = search_space{with_i}
+        });
+        fine_cell *next_cell = &context->cell_pool.back();
+        next_node->cells.push_back(next_cell);
+        current_cell->children.push_back(next_cell);
         *current_hc = without_i;
         current_cell->subspace.prune_empty(); /* optional */
         // prepare for next iteration
-        current_node = ptr_next;
-        current_cell = &current_node->cells.back();
+        current_node = next_node;
+        current_cell = next_cell;
         current_hc = &current_cell->subspace.back();
-        next_n = current_node->n + 1;
+        next_n ++;
     }
-    return current_node;
+    return current_node; 
 }
-
 
 void fine_node::normalize(point p, fine_cell *target_cell, fine_node *final_node)
 {
-    // auto get_subseq_length = [](const point &p, const HC &hc, index_t n0) -> index_t {
-    //     index_t length = 0;
-    //     for(index_t n = n0; n < hc.axes.size(); n++)
-    //     {
-    //         if(!hc.axes[n].contains(p[n]))
-    //         {
-    //             break;
-    //         }
-    //         ++length;
-    //     }
-    //     return length;
-    // };
-    for(HC &hc : target_cell->subspace)
-    {
-        isolate(p, target_cell, &hc);
-    }
-    std::vector<fine_node*> nodes(context->info.dimension, nullptr);
+    std::vector<fine_node*> nodes(context->info.dimension+1, nullptr);
     fine_node *current_node = final_node;
     while(current_node != this)
     {
-        nodes[current_node->n] = current_node;
+        nodes[current_node->n+1] = current_node;
         current_node = current_node->parent;
     }
+    index_t next_n = current_node->n + 1;
+    nodes[next_n] = this;
     
-    
+    auto try_isolate = [current_node=this, &p, target_cell, &nodes](HC *target_hc)
+    -> void {
+        fine_cell *current_cell = target_cell;
+        HC *current_hc = target_hc;
+        index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
+        auto context = current_node->context;
+        while(next_n < context->info.dimension)
+        {
+            index_t next_i = p[next_n];
+            if(!(*current_hc)[next_n].contains(p[next_n]))
+            {
+                // next axis does not contain the coordinate of p: done
+                return;
+            }
+            assert(nodes[next_n] != nullptr);
+            const auto &[with_i, without_i] = current_hc->split(next_n, next_i);
+            context->cell_pool.emplace_back(fine_cell{
+                .parent = current_cell,
+                .node = nodes[next_n],
+                .space = *current_hc,
+                .subspace = search_space{with_i}
+            });
+            fine_cell *next_cell = &context->cell_pool.back();
+            nodes[next_n]->cells.push_back(next_cell);
+            current_cell->children.push_back(next_cell);
+            *current_hc = without_i;
+            current_cell = next_cell;
+            current_hc = &current_cell->subspace.back();
+            next_n++;
+        }
+    };
+
+    for(HC &hc : target_cell->subspace)
+    {
+        try_isolate(&hc);
+    }
 }
 
 std::string fine_node::to_string() const
@@ -221,14 +202,14 @@ std::string fine_node::to_string() const
             const auto &cell = node.cells[cell_index];
             oss << indent << "  cell[" << cell_index << "]\n";
             oss << indent << "    space:\n";
-            oss << cell.space.to_string(false);
+            oss << cell->space.to_string(false);
             oss << indent << "    subspace:\n";
-            oss << cell.subspace.to_string();
-            oss << indent << "    children#=" << cell.children.size() << "\n";
-            for(size_t child_index = 0; child_index < cell.children.size(); ++child_index)
+            oss << cell->subspace.to_string();
+            oss << indent << "    children#=" << cell->children.size() << "\n";
+            for(size_t child_index = 0; child_index < cell->children.size(); ++child_index)
             {
                 oss << indent << "      child[" << child_index << "]\n";
-                self(*cell.children[child_index], depth + 4, self);
+                self(*cell->children[child_index]->node, depth + 4, self);
             }
         }
     };
