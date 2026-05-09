@@ -33,6 +33,7 @@ class fine_node
     nodal_pocession *context;
     index_t n, i; // only meaningful for temporary nodes
     std::vector<fine_cell*> cells;
+    std::vector<fine_node*> children;
 public:
     // copying needs to explicitly set the pareent pointer of its children
     // so they are deleted because they are not used for now
@@ -46,6 +47,10 @@ public:
     static std::unique_ptr<fine_node> make_nodal(fine_node *parent, state s);
     static std::unique_ptr<fine_node> make_temproary(fine_node *parent, index_t n, index_t i);
 
+    fine_cell *add_cell(fine_cell &&cell);
+
+    fine_node *add_child(index_t n, index_t i);
+
     bool is_nodal() const { return pocessed_context != nullptr; }
 
     generator<index_t> search();
@@ -54,7 +59,7 @@ public:
     void remove_slice(const slice&);
 
     fine_node *isolate(point, fine_cell*, HC*);
-    void normalize(point, fine_cell*, fine_node*);
+    fine_node *normalize(point, fine_cell*, fine_node*);
 
     std::string to_string() const;
 };

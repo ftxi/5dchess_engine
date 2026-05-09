@@ -3,7 +3,7 @@
 #include <sstream>
 #include <map>
 
-#define DEBUGMSG
+//#define DEBUGMSG
 #include "debug.h"
 
 fine_node::fine_node(fine_node *parent, state s)
@@ -38,6 +38,46 @@ std::unique_ptr<fine_node> fine_node::make_nodal(fine_node *parent, state s)
 std::unique_ptr<fine_node> fine_node::make_temproary(fine_node *parent, index_t n, index_t i)
 {
     return std::unique_ptr<fine_node>(new fine_node(parent, n, i));
+}
+
+fine_cell *fine_node::add_cell(fine_cell &&cell)
+{
+    context->cell_pool.push_back(std::move(cell));
+    fine_cell *new_cell = &context->cell_pool.back();
+    cells.push_back(new_cell);
+    new_cell->parent->children.push_back(new_cell);
+    return new_cell;
+}
+
+fine_node *fine_node::add_child(index_t n, index_t i)
+{
+    context->node_pool.emplace_back(this, n, i);
+    fine_node *child = &context->node_pool.back();
+    children.push_back(child);
+    return child;
+}
+
+generator<index_t> fine_node::search()
+{
+    fine_node *next_node = expand();
+    while(next_node)
+    {
+        co_yield next_node->i;
+        next_node = expand();
+    }
+}
+
+fine_node *fine_node::expand()
+{
+    auto ans = explore();
+    if(!ans)
+    {
+        return nullptr;
+    }
+    auto [pt, cell, hc] = *ans;
+    fine_node *final_node = isolate(pt, cell, hc);
+    fine_node *next_node = normalize(pt, cell, final_node);
+    return next_node;
 }
 
 std::optional<std::tuple<point, fine_cell *, HC *>> fine_node::explore()
@@ -96,7 +136,7 @@ void fine_node::remove_slice(const slice &s)
 
 fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
 {
-    dprint("n =", n);
+    dprint("ISOLATE: n =", n);
     assert(target_cell->space.contains(p));
     assert(target_hc->contains(p));
     fine_node *current_node = this;
@@ -106,30 +146,27 @@ fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
     while(next_n < context->info.dimension)
     {
         index_t next_i = p[next_n];
-        context->node_pool.emplace_back(current_node, next_n, next_i);
-        fine_node *next_node = &context->node_pool.back();
+        fine_node *next_node = current_node->add_child(next_n, next_i);
         const auto &[with_i, without_i] = current_hc->split(next_n, next_i);
-        context->cell_pool.emplace_back(fine_cell{
+        fine_cell *next_cell = next_node->add_cell(fine_cell{
             .parent = current_cell,
             .node = next_node,
-            .space = *current_hc,
+            .space = with_i,
+            .children = {},
             .subspace = search_space{with_i}
         });
-        fine_cell *next_cell = &context->cell_pool.back();
-        next_node->cells.push_back(next_cell);
-        current_cell->children.push_back(next_cell);
         *current_hc = without_i;
         current_cell->subspace.prune_empty(); /* optional */
         // prepare for next iteration
         current_node = next_node;
         current_cell = next_cell;
         current_hc = &current_cell->subspace.back();
-        next_n ++;
+        next_n++;
     }
-    return current_node; 
+    return current_node;
 }
 
-void fine_node::normalize(point p, fine_cell *target_cell, fine_node *final_node)
+fine_node *fine_node::normalize(point p, fine_cell *target_cell, fine_node *final_node)
 {
     std::vector<fine_node*> nodes(context->info.dimension+1, nullptr);
     fine_node *current_node = final_node;
@@ -157,15 +194,12 @@ void fine_node::normalize(point p, fine_cell *target_cell, fine_node *final_node
             }
             assert(nodes[next_n] != nullptr);
             const auto &[with_i, without_i] = current_hc->split(next_n, next_i);
-            context->cell_pool.emplace_back(fine_cell{
+            fine_cell *next_cell = nodes[next_n]->add_cell(fine_cell{
                 .parent = current_cell,
                 .node = nodes[next_n],
-                .space = *current_hc,
+                .space = with_i,
                 .subspace = search_space{with_i}
             });
-            fine_cell *next_cell = &context->cell_pool.back();
-            nodes[next_n]->cells.push_back(next_cell);
-            current_cell->children.push_back(next_cell);
             *current_hc = without_i;
             current_cell = next_cell;
             current_hc = &current_cell->subspace.back();
@@ -177,6 +211,8 @@ void fine_node::normalize(point p, fine_cell *target_cell, fine_node *final_node
     {
         try_isolate(&hc);
     }
+    index_t n1 = n + 2;
+    return nodes[n1];
 }
 
 std::string fine_node::to_string() const
@@ -205,12 +241,13 @@ std::string fine_node::to_string() const
             oss << cell->space.to_string(false);
             oss << indent << "    subspace:\n";
             oss << cell->subspace.to_string();
-            oss << indent << "    children#=" << cell->children.size() << "\n";
-            for(size_t child_index = 0; child_index < cell->children.size(); ++child_index)
-            {
-                oss << indent << "      child[" << child_index << "]\n";
-                self(*cell->children[child_index]->node, depth + 4, self);
-            }
+        }
+        
+        oss << indent << "  children#=" << node.children.size() << "\n";
+        for(size_t child_index = 0; child_index < node.children.size(); ++child_index)
+        {
+            oss << indent << "    child[" << child_index << "]\n" << std::flush;
+            self(*node.children[child_index], depth + 4, self);
         }
     };
 

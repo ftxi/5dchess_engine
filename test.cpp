@@ -10,7 +10,10 @@ std::string str = R"(
 [Mode "5D"]
 [Board "Very Small - Open"]
 
-1. Bb2 / Nxb2
+1. Bb2+ / Nxb2 
+2. N>>xd3 / (1T1)Bc3+ 
+3. Bb2 
+
 )";
 
 int main()
@@ -32,10 +35,30 @@ int main()
     
     std::cout << root.to_string() << std::endl;
     
-    fine_node *final_node = root.isolate(pt, cell, hc);
-    std::cout << "Isolate completed." << std::endl;
-    std::cout << root.to_string() << std::endl;
+//    fine_node *final_node = root.isolate(pt, cell, hc);
+//    std::cout << "Isolate completed." << std::endl;
+//    std::cout << root.to_string() << std::endl;
+//    
+//    root.normalize(pt, cell, final_node);
+//    std::cout << "Normalize completed." << std::endl;
+//    std::cout << root.to_string() << std::endl;
+//    
+    fine_node *node = root.expand();
+    std::cout << "Expand completed." << std::endl;
+    std::cout << (node->to_string()) << std::endl;
     
-    root.normalize(pt, cell, final_node);
+    std::cout << "Other children of root:\n";
+    for(index_t i : root.search())
+    {
+        std::cout << i << ' ';
+    }
+    std::cout << "\n\n";
+    
+    std::cout << "Other children of first node:\n";
+    for(index_t i : node->search())
+    {
+        std::cout << i << ' ';
+    }
+    std::cout << "\n\n";
     return 0;
 }
