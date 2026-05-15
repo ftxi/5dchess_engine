@@ -1173,8 +1173,8 @@ moveseq HC_info::to_action(const point &p) const
 
 generator<moveseq> HC_info::psearch(search_space ss) const
 {
-    size_t vol = ss.volume();
-    size_t new_vol = vol;
+    // size_t vol = ss.volume();
+    // size_t new_vol = vol;
     dprint("begining psearch: ", ss.to_string());
     while(!ss.hcs.empty())
     {
@@ -1195,37 +1195,37 @@ generator<moveseq> HC_info::psearch(search_space ss) const
                 adjoined.concat(hc.remove_slice(*problem));
                 for(HC other_hc : ss.hcs)
                 {
-                    size_t v1 = other_hc.volume();
+                    // size_t v1 = other_hc.volume();
                     search_space sstemp = other_hc.remove_slice_carefully(*problem);
-                    size_t v2 = sstemp.volume();
-                    if(v2 > v1)
-                    {
-                        std::cout << "Old: " << v1 << other_hc.to_string() << std::endl;
-                        std::cout << "Slice: " << problem->to_string() << std::endl;
-                        bool intersects = true;
-                        for(const auto& [i, fixed_coords] : problem->fixed_axes)
-                        {
-                            if(!other_hc.axes[i].intersects(fixed_coords))
-                            {
-                                intersects = false;
-                            }
-                        }
-                        std::cout << "Old intersects slice: " << intersects << std::endl;
-                        std::cout << "New: " << v2 << sstemp.to_string() << std::endl;
-                        throw std::exception();
-                    }
+                    // size_t v2 = sstemp.volume();
+                    // if(v2 > v1)
+                    // {
+                    //     std::cout << "Old: " << v1 << other_hc.to_string() << std::endl;
+                    //     std::cout << "Slice: " << problem->to_string() << std::endl;
+                    //     bool intersects = true;
+                    //     for(const auto& [i, fixed_coords] : problem->fixed_axes)
+                    //     {
+                    //         if(!other_hc.axes[i].intersects(fixed_coords))
+                    //         {
+                    //             intersects = false;
+                    //         }
+                    //     }
+                    //     std::cout << "Old intersects slice: " << intersects << std::endl;
+                    //     std::cout << "New: " << v2 << sstemp.to_string() << std::endl;
+                    //     throw std::exception();
+                    // }
                     adjoined.concat(std::move(sstemp));
                 }
                 // make sure when a leave is removed, so is the corresponding arrive
                 dprint("removed problem from all hcs, continue search:", adjoined.to_string());
                 ss = std::move(adjoined);
-                new_vol = ss.volume();
-                //std::cerr << new_vol << std::endl;
-                if(new_vol > vol)
-                {
-                    throw std::exception();
-                }
-                vol = new_vol;
+                // new_vol = ss.volume();
+                // //std::cerr << new_vol << std::endl;
+                // if(new_vol > vol)
+                // {
+                //     throw std::exception();
+                // }
+                // vol = new_vol;
             }
             else
             {

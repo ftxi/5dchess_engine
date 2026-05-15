@@ -130,6 +130,30 @@ void count_hc(state s, int count)
 }
 
 template<bool PRINT=false>
+void count_psearch(state s, int count)
+{
+    auto [w, ss] = HC_info::build_HC(s);
+    std::vector<moveseq> legal_moves;
+    for(auto x : w.psearch(ss))
+    {
+        if constexpr(PRINT)
+        {
+            state t = s;
+            for(full_move m : x)
+            {
+                std::cout << t.pretty_move<state::SHOW_CAPTURE>(m) << " ";
+                t.apply_move(m);
+            }
+            std::cout << "\n";
+        }
+        legal_moves.push_back(x);
+        if(--count==0)
+            break;
+    }
+    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+}
+
+template<bool PRINT=false>
 void count_naive(state s, int count)
 {
     std::vector<moveseq> legal_moves;
@@ -204,11 +228,11 @@ where <option> is one of:
   help: print this message (-h, --help)
   version: print the version (-v, --version)
   print: print the final state of the game
-  count [fast|naive] [<max>]: display number of avialible moves capped by <max>
-  all [fast|naive] [<max>]: display all legal moves capped by <max>
-  checkmate [fast|naive]: determine whether the final state is checkmate/stalemate
+    count [fast|naive|psearch] [<max>]: display number of avialible moves capped by <max>
+    all [fast|naive|psearch] [<max>]: display all legal moves capped by <max>
+    checkmate [fast|naive|psearch]: determine whether the final state is checkmate/stalemate
   diff: compare the output of two algorithms
-  perftest [fast|naive]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
+    perftest [fast|naive|psearch]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
 default value for <max> is 10000
 
 the game being read is input in stdin (stopped by EOF)
@@ -253,77 +277,98 @@ int main(int argc, const char *argv[])
     }
     else if (command == "count")
     {
-        bool use_fast = true;
+        enum class search_mode { fast, naive, psearch };
+        search_mode mode = search_mode::fast;
         int max = 10000;
         
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "fast") {
-                use_fast = true;
+                mode = search_mode::fast;
             } else if (arg == "naive") {
-                use_fast = false;
+                mode = search_mode::naive;
+            } else if (arg == "psearch") {
+                mode = search_mode::psearch;
             } else {
                 max = std::stoi(arg);
             }
         }
         
-        if(use_fast)
-        {
-            count_hc(*ps, max);
-        }
-        else
-        {
-            count_naive(*ps, max);
+        switch (mode) {
+            case search_mode::fast:
+                count_hc(*ps, max);
+                break;
+            case search_mode::naive:
+                count_naive(*ps, max);
+                break;
+            case search_mode::psearch:
+                count_psearch(*ps, max);
+                break;
         }
     }
     else if (command == "all")
     {
-        // Parse optional arguments: [fast|naive] [<max>]
-        bool use_fast = true;
+        // Parse optional arguments: [fast|naive|psearch] [<max>]
+        enum class search_mode { fast, naive, psearch };
+        search_mode mode = search_mode::fast;
         int max = 10000;
         
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "fast") {
-                use_fast = true;
+                mode = search_mode::fast;
             } else if (arg == "naive") {
-                use_fast = false;
+                mode = search_mode::naive;
+            } else if (arg == "psearch") {
+                mode = search_mode::psearch;
             } else {
                 max = std::stoi(arg);
             }
         }
         
-        if(use_fast)
-        {
-            count_hc<true>(*ps, max);
-        }
-        else
-        {
-            count_naive<true>(*ps, max);
+        switch (mode) {
+            case search_mode::fast:
+                count_hc<true>(*ps, max);
+                break;
+            case search_mode::naive:
+                count_naive<true>(*ps, max);
+                break;
+            case search_mode::psearch:
+                count_psearch<true>(*ps, max);
+                break;
         }
     }
     else if (command == "checkmate")
     {
-        bool use_fast = true;
+        enum class search_mode { fast, naive, psearch };
+        search_mode mode = search_mode::fast;
         
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "fast") {
-                use_fast = true;
+                mode = search_mode::fast;
             } else if (arg == "naive") {
-                use_fast = false;
+                mode = search_mode::naive;
+            } else if (arg == "psearch") {
+                mode = search_mode::psearch;
             }
         }
         
         std::optional<moveseq> mvs;
-        if(use_fast)
-        {
-            auto [w, ss] = HC_info::build_HC(*ps);
-            mvs = w.search(ss).first();
-        }
-        else
-        {
-            mvs = naive_search(*ps).first();
+        switch (mode) {
+            case search_mode::fast: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.search(ss).first();
+                break;
+            }
+            case search_mode::naive:
+                mvs = naive_search(*ps).first();
+                break;
+            case search_mode::psearch: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.psearch(ss).first();
+                break;
+            }
         }
         auto [t,c] =ps->get_present();
         if(mvs)
@@ -355,14 +400,17 @@ int main(int argc, const char *argv[])
     }
     else if (command == "perftest")
     {
-        bool use_fast = true;
+        enum class search_mode { fast, naive, psearch };
+        search_mode mode = search_mode::fast;
         
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
             if (arg == "fast") {
-                use_fast = true;
+                mode = search_mode::fast;
             } else if (arg == "naive") {
-                use_fast = false;
+                mode = search_mode::naive;
+            } else if (arg == "psearch") {
+                mode = search_mode::psearch;
             }
         }
         pgnparser_ast::game g = *pgnparser(pgn).parse_game();
@@ -375,14 +423,20 @@ int main(int argc, const char *argv[])
         while (true)
         {
             std::optional<moveseq> mvs;
-            if(use_fast)
-            {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.search(ss).first();
-            }
-            else
-            {
-                mvs = naive_search(current_state).first();
+            switch (mode) {
+                case search_mode::fast: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.search(ss).first();
+                    break;
+                }
+                case search_mode::naive:
+                    mvs = naive_search(current_state).first();
+                    break;
+                case search_mode::psearch: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.psearch(ss).first();
+                    break;
+                }
             }
             auto [t,c] = current_state.get_present();
             if(mvs)
