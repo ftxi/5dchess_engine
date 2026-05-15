@@ -44,9 +44,9 @@ bool HC::empty() const
     return false;
 }
 
-size_t HC::volume() const
+boost::multiprecision::cpp_int HC::volume() const
 {
-    size_t result = 1;
+    boost::multiprecision::cpp_int result = 1;
     for(const auto& axis : axes)
     {
         result *= axis.size();
@@ -84,9 +84,9 @@ void slice::free_axis(index_t n)
     fixed_axes.erase(n);
 }
 
-size_t search_space::volume() const
+boost::multiprecision::cpp_int search_space::volume() const
 {
-    size_t result = 0;
+    boost::multiprecision::cpp_int result = 0;
     for(const auto& hc : hcs)
     {
         result += hc.volume();

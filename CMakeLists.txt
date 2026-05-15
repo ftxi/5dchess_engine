@@ -114,6 +114,10 @@ target_include_directories(5dchess_engine_core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/misc
 )
 
+if(EXISTS "/opt/homebrew/include")
+    target_include_directories(5dchess_engine_core SYSTEM PUBLIC /opt/homebrew/include)
+endif()
+
 # Check if this is being built as a submodule
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     # Standalone mode - include Python bindings / build tests

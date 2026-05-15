@@ -1066,8 +1066,19 @@ void HC_info::shuffle(search_space &ss)
 generator<moveseq> HC_info::search(search_space ss) const
 {
     dprint("begining search: ", ss.to_string());
+#ifndef NDEBUG
+    boost::multiprecision::cpp_int vol = 0;
+    bool has_vol = false;
+#endif
     while(!ss.empty())
     {
+#ifndef NDEBUG
+        boost::multiprecision::cpp_int new_vol = ss.volume();
+//        std::cerr << new_vol << std::endl;
+        assert(!has_vol || new_vol < vol);
+        vol = new_vol;
+        has_vol = true;
+#endif
         HC hc = ss.back();
         dprint("searching ", hc.to_string());
         ss.pop_back();

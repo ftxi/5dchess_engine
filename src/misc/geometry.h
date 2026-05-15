@@ -8,6 +8,7 @@
 #include <list>
 #include <string>
 #include <map>
+#include <boost/multiprecision/cpp_int.hpp>
 #include "integer_set.h"
 
 // a point in the multi-dimensional space
@@ -30,7 +31,7 @@ public:
     integer_set &operator[](size_t i);
     bool contains(point p) const;
     bool empty() const;
-    size_t volume() const;
+    boost::multiprecision::cpp_int volume() const;
     /* remove_slice and remove_point only work when it actually contains
     the stuff to be removed; otherwise, expect duplicate hcs */
     search_space remove_slice(const slice &s) const;
@@ -72,7 +73,7 @@ public:
     search_space() = default;
     search_space(std::initializer_list<HC> init_hcs);
     bool empty() const;
-    size_t volume() const;
+    boost::multiprecision::cpp_int volume() const;
     bool contains(point p) const;
     void concat(search_space &&other);
     void prune_empty();
