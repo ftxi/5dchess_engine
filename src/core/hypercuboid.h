@@ -90,10 +90,10 @@ struct HC_info
     HC universe;
     const index_t new_axis, dimension; // axes 0, 1, ..., new_axis-1 are playable lines
     // whereas new_axis, new_axis+1, ..., dimension-1 are the possible branching lines
-    // identity: dimension = universe.axes.size() = axis_coords.size()
+    // identity: dimension = universe axis count = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
-//private:
+private:
     /*
      take_point(): takes a point in hc while making sure arrives matches departures
      if it finds an arrive with its departure no longer in hc, then this arrives get
@@ -112,9 +112,9 @@ struct HC_info
 public:
     static std::tuple<HC_info, search_space> build_HC(const state& s);
     generator<moveseq> search(search_space ss) const;
+    generator<moveseq> psearch(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
-    generator<moveseq> psearch(search_space ss) const;
     void shuffle(search_space& ss);
 };
 
