@@ -32,7 +32,7 @@ simulation_result default_policy(state s, int max_actions)
         auto [present, player] = s.get_present();
         auto [w, ss] = HC_info::build_HC(s);
         w.shuffle(ss);
-        if(auto mvs = w.search(ss).first())
+        if(auto mvs = w.iterative_search(ss).first())
         {
             for(full_move fm : *mvs)
             {

@@ -1063,7 +1063,8 @@ void HC_info::shuffle(search_space &ss)
 // ------------------------------------------------------------
 
 
-generator<moveseq> HC_info::search(search_space ss) const
+
+generator<moveseq> HC_info::iterative_search(search_space ss) const
 {
     dprint("begining search: ", ss.to_string());
     while(!ss.empty())
@@ -1174,7 +1175,7 @@ moveseq HC_info::to_action(const point &p) const
     return mvs;
 }
 
-generator<moveseq> HC_info::psearch(search_space ss) const
+generator<moveseq> HC_info::stable_search(search_space ss) const
 {
     dprint("begining psearch: ", ss.to_string());
     while(!ss.empty())
@@ -1220,5 +1221,74 @@ generator<moveseq> HC_info::psearch(search_space ss) const
         }
     }
     dprint("search space is empty; finish.");
+    co_return;
+}
+
+generator<moveseq> HC_info::search(search_space ss) const
+{
+    auto [l_min, l_max] = s.get_lines_range();
+    int line_span = l_max - l_min + 1;
+    dprint("number of lines:", line_span);
+    if(line_span >= 10)
+    {
+        dprint("searching the first point using stable method");
+        while(!ss.empty())
+        {
+            HC hc = ss.back();
+            ss.pop_back();
+            auto pt_opt = take_point(hc);
+            if(pt_opt)
+            {
+                point pt = pt_opt.value();
+                auto problem = find_problem(pt, hc);
+                if(problem)
+                {
+                    const slice &problem_slice = problem.value();
+                    // Remove this slice from every remaining hypercuboid and re-join all pieces.
+                    search_space adjoined;
+                    adjoined.concat(hc.remove_slice(problem_slice));
+                    for(const HC &other_hc : ss)
+                    {
+                        search_space sstemp = other_hc.remove_slice_carefully(problem_slice);
+                        adjoined.concat(std::move(sstemp));
+                    }
+                    // make sure when a leave is removed, so is the corresponding arrive
+                    ss = std::move(adjoined);
+                }
+                else
+                {
+                    co_yield to_action(pt);
+                    search_space new_ss = hc.remove_point(pt);
+                    ss.concat(std::move(new_ss));
+                    break;
+                }
+            }
+        }
+    }
+    dprint("searching the rest using iterative method");
+    while(!ss.empty())
+    {
+        HC hc = ss.back();
+        ss.pop_back();
+        auto pt_opt = take_point(hc);
+        if(pt_opt)
+        {
+            point pt = pt_opt.value();
+            auto problem = find_problem(pt, hc);
+            if(problem)
+            {
+                // remove the problematic slice from hc, and add the remaining to ss
+                search_space new_ss = hc.remove_slice(problem.value());
+                // make sure when a leave is removed, so is the corresponding arrive
+                ss.concat(std::move(new_ss));
+            }
+            else
+            {
+                co_yield to_action(pt);
+                search_space new_ss = hc.remove_point(pt);
+                ss.concat(std::move(new_ss));
+            }
+        }
+    }
     co_return;
 }

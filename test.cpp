@@ -99,7 +99,7 @@ int main(int argc, char** argv)
             profile_block("psearch", [&]() {
                 int n = 0;
                 auto [hc_info, ss] = HC_info::build_HC(*s);
-                for(const auto& moveseq: hc_info.psearch(ss))
+                for(const auto& moveseq: hc_info.stable_search(ss))
                 {
                     (void)moveseq;
                     std::cout << n << ": ";
