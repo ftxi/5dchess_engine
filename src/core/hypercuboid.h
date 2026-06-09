@@ -114,6 +114,7 @@ public:
     generator<moveseq> search(search_space ss) const;
     generator<moveseq> iterative_search(search_space ss) const;
     generator<moveseq> stable_search(search_space ss) const;
+    generator<moveseq> mixed_search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
     void shuffle(search_space& ss);

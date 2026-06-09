@@ -28,7 +28,8 @@ public:
     explicit HC(std::vector<integer_set> &&init_axes);
     const integer_set &operator[](size_t i) const;
     integer_set &operator[](size_t i);
-    bool contains(point p) const;
+    bool contains(const point &p) const;
+    bool intersects(const slice &s) const;
     bool empty() const;
     size_t volume() const;
     /* remove_slice and remove_point only work when it actually contains

@@ -178,6 +178,31 @@ void count_iterative(state s, int count)
 }
 
 template<bool PRINT=false>
+void count_mixed(state s, int count)
+{
+    auto [w, ss] = HC_info::build_HC(s);
+    std::vector<moveseq> legal_moves;
+    for(auto x : w.mixed_search(ss))
+    {
+        if constexpr(PRINT)
+        {
+            state t = s;
+            for(full_move m : x)
+            {
+                std::cout << t.pretty_move<state::SHOW_CAPTURE>(m) << " ";
+                t.apply_move(m);
+            }
+            std::cout << "\n";
+        }
+        legal_moves.push_back(x);
+        if(--count==0)
+            break;
+    }
+    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+}
+
+
+template<bool PRINT=false>
 void count_naive(state s, int count)
 {
     std::vector<moveseq> legal_moves;
@@ -255,9 +280,9 @@ where <option> is one of:
         count [<policy>] [<max>]: display number of avialible moves capped by <max>
         all [<policy>] [<max>]: display all legal moves capped by <max>
         checkmate [<policy>]: determine whether the final state is checkmate/stalemate
-  diff: compare the output of two algorithms
+  diff: compare the output of two algorithms (balanced and naive)
         perftest [<policy>]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
-<policy> ::= balanced|naive|stable|iterative
+<policy> ::= balanced|naive|stable|iterative|mixed
 default value for <policy> is balanced
 default value for <max> is 10000
 
@@ -266,7 +291,7 @@ the game being read is input in stdin (stopped by EOF)
 
 int main(int argc, const char *argv[])
 {
-    enum class search_mode { balanced, naive, stable, iterative };
+    enum class search_mode { balanced, naive, stable, iterative, mixed };
     
     auto parse_search_args = [&](int start_idx) -> std::pair<search_mode, int> {
         search_mode mode = search_mode::balanced;
@@ -282,6 +307,8 @@ int main(int argc, const char *argv[])
                 mode = search_mode::stable;
             } else if (arg == "iterative") {
                 mode = search_mode::iterative;
+            } else if (arg == "mixed") {
+                mode = search_mode::mixed;
             } else {
                 max = std::stoi(arg);
             }
@@ -342,6 +369,9 @@ int main(int argc, const char *argv[])
             case search_mode::iterative:
                 count_iterative(*ps, max);
                 break;
+            case search_mode::mixed:
+                count_mixed(*ps, max);
+                break;
         }
     }
     else if (command == "all")
@@ -361,6 +391,9 @@ int main(int argc, const char *argv[])
                 break;
             case search_mode::iterative:
                 count_iterative<true>(*ps, max);
+                break;
+            case search_mode::mixed:
+                count_mixed<true>(*ps, max);
                 break;
         }
     }
@@ -386,6 +419,11 @@ int main(int argc, const char *argv[])
             case search_mode::iterative: {
                 auto [w, ss] = HC_info::build_HC(*ps);
                 mvs = w.iterative_search(ss).first();
+                break;
+            }
+            case search_mode::mixed: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.mixed_search(ss).first();
                 break;
             }
         }
@@ -448,6 +486,11 @@ int main(int argc, const char *argv[])
                 case search_mode::iterative: {
                     auto [w, ss] = HC_info::build_HC(current_state);
                     mvs = w.iterative_search(ss).first();
+                    break;
+                }
+                case search_mode::mixed: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.mixed_search(ss).first();
                     break;
                 }
             }

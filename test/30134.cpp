@@ -1,6 +1,7 @@
 #include "state.h"
 #include "pgnparser.h"
 #include "hypercuboid.h"
+#include <iostream>
 
 std::string str = R"(
 [Mode "5D"]
@@ -26,6 +27,7 @@ int main()
     }
     if(n != 30134)
     {
+        std::cerr << n << std::endl;
         return 1;
     }
     return 0;

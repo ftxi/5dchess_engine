@@ -1226,6 +1226,69 @@ generator<moveseq> HC_info::stable_search(search_space ss) const
 
 generator<moveseq> HC_info::search(search_space ss) const
 {
+    dprint("begining search: ", ss.to_string());
+    while(!ss.empty())
+    {
+        HC hc = ss.back();
+        dprint("searching ", hc.to_string());
+        ss.pop_back();
+        auto pt_opt = take_point(hc);
+        if(pt_opt)
+        {
+            point pt = pt_opt.value();
+            dprint("got point: ", range_to_string(pt));
+            auto problem = find_problem(pt, hc);
+            if(problem)
+            {
+                const slice &problem_slice = problem.value();
+                dprint("found problem:", problem.value().to_string());
+                // Remove this slice from every remaining hypercuboid and re-join all pieces.
+                search_space adjoined;
+                adjoined.concat(hc.remove_slice(problem_slice));
+                int intersect_count = 1, disjoint_count = 0;
+                while(!ss.empty() && (disjoint_count * 10 < intersect_count))
+                {
+                    HC &other_hc = ss.back();
+                    if(other_hc.intersects(problem_slice))
+                    {
+                        search_space sstemp = other_hc.remove_slice_carefully(problem_slice);
+                        adjoined.concat(std::move(sstemp));
+                        intersect_count++;
+                    }
+                    else
+                    {
+                        disjoint_count++;
+                        adjoined.concat({{other_hc}});
+                    }
+                    
+                    ss.pop_back();
+                }
+                ss.concat(std::move(adjoined));
+                // make sure when a leave is removed, so is the corresponding arrive
+                dprint("removed problem from all hcs, continue search:", ss.to_string());
+            }
+            else
+            {
+                dprint("point is okay, removing it from this hc");
+                co_yield to_action(pt);
+                search_space new_ss = hc.remove_point(pt);
+                dprint("removed point, continue search:", new_ss.to_string());
+                ss.concat(std::move(new_ss));
+            }
+        }
+        else
+        {
+            dprint("didn't secure any point in the first hypercuboid;");
+            dprint("continue searching the remaining part");
+        }
+    }
+    dprint("search space is empty; finish.");
+    co_return;
+}
+
+
+generator<moveseq> HC_info::mixed_search(search_space ss) const
+{
     auto [l_min, l_max] = s.get_lines_range();
     int line_span = l_max - l_min + 1;
     dprint("number of lines:", line_span);

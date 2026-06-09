@@ -23,13 +23,26 @@ integer_set &HC::operator[](size_t i)
     return axes[i];
 }
 
-bool HC::contains(point loc) const
+bool HC::contains(const point &loc) const
 {
     assert(loc.size() == axes.size());
     for(index_t i = 0; i < static_cast<index_t>(axes.size()); i++)
     {
         if(!axes[i].contains(loc[i]))
             return false;
+    }
+    return true;
+}
+
+bool HC::intersects(const slice &s) const
+{
+    auto fixed_axes = s.get_fixed_axes();
+    for(auto& [i, fixed_coords] : fixed_axes)
+    {
+        if(!axes[i].intersects(fixed_coords))
+        {
+            return false;
+        }
     }
     return true;
 }
