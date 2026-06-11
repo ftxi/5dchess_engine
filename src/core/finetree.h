@@ -23,10 +23,23 @@ struct fine_cell
 
 struct nodal_pocession;
 
+/*
+ There are a few types of fine_nodes:
+ + nodal: Represents the initial game state or a game state where an action is
+ just performed and submitted. Thus, the `pocessed_context` is nonempty and contains
+ the info for further expansion.
+ + temporary: Represents the pseudo-state where some semimoves are queued to be applied.
+ The next semimove is recorded by `n` and `i`. Info for expansion is stored in `context`.
+ + terminal: The temporary fine_node that contains the last semimove: after this, a
+ valid action can be applied. A terminal node can also become the nodal fine_node via
+ calling the `ignite` method. In this case, `context` still stores the old info
+ while `pocessed_context` store the new info.
+ + root: A node which is nodal but not terminal. Its `parent` pointer shall be null.
+ */
+
 class fine_node
 {
     fine_node* parent;
-    
     // only for nodal nodes
     std::unique_ptr<nodal_pocession> pocessed_context;
     // non-owning pointer to the pocessed_context of its ancestor
@@ -44,15 +57,21 @@ public:
     
     fine_node(fine_node *parent, state s);
     fine_node(fine_node *parent, index_t n, index_t i);
-    static std::unique_ptr<fine_node> make_nodal(fine_node *parent, state s);
+    static std::unique_ptr<fine_node> make_root(fine_node *parent, state s);
     static std::unique_ptr<fine_node> make_temproary(fine_node *parent, index_t n, index_t i);
 
     fine_cell *add_cell(fine_cell &&cell);
-
     fine_node *add_child(index_t n, index_t i);
 
     bool is_nodal() const { return pocessed_context != nullptr; }
+    bool is_terminal() const;
 
+    fine_node *get_child(index_t i) const;
+    fine_node *get_parent() const { return parent; }
+    const std::vector<fine_node*> get_children() const { return children; };
+    nodal_pocession *get_context() const; /* returns the newer context */
+
+    // expansion methods
     generator<index_t> search();
     fine_node *expand();
     std::optional<std::tuple<point, fine_cell*, HC*>> explore();
@@ -60,6 +79,10 @@ public:
 
     fine_node *isolate(point, fine_cell*, HC*);
     fine_node *normalize(point, fine_cell*, fine_node*);
+
+    void ignite(); /* make a terminal node also a nodal node */
+
+    moveseq to_action(); /* only avialible for terminal nodes */
 
     std::string to_string() const;
 };

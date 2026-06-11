@@ -7,7 +7,7 @@
 #include "debug.h"
 
 fine_node::fine_node(fine_node *parent, state s)
-: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-1)}, i{index_t(-1)}, cells{}
+: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}
 {
     auto [info, ss] = HC_info::build_HC(s);
     HC universe = info.universe;
@@ -23,14 +23,13 @@ fine_node::fine_node(fine_node *parent, state s)
             }
         }
     });
-    context = pocessed_context.get();
-    cells.push_back(&context->cell_pool.back());
+    cells.push_back(&pocessed_context->cell_pool.back());
 }
 
 fine_node::fine_node(fine_node *parent, index_t n, index_t i)
-: parent{parent}, pocessed_context{nullptr}, context{parent->context}, n{n}, i{i}, cells{} {}
+: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{} {}
 
-std::unique_ptr<fine_node> fine_node::make_nodal(fine_node *parent, state s)
+std::unique_ptr<fine_node> fine_node::make_root(fine_node *parent, state s)
 {
     return std::unique_ptr<fine_node>(new fine_node(parent, s));
 }
@@ -42,19 +41,52 @@ std::unique_ptr<fine_node> fine_node::make_temproary(fine_node *parent, index_t 
 
 fine_cell *fine_node::add_cell(fine_cell &&cell)
 {
-    context->cell_pool.push_back(std::move(cell));
-    fine_cell *new_cell = &context->cell_pool.back();
+    auto ctx = get_context();
+    ctx->cell_pool.push_back(std::move(cell));
+    fine_cell *new_cell = &ctx->cell_pool.back();
     cells.push_back(new_cell);
     new_cell->parent->children.push_back(new_cell);
     return new_cell;
 }
 
+// TODO: insert elements while keep the increasing order of i
 fine_node *fine_node::add_child(index_t n, index_t i)
 {
-    context->node_pool.emplace_back(this, n, i);
-    fine_node *child = &context->node_pool.back();
+    auto ctx = get_context();
+    ctx->node_pool.emplace_back(this, n, i);
+    fine_node *child = &ctx->node_pool.back();
     children.push_back(child);
     return child;
+}
+
+bool fine_node::is_terminal() const
+{
+    // is_terminal needs the older context, not the newer one
+    return n + 1 == context->info.dimension;
+}
+
+fine_node *fine_node::get_child(index_t i) const
+{
+    for(fine_node *next_node : children)
+    {
+        if(next_node->i == i)
+        {
+            return next_node;
+        }
+    }
+    return nullptr;
+}
+
+nodal_pocession *fine_node::get_context() const
+{
+    if(pocessed_context)
+    {
+        return pocessed_context.get();
+    }
+    else
+    {
+        return context;
+    }
 }
 
 generator<index_t> fine_node::search()
@@ -82,7 +114,7 @@ fine_node *fine_node::expand()
 
 std::optional<std::tuple<point, fine_cell *, HC *>> fine_node::explore()
 {
-    HC_info &info = context->info;
+    HC_info &info = get_context()->info;
     for(fine_cell *cell : cells)
     {
         // search for each cell in cells
@@ -143,7 +175,7 @@ fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
     fine_cell *current_cell = target_cell;
     index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
     HC *current_hc = target_hc;
-    while(next_n < context->info.dimension)
+    while(next_n < get_context()->info.dimension)
     {
         index_t next_i = p[next_n];
         fine_node *next_node = current_node->add_child(next_n, next_i);
@@ -168,14 +200,14 @@ fine_node *fine_node::isolate(point p, fine_cell *target_cell, HC *target_hc)
 
 fine_node *fine_node::normalize(point p, fine_cell *target_cell, fine_node *final_node)
 {
-    std::vector<fine_node*> nodes(context->info.dimension+1, nullptr);
+    std::vector<fine_node*> nodes(get_context()->info.dimension+1, nullptr);
     fine_node *current_node = final_node;
     while(current_node != this)
     {
         nodes[current_node->n+1] = current_node;
         current_node = current_node->parent;
     }
-    index_t next_n = current_node->n + 1;
+    index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
     nodes[next_n] = this;
     
     auto try_isolate = [current_node=this, &p, target_cell, &nodes](HC *target_hc)
@@ -183,7 +215,7 @@ fine_node *fine_node::normalize(point p, fine_cell *target_cell, fine_node *fina
         fine_cell *current_cell = target_cell;
         HC *current_hc = target_hc;
         index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
-        auto context = current_node->context;
+        auto context = current_node->get_context();
         while(next_n < context->info.dimension)
         {
             index_t next_i = p[next_n];
@@ -211,8 +243,47 @@ fine_node *fine_node::normalize(point p, fine_cell *target_cell, fine_node *fina
     {
         try_isolate(&hc);
     }
-    index_t n1 = n + 2;
+    index_t n1 = next_n + 1;
     return nodes[n1];
+}
+
+void fine_node::ignite()
+{
+    state s = context->info.s;
+    moveseq mvs = to_action();
+    for(full_move mv : mvs)
+    {
+        s.apply_move<true>(mv);
+    }
+    s.submit<true>();
+    auto [info, ss] = HC_info::build_HC(s);
+    HC universe = info.universe;
+    pocessed_context = std::make_unique<nodal_pocession>(nodal_pocession{
+        .info = std::move(info),
+        .node_pool = {},
+        .cell_pool = {
+            fine_cell{
+                .parent = nullptr,
+                .node = this,
+                .space = std::move(universe),
+                .subspace = std::move(ss)
+            }
+        }
+    });
+    cells.push_back(&pocessed_context->cell_pool.back());
+}
+
+moveseq fine_node::to_action()
+{
+    assert(is_terminal());
+    std::vector<index_t> pt(context->info.dimension);
+    auto current = this;
+    while(!current->is_nodal())
+    {
+        pt[current->n] = current->i;
+        current = current->parent;
+    }
+    return context->info.to_action(pt);
 }
 
 std::string fine_node::to_string() const

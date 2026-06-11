@@ -99,6 +99,17 @@ struct HC_info
      deleted immediately (that's why parameter hc is a non-const reference)
      */
     std::optional<point> take_point(HC& hc) const;
+    
+    /*
+     find_problem(p, hc): find any problem about p and returns the problem slice in hc
+     or std::nullopt if the point is okay
+     There are three layers: if the point passes
+     + jump_order_consistent: then the departure semimoves and arrival semimoves are good
+     pairs, thus the point is avialible for to_action to get a moveseq;
+     + test_present: then the point actually pushes the Present foward, but may still
+     contain checks
+     + find_checks: then the point is all good for a valid action
+     */
     std::optional<slice> find_problem(const point& p, const HC& hc) const;
     std::optional<slice> jump_order_consistent(const point& p, const HC& hc) const;
     std::optional<slice> test_present(const point& p, const HC& hc) const;
