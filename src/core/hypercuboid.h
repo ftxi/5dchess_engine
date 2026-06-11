@@ -93,18 +93,29 @@ struct HC_info
     // identity: dimension = universe axis count = axis_coords.size()
     const std::vector<int> mandatory_lines;
     
-private:
     /*
      take_point(): takes a point in hc while making sure arrives matches departures
      if it finds an arrive with its departure no longer in hc, then this arrives get
      deleted immediately (that's why parameter hc is a non-const reference)
      */
     std::optional<point> take_point(HC& hc) const;
+    
+    /*
+     find_problem(p, hc): find any problem about p and returns the problem slice in hc
+     or std::nullopt if the point is okay
+     There are three layers: if the point passes
+     + jump_order_consistent: then the departure semimoves and arrival semimoves are good
+     pairs, thus the point is avialible for to_action to get a moveseq;
+     + test_present: then the point actually pushes the Present foward, but may still
+     contain checks
+     + find_checks: then the point is all good for a valid action
+     */
     std::optional<slice> find_problem(const point& p, const HC& hc) const;
     std::optional<slice> jump_order_consistent(const point& p, const HC& hc) const;
     std::optional<slice> test_present(const point& p, const HC& hc) const;
     std::optional<slice> find_checks(const point& p, const HC& hc) const;
     moveseq to_action(const point& p) const;
+private:
     //private aggregate constructor
     HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<semimove>> crds, HC uni, index_t ax, index_t dim, const std::vector<int> pl)
         : s(std::move(s)), line_to_axis(std::move(lm)), axis_coords(std::move(crds)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
