@@ -4,6 +4,8 @@
 
 The `5dchess_engine` is a standalone program that can also be used as a library for analyzing 5D chess game. Written in c++, it is also compiled for use in python and javascript environments. When used as a standalone tool, it offers both a command line interface and a web-based interface for viewing and analyzing games.
 
+This project is written in a serious language for chess-programming (c++). It aims to provide fast performance for basic game logic such as move generation and checkmate detection, which can be used as a solic foundation for a competant 5d chess bot. 
+
 ### Try it online!
 
 Visit <https://ftxi.github.io/5dchess_engine/>.
@@ -17,11 +19,7 @@ The storage of a game state is based on [bitboards](https://www.chessprogramming
 
 Currently, the engine implements move generation and check detection using coroutine-based generators. Thus it won't work on compilers pre-C++20.
 
-There are two checkmate detection program: 
-1. hc, using method from [here](https://github.com/penteract/cwmtt), adapted to c++ with improvements.
-2. naive, plain DFS searching pruning states with checks/moves not in order.
-
-From my testing, hc has a better worse case performance than naive, especially when the search space is large while available actions are sparse, e.g. when the situation is almost checkmate. However, naive usually perform better when options are abundant.
+For checkmate detection and action generation, this program implements the hypercuboid algorithm.
 
 This program supports tree shaped traversal.
 
@@ -114,22 +112,15 @@ If you prefer [darkhttpd](https://github.com/emikulic/darkhttpd):
 darkhttpd ui/
 ```
 
+### Disclaimer
+
+All resources inside this project are either open source online or created by myself. It does not use any source code, copied directly or decompiled, from the 5D Chess With Multiverse Time Travel by Thunkspace, LLC. The original game is a commercial product and I have no affiliation with the developer.
+
 ### Documentation
 
-For more detail, please read [this page](docs/index.md).
+For more details on the structure of this repository, please read [this page](docs/index.md).
 
 ### TODOs
-- [x] checkmate display
-- [x] merge pixels
-- [ ] ~~flask static path~~
-- [x] embind
-- [x] debug nonstandard pieces
-- [x] editing comments
-- [x] L/T numbers
-- [ ] documentation
-- [x] variants loading
-- [x] ctest
-- [x] Reduce resource usage when displaying pgn
-- [x] Check arrows in the new ui
-- [x] Export pgn options
-- [ ] Next move arrows
+- [ ] Write standard of and implement 5duci for communication.
+- [ ] Split `src/` folder into client-specific and engine-specific folders. Modify cmake file.
+- [ ] Create a basic 5d chess bot.
