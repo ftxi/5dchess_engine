@@ -855,65 +855,8 @@ std::optional<game> pgnparser::parse_game()
         if(!saw_quote)
         {
             // parse as <board-fen>
-            int now = 0, prev;
-            auto next_colon = [&s, &now, len]() -> void {
-                while(now<len && s[now] != ':')
-                    now++;
-            };
-            next_colon();
-            std::string fen(s.begin(), s.begin()+now);
-            token_t sign;
-            int l, t;
-            bool c;
-            now++;
-            switch(s[now])
-            {
-                case '+':
-                    sign = POSITIVE;
-                    now++;
-                    break;
-                case '-':
-                    sign = NEGATIVE;
-                    now++;
-                    break;
-                default:
-                    sign = NIL;
-            }
-            prev = now;
-            try {
-                next_colon();
-                if(now == len)
-                    throw parse_error("parse_game(): Expect line in board string:" + s);
-                l = stoi(std::string(s.begin() + prev, s.begin() + now));
-                now++; prev = now;
-                next_colon();
-                if(now == len)
-                    throw parse_error("parse_game(): Expect time in board string:" + s);
-                t = stoi(std::string(s.begin() + prev, s.begin() + now));
-            }
-            catch(const std::invalid_argument& e)
-            {
-                throw parse_error("parse_game(): Expect number after ':': " + s + "\n" + e.what());
-            }
-            now++;
-            if(now == len)
-                throw parse_error("parse_game(): Expect color in board string:" + s);
-            switch(s[now])
-            {
-                case 'w':
-                case 'W':
-                    c = false;
-                    break;
-                case 'b':
-                case 'B':
-                    c = true;
-                    break;
-                default:
-                    throw parse_error(std::string("parse_game(): Unknown color:") + s[now] + " in " + s);
-            }
-            if(now+1 != len)
-                throw parse_error("parse_game(): Too many arguments in board string:" + s);
-            boards.push_back(std::make_tuple(fen, sign, l, t, c));
+            auto tup = parse_board_fen_metadata(s);
+            boards.push_back(tup);
         }
         else
         {
@@ -951,6 +894,71 @@ std::optional<game> pgnparser::parse_game()
     auto gt_opt = parse_gametree();
     if(!gt_opt) PARSE_FAIL;
     return game{headers, boards, std::move(*gt_opt), views_to_strings(comments)};
+}
+
+std::tuple<std::string, pgnparser_ast::token_t, int, int, bool> pgnparser::parse_board_fen_metadata(const std::string& s)
+{
+    using namespace pgnparser_ast;
+    const int len = static_cast<int>(s.size());
+    int now = 0, prev;
+    auto next_colon = [&s, &now, len]() -> void {
+        while(now<len && s[now] != ':')
+            now++;
+    };
+    next_colon();
+    std::string fen(s.begin(), s.begin()+now);
+    token_t sign;
+    int l, t;
+    bool c;
+    now++;
+    switch(s[now])
+    {
+        case '+':
+            sign = POSITIVE;
+            now++;
+            break;
+        case '-':
+            sign = NEGATIVE;
+            now++;
+            break;
+        default:
+            sign = NIL;
+    }
+    prev = now;
+    try {
+        next_colon();
+        if(now == len)
+            throw parse_error("parse_game(): Expect line in board string:" + s);
+        l = stoi(std::string(s.begin() + prev, s.begin() + now));
+        now++; prev = now;
+        next_colon();
+        if(now == len)
+            throw parse_error("parse_game(): Expect time in board string:" + s);
+        t = stoi(std::string(s.begin() + prev, s.begin() + now));
+    }
+    catch(const std::invalid_argument& e)
+    {
+        throw parse_error("parse_game(): Expect number after ':': " + s + "\n" + e.what());
+    }
+    now++;
+    if(now == len)
+        throw parse_error("parse_game(): Expect color in board string:" + s);
+    switch(s[now])
+    {
+        case 'w':
+        case 'W':
+            c = false;
+            break;
+        case 'b':
+        case 'B':
+            c = true;
+            break;
+        default:
+            throw parse_error(std::string("parse_game(): Unknown color:") + s[now] + " in " + s);
+    }
+    if(now+1 != len)
+        throw parse_error("parse_game(): Too many arguments in board string:" + s);
+    return std::make_tuple(fen, sign, l, t, c);
 }
 
 /* ***MATCHER*** */

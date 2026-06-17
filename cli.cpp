@@ -8,6 +8,7 @@
 #include "pgnparser.h"
 #include "game.h"
 #include "turn.h"
+#include "uci.h"
 
 //std::string pgn1 =
 //R"(
@@ -332,6 +333,10 @@ int main(int argc, const char *argv[])
         std::cout << "5d Chess Engine version unknown" << std::endl;
 #endif
         return 0;
+    }
+    else if (command == "uci")
+    {
+        
     }
     
     std::ostringstream buffer;
