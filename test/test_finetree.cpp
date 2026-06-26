@@ -16,7 +16,7 @@ std::string str = R"(
 
 )";
 
-fine_node *goto_next_nodal(fine_node *node)
+fine_node<> *goto_next_nodal(fine_node<> *node)
 {
     auto children = node->get_children();
     while(children.size()>0)
@@ -24,7 +24,7 @@ fine_node *goto_next_nodal(fine_node *node)
         node = children[0];
         children = node->get_children();
     }
-    assert(node->is_terminal());
+    assert(node->is_ceiling());
     return node;
 }
 
@@ -33,39 +33,29 @@ int main()
     state s(*pgnparser(str).parse_game());
 
     std::cout << s.to_string() << std::endl;
-    fine_node root(nullptr, s);
-    auto ans = root.explore();
-    if(!ans)
+    auto root = fine_node<>::make_root(s);
+    fine_node<> *node = root.get();
+
+    // First branch: consume one expansion via search, then navigate to its child
+    std::cout << "First branch of root:\n";
+    for(index_t i : node->search())
     {
-        std::cout << "No point found." << std::endl;
-        return 1;
+        std::cout << i << ' ';
+        node = node->get_child(i);
+        break; // only first expansion
     }
-    
-    auto [pt, cell, hc] = *ans;
-    std::cout << "cell space: " << cell->space.to_string() << std::endl;
-    print_range("Found point:", pt);
-    
-    std::cout << root.to_string() << std::endl;
-    
-//    fine_node *final_node = root.isolate(pt, cell, hc);
-//    std::cout << "Isolate completed." << std::endl;
-//    std::cout << root.to_string() << std::endl;
-//    
-//    root.normalize(pt, cell, final_node);
-//    std::cout << "Normalize completed." << std::endl;
-//    std::cout << root.to_string() << std::endl;
-//    
-    fine_node *node = root.expand();
-    std::cout << "Expand completed." << std::endl;
+    std::cout << "\n\n";
     std::cout << (node->to_string()) << std::endl;
-    
+
+    // Remaining expansions on root
     std::cout << "Other children of root:\n";
-    for(index_t i : root.search())
+    for(index_t i : root->search())
     {
         std::cout << i << ' ';
     }
     std::cout << "\n\n";
-    
+
+    // Search within the first child for more expansions
     std::cout << "Other children of first node:\n";
     for(index_t i : node->search())
     {
@@ -74,18 +64,27 @@ int main()
     std::cout << "\n\n";
 
     std::cout << "Search completed." << std::endl;
-    
+
+    // Navigate to celling, get action, ignite, and repeat
     node = goto_next_nodal(node);
     print_range("Got action: ", node->to_action());
     node->ignite();
-    
-    node->expand();
+
+    node->search();  // expand the ignited node
     node = goto_next_nodal(node);
     print_range("Got action: ", node->to_action());
     node->ignite();
-    
-    node->expand();
-    node = node->expand();
+
+    node->search();
+    // Navigate to celling by following the first child chain
+    {
+        auto children = node->get_children();
+        while(!children.empty())
+        {
+            node = children[0];
+            children = node->get_children();
+        }
+    }
     node = goto_next_nodal(node);
     print_range("Got action: ", node->to_action());
     return 0;

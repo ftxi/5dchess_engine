@@ -1,4 +1,5 @@
 #include <atomic>
+#undef NDEBUG // make sure assert is always enabled
 #include <cassert>
 #include <condition_variable>
 #include <iostream>
@@ -6,8 +7,11 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <map>
 
 #include "engine/uci.h"
+#include <stop_token>
+#include <chrono>
 
 class scripted_io_handler : public io_handler
 {
@@ -59,18 +63,25 @@ private:
 class dummy_engine : public engine
 {
 public:
+    struct option_change
+    {
+        std::string key;
+        option_value_t value;
+    };
+
     explicit dummy_engine(std::unique_ptr<io_handler> io) : engine(std::move(io)) {}
 
     void initialize() override
     {
     }
 
-    std::optional<action> find_best_move(std::optional<int>, std::optional<int>) override
+    std::optional<action> find_best_move(std::optional<int>, std::optional<int>, std::stop_token stop_token) override
     {
         std::unique_lock<std::mutex> lock(search_mutex);
-        search_cv.wait(lock, [this]() {
-            return stop_requested.load();
-        });
+        while(!stop_token.stop_requested())
+        {
+            search_cv.wait_for(lock, std::chrono::milliseconds(10));
+        }
 
         const auto &current_state = get_current_state();
         if(!current_state.has_value())
@@ -83,22 +94,32 @@ public:
         return action::from_vector(moves, current_state.value());
     }
 
-    void stop_search() override
+    const std::vector<option_change>& option_changes() const
     {
-        stop_requested = true;
-        search_cv.notify_all();
+        return changes;
+    }
+
+protected:
+    void on_option_changed(const std::string &key, const option_value_t &value) override
+    {
+        changes.push_back({key, value});
     }
 
 private:
-    std::atomic<bool> stop_requested{false};
     std::mutex search_mutex;
     std::condition_variable search_cv;
+    std::vector<option_change> changes;
 };
 
 int main()
 {
     auto io = std::make_unique<scripted_io_handler>(std::vector<scripted_io_handler::scripted_line>{
         {"5duci", 0},
+        {"setoption name UCI_AnalyseMode value true", 1},
+        {"setoption name MultiPV value 4", 1},
+        {"setoption name UCI_LimitStrength value 90.5", 1},
+        {"setoption name Clear Hash", 1},
+        {"setoption name UCI_EngineName value MyEngine", 1},
         {"5ducinewgame", 1},
         {"position size 3x3 even fen [k*2/3/2K*:-0:1:w] [k*2/3/2K*:+0:1:w] move (0T1)c1b1 (-1T1)c1b1 submit", 1},
         {"go depth 1 movetime 1", 1},
@@ -117,8 +138,56 @@ int main()
         std::cout << line << '\n';
     }
 
+    std::cout << "\non_option_changed invocations:\n";
+    for(const auto &ch : eng.option_changes())
+    {
+        std::cout << "  " << ch.key << " -> ";
+        if(std::holds_alternative<bool>(ch.value))
+            std::cout << (std::get<bool>(ch.value) ? "true" : "false") << " (bool)";
+        else if(std::holds_alternative<int>(ch.value))
+            std::cout << std::get<int>(ch.value) << " (int)";
+        else if(std::holds_alternative<double>(ch.value))
+            std::cout << std::get<double>(ch.value) << " (double)";
+        else if(std::holds_alternative<std::string>(ch.value))
+            std::cout << '"' << std::get<std::string>(ch.value) << "\" (string)";
+        else
+            std::cout << "(monostate)";
+        std::cout << '\n';
+    }
+
+    // Verify basic UCI protocol
     assert(io_ptr->output_lines.size() >= 2);
     assert(io_ptr->output_lines.front() == "5duciok");
     assert(io_ptr->output_lines[1].rfind("bestmove ", 0) == 0);
+
+    // Verify setoption: options stored correctly
+    auto analyse = eng.get_option("UCI_AnalyseMode");
+    assert(std::holds_alternative<bool>(analyse));
+    assert(std::get<bool>(analyse) == true);
+
+    auto multipv = eng.get_option("MultiPV");
+    assert(std::holds_alternative<int>(multipv));
+    assert(std::get<int>(multipv) == 4);
+
+    auto strength = eng.get_option("UCI_LimitStrength");
+    assert(std::holds_alternative<double>(strength));
+    assert(std::get<double>(strength) == 90.5);
+
+    auto clear = eng.get_option("Clear Hash");
+    assert(std::holds_alternative<std::monostate>(clear));
+
+    auto name = eng.get_option("UCI_EngineName");
+    assert(std::holds_alternative<std::string>(name));
+    assert(std::get<std::string>(name) == "MyEngine");
+
+    // Verify on_option_changed was called for each setoption
+    const auto &changes = eng.option_changes();
+    assert(changes.size() == 5);
+    assert(changes[0].key == "UCI_AnalyseMode");
+    assert(std::holds_alternative<bool>(changes[0].value));
+    assert(changes[3].key == "Clear Hash");
+    assert(std::holds_alternative<std::monostate>(changes[3].value));
+
+    std::cout << "All setoption tests passed!\n";
     return 0;
 }

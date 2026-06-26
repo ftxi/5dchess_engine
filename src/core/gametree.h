@@ -8,7 +8,7 @@
 #include "state.h"
 #include "turn.h"
 
-template<typename T>
+template<typename T = std::monostate>
 class gnode {
     gnode<T> *parent;
     std::optional<state> s;

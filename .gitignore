@@ -13,6 +13,7 @@ ui/package.json
 ### vscode
 
 .vscode/
+Testing/
 
 # Local History for Visual Studio Code
 .history/

@@ -1,3 +1,5 @@
+#include <charconv>
+#include <cstdlib>
 #include "uci.h"
 #include <pgnparser.h>
 #include <sstream>
@@ -7,7 +9,7 @@ bool engine::is_busy() const
     return active_task.load() != task_state::idle;
 }
 
-void engine::launch_async_task(task_state task, std::function<void()> work)
+void engine::launch_async_task(task_state task, std::function<void(std::stop_token)> work)
 {
     if(search_thread.joinable())
     {
@@ -15,10 +17,10 @@ void engine::launch_async_task(task_state task, std::function<void()> work)
     }
 
     active_task.store(task);
-    search_thread = std::thread([this, work = std::move(work)]() mutable {
+    search_thread = std::jthread([this, work = std::move(work)](std::stop_token st) mutable {
         try
         {
-            work();
+            work(st);
         }
         catch(...)
         {
@@ -40,10 +42,13 @@ engine::~engine()
     {
         ready_thread.join();
     }
+}
 
+void engine::stop_search()
+{
     if(search_thread.joinable())
     {
-        search_thread.join();
+        search_thread.request_stop();
     }
 }
 
@@ -91,7 +96,7 @@ void engine::mainloop()
             }
             else
             {
-                launch_async_task(task_state::initializing, [this]() {
+                launch_async_task(task_state::initializing, [this](std::stop_token) {
                     initialize();
                     if(!quit_requested.load())
                     {
@@ -160,8 +165,8 @@ void engine::mainloop()
             }
             else
             {
-                launch_async_task(task_state::searching, [this, depth_limit, time_limit_ms]() {
-                    auto best_move = find_best_move(std::optional<int>(depth_limit), std::optional<int>(time_limit_ms));
+                launch_async_task(task_state::searching, [this, depth_limit, time_limit_ms](std::stop_token st) {
+                    auto best_move = find_best_move(std::optional<int>(depth_limit), std::optional<int>(time_limit_ms), st);
                     if(quit_requested.load())
                     {
                         return;
@@ -226,6 +231,47 @@ void engine::mainloop()
         else if(command == "stop")
         {
             stop_search();
+        }
+        else if(command == "setoption")
+        {
+            std::string token;
+            if(iss >> token && token == "name")
+            {
+                // Build the key: read tokens until "value" is found
+                std::string key;
+                bool has_value = false;
+                std::string value;
+                while(iss >> token)
+                {
+                    if(token == "value")
+                    {
+                        has_value = true;
+                        break;
+                    }
+                    if(!key.empty())
+                    {
+                        key += ' ';
+                    }
+                    key += token;
+                }
+                if(has_value)
+                {
+                    // Read the rest of the line as the value
+                    std::string rest;
+                    std::getline(iss, rest);
+                    // Trim leading whitespace
+                    auto first = rest.find_first_not_of(" \t");
+                    if(first != std::string::npos)
+                    {
+                        value = rest.substr(first);
+                    }
+                    set_option(key, parse_option_value(value));
+                }
+                else
+                {
+                    set_option(key, option_value_t{std::monostate()});
+                }
+            }
         }
 
         if(search_thread.joinable() && !is_busy())
@@ -367,4 +413,63 @@ void engine::set_position(const std::string &position, const std::string &moves)
             s->apply_move(full_move{move_str});
         }
     }
+}
+
+engine::option_value_t engine::get_option(const std::string &key) const
+{
+    std::lock_guard<std::mutex> lock(options_mutex);
+    auto it = options.find(key);
+    return it != options.end() ? it->second : option_value_t{};
+}
+
+engine::option_value_t engine::parse_option_value(const std::string &value)
+{
+    // Try bool
+    if(value == "true")
+    {
+        return option_value_t(true);
+    }
+    if(value == "false")
+    {
+        return option_value_t(false);
+    }
+
+    // 2. Try int via std::from_chars (no exceptions)
+    int int_val = 0;
+    auto [ptr_int, ec_int] = std::from_chars(value.data(), value.data() + value.size(), int_val);
+    if(ec_int == std::errc() && ptr_int == value.data() + value.size())
+    {
+        return option_value_t(int_val);
+    }
+
+    // 3. Try double via std::strtod (no exceptions)
+    char *end_dbl = nullptr;
+    double double_val = std::strtod(value.data(), &end_dbl);
+    if(end_dbl == value.data() + value.size() && value.size() > 0)
+    {
+        return option_value_t(double_val);
+    }
+
+    // 4. Fallback: string
+    return option_value_t(value);
+}
+
+void engine::set_option(const std::string &key, const option_value_t &value)
+{
+    {
+        std::lock_guard<std::mutex> lock(options_mutex);
+        options[key] = value;
+    }
+    on_option_changed(key, value);
+}
+
+void engine::send_info(const std::string &info)
+{
+    std::lock_guard<std::mutex> lock(io_mutex);
+    io->write_line("info " + info);
+}
+
+void engine::on_option_changed(const std::string & /*key*/, const option_value_t & /*value*/)
+{
+    // Default no-op — derived engines override to react to specific options.
 }
