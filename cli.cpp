@@ -9,6 +9,7 @@
 #include "game.h"
 #include "turn.h"
 #include "uci.h"
+#include "mcts.h"
 
 //std::string pgn1 =
 //R"(
@@ -277,16 +278,18 @@ std::string helpmsg = R"(usage: cli <option>
 where <option> is one of:
   help: print this message (-h, --help)
   version: print the version (-v, --version)
+  uci: enter Universal 5D Chess Interface mode and work as a chess engine
   print: print the final state of the game
-        count [<policy>] [<max>]: display number of avialible moves capped by <max>
-        all [<policy>] [<max>]: display all legal moves capped by <max>
-        checkmate [<policy>]: determine whether the final state is checkmate/stalemate
+  count [<policy>] [<max>]: display number of available moves capped by <max>
+  all [<policy>] [<max>]: display all legal moves capped by <max>
+  checkmate [<policy>]: determine whether the final state is checkmate/stalemate
   diff: compare the output of two algorithms (balanced and naive)
-        perftest [<policy>]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
+  perftest [<policy>]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
 <policy> ::= balanced|naive|stable|iterative|mixed
 default value for <policy> is balanced
 default value for <max> is 10000
 
+For commands print, count, all, checkmate, diff and perftest,
 the game being read is input in stdin (stopped by EOF)
 )";
 
@@ -336,7 +339,8 @@ int main(int argc, const char *argv[])
     }
     else if (command == "uci")
     {
-        
+        mcts_engine engine(std::make_unique<stdio_handler>());
+        engine.mainloop();
     }
     
     std::ostringstream buffer;

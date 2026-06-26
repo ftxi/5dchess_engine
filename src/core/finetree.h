@@ -57,7 +57,7 @@ Additional tools:
 template<typename T>
 class fine_node
 {
-    fine_node<T>* parent;
+    fine_node<T> *parent;
     // only for nodal nodes
     std::unique_ptr<nodal_pocession<T>> pocessed_context;
     // non-owning pointer to the pocessed_context of its ancestor

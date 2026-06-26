@@ -5,7 +5,7 @@
 #include "finetree.h"
 
 template<typename T>
-fine_node<T>::fine_node(fine_node *parent, state s, T info_value)
+inline fine_node<T>::fine_node(fine_node *parent, state s, T info_value)
 : parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}, info{std::move(info_value)}
 {
     auto [hc_info, ss] = HC_info::build_HC(s);
@@ -26,23 +26,23 @@ fine_node<T>::fine_node(fine_node *parent, state s, T info_value)
 }
 
 template<typename T>
-fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i, T info_value)
+inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i, T info_value)
 : parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, info{std::move(info_value)} {}
 
 template<typename T>
-std::unique_ptr<fine_node<T>> fine_node<T>::make_root(state s, T info)
+inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(state s, T info)
 {
     return std::unique_ptr<fine_node<T>>(new fine_node(nullptr, s, std::move(info)));
 }
 
 template<typename T>
-std::unique_ptr<fine_node<T>> fine_node<T>::make_temproary(fine_node *parent, index_t n, index_t i, T info)
+inline std::unique_ptr<fine_node<T>> fine_node<T>::make_temproary(fine_node *parent, index_t n, index_t i, T info)
 {
     return std::unique_ptr<fine_node<T>>(new fine_node(parent, n, i, std::move(info)));
 }
 
 template<typename T>
-fine_cell<T> *fine_node<T>::add_cell(fine_cell<T> &&cell)
+inline fine_cell<T> *fine_node<T>::add_cell(fine_cell<T> &&cell)
 {
     auto ctx = get_context();
     ctx->cell_pool.push_back(std::move(cell));
@@ -54,7 +54,7 @@ fine_cell<T> *fine_node<T>::add_cell(fine_cell<T> &&cell)
 
 // TODO: insert elements while keep the increasing order of i
 template<typename T>
-fine_node<T> *fine_node<T>::add_child(index_t n, index_t i, T info)
+inline fine_node<T> *fine_node<T>::add_child(index_t n, index_t i, T info)
 {
     auto ctx = get_context();
     ctx->node_pool.emplace_back(this, n, i, std::move(info));
@@ -64,14 +64,14 @@ fine_node<T> *fine_node<T>::add_child(index_t n, index_t i, T info)
 }
 
 template<typename T>
-bool fine_node<T>::is_ceiling() const
+inline bool fine_node<T>::is_ceiling() const
 {
     // is_ceiling needs the older context, not the newer one
     return n + 1 == context->hc_info.dimension;
 }
 
 template<typename T>
-fine_node<T> *fine_node<T>::get_nearby_ceiling()
+inline fine_node<T> *fine_node<T>::get_nearby_ceiling()
 {
     fine_node<T> *current = this;
     while (true) {
@@ -113,7 +113,7 @@ inline bool fine_node<T>::is_terminal()
 }
 
 template <typename T>
-fine_node<T> *fine_node<T>::get_child(index_t i) const
+inline fine_node<T> *fine_node<T>::get_child(index_t i) const
 {
     for(fine_node<T> *next_node : children)
     {
@@ -126,7 +126,7 @@ fine_node<T> *fine_node<T>::get_child(index_t i) const
 }
 
 template<typename T>
-nodal_pocession<T> *fine_node<T>::get_context() const
+inline nodal_pocession<T> *fine_node<T>::get_context() const
 {
     if(pocessed_context)
     {
@@ -139,7 +139,7 @@ nodal_pocession<T> *fine_node<T>::get_context() const
 }
 
 template<typename T>
-generator<index_t> fine_node<T>::search()
+inline generator<index_t> fine_node<T>::search()
 {
     fine_node<T> *next_node = expand();
     while(next_node)
@@ -173,7 +173,7 @@ inline bool fine_node<T>::gen_all_children()
 }
 
 template<typename T>
-fine_node<T> *fine_node<T>::expand()
+inline fine_node<T> *fine_node<T>::expand()
 {
     auto ans = explore();
     if(!ans)
@@ -187,7 +187,7 @@ fine_node<T> *fine_node<T>::expand()
 }
 
 template<typename T>
-std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
+inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
 {
     HC_info &hc_info = get_context()->hc_info;
     for(fine_cell<T> *cell : cells)
@@ -212,7 +212,7 @@ std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
                 else
                 {
                     // otherwise we are done
-                    return std::optional<std::tuple<point, fine_cell<T>*, HC*>>{std::in_place, *pt_opt, cell, &hc};
+                    return std::optional<std::tuple<point, fine_cell<T> *, HC *>>{std::in_place, *pt_opt, cell, &hc};
                 }
             }
             else
@@ -227,7 +227,7 @@ std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
 }
 
 template<typename T>
-void fine_node<T>::remove_slice(const slice &s)
+inline void fine_node<T>::remove_slice(const slice &s)
 {
     //current policy: remove slices just for cells in this node
     for(fine_cell<T> *cell : cells)
@@ -243,7 +243,7 @@ void fine_node<T>::remove_slice(const slice &s)
 }
 
 template<typename T>
-fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, HC *target_hc)
+inline fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, HC *target_hc)
 {
     // dprint("ISOLATE: n =", n);
     assert(target_cell->space.contains(p));
@@ -276,7 +276,7 @@ fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, HC *targ
 }
 
 template<typename T>
-fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell, fine_node<T> *final_node)
+inline fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell, fine_node<T> *final_node)
 {
     std::vector<fine_node<T>*> nodes(get_context()->hc_info.dimension+1, nullptr);
     fine_node<T> *current_node = final_node;
@@ -326,7 +326,7 @@ fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell, fine_n
 }
 
 template<typename T>
-void fine_node<T>::ignite()
+inline void fine_node<T>::ignite()
 {
     state s = context->hc_info.s;
     moveseq mvs = to_action();
@@ -354,7 +354,7 @@ void fine_node<T>::ignite()
 }
 
 template<typename T>
-moveseq fine_node<T>::to_action()
+inline moveseq fine_node<T>::to_action()
 {
     assert(is_ceiling());
     std::vector<index_t> pt(context->hc_info.dimension);
@@ -368,7 +368,7 @@ moveseq fine_node<T>::to_action()
 }
 
 template<typename T>
-std::string fine_node<T>::to_string() const
+inline std::string fine_node<T>::to_string() const
 {
     std::ostringstream oss;
 

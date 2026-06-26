@@ -27,7 +27,8 @@ struct mcts_node_info
     bool fully_expanded; // are all children of this node expanded?
     float sum_reward;
     std::size_t visits;
-    mcts_node_info() : is_included{false}, all_children_included{false}, fully_expanded{false}, sum_reward{0.0f}, visits{0} {}
+    bool player; // whose turn it is at this node (true=white, false=black)
+    mcts_node_info() : is_included{false}, all_children_included{false}, fully_expanded{false}, sum_reward{0.0f}, visits{0}, player{false} {}
 };
 
 class mcts_engine : public engine
