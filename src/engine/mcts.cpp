@@ -134,23 +134,11 @@ simulation_result default_policy(node_t *node, int max_actions, std::stop_token 
         w.shuffle(ss);
         if(auto mvs = w.iterative_search(ss).first())
         {
-            bool ok = true;
             for(full_move fm : *mvs)
             {
-                if(!s.apply_move(fm))
-                {
-                    ok = false;
-                    break;
-                }
+                s.apply_move(fm);
             }
-            if(ok && !s.submit())
-            {
-                ok = false;
-            }
-            if(!ok)
-            {
-                return {0.0f, num_actions, true, true};
-            }
+            s.submit();
         }
         else
         {
@@ -196,10 +184,6 @@ void mcts_engine::initialize()
 
 std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token)
 {
-    if(!get_current_state().has_value())
-    {
-        return std::nullopt;
-    }
     root = fine_node<mcts_node_info>::make_root(*get_current_state());
     root->get_info().player = get_current_state()->get_present().second;
 

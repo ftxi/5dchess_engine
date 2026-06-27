@@ -80,9 +80,9 @@ public:
     // copying/moving a fine_node needs to explicitly set the parent pointer of its children
     // so they are deleted because they are not used for now
     fine_node(const fine_node&) = delete;
-    fine_node& operator=(const fine_node&) = delete;
-    fine_node(fine_node&& other) = delete;
-    fine_node& operator=(fine_node&& other) = delete;
+    fine_node &operator=(const fine_node&) = delete;
+    fine_node(fine_node &&other) = delete;
+    fine_node &operator=(fine_node &&other) = delete;
 
     // -- constructors (prefer not to use directly) -- //
     fine_node(fine_node *parent, state s, T info = T{});

@@ -12,7 +12,7 @@
 
 class parse_error : public std::runtime_error {
 public:
-    explicit parse_error(const std::string& message)
+    explicit parse_error(const std::string &message)
         : std::runtime_error(message) {}
 };
 
@@ -62,7 +62,7 @@ public:
     // Parse a metadata string that represents a board FEN entry
     // Expected format: <fen-string> ':' ['+' | '-' | NIL] <line> ':' <time> ':' {'w'|'b'}
     // Throws parse_error on malformed input.
-    static std::tuple<std::string, pgnparser_ast::token_t, int, int, bool> parse_board_fen_metadata(const std::string& s);
+    static std::tuple<std::string, pgnparser_ast::token_t, int, int, bool> parse_board_fen_metadata(const std::string &s);
     
     static bool match_absolute_board(absolute_board simple, absolute_board full);
     static bool match_relative_board(relative_board simple, relative_board full);

@@ -30,7 +30,7 @@ enum class match_status_t {PLAYING, WHITE_WINS, BLACK_WINS, STALEMATE};
 
 
 [[maybe_unused]]
-static std::ostream& operator<<(std::ostream& os, const match_status_t& status)
+static std::ostream &operator<<(std::ostream &os, const match_status_t &status)
 {
    switch (status)
    {

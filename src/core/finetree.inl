@@ -66,6 +66,11 @@ inline fine_node<T> *fine_node<T>::add_child(index_t n, index_t i, T info)
 template<typename T>
 inline bool fine_node<T>::is_ceiling() const
 {
+    if(!context)
+    {
+        // root node
+        return false;
+    }
     // is_ceiling needs the older context, not the newer one
     return n + 1 == context->hc_info.dimension;
 }

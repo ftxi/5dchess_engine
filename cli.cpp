@@ -341,6 +341,7 @@ int main(int argc, const char *argv[])
     {
         mcts_engine engine(std::make_unique<stdio_handler>());
         engine.mainloop();
+        return 0;
     }
     
     std::ostringstream buffer;

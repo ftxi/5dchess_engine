@@ -98,7 +98,7 @@ struct HC_info
      if it finds an arrive with its departure no longer in hc, then this arrives get
      deleted immediately (that's why parameter hc is a non-const reference)
      */
-    std::optional<point> take_point(HC& hc) const;
+    std::optional<point> take_point(HC &hc) const;
     
     /*
      find_problem(p, hc): find any problem about p and returns the problem slice in hc
@@ -110,25 +110,25 @@ struct HC_info
      contain checks
      + find_checks: then the point is all good for a valid action
      */
-    std::optional<slice> find_problem(const point& p, const HC& hc) const;
-    std::optional<slice> jump_order_consistent(const point& p, const HC& hc) const;
-    std::optional<slice> test_present(const point& p, const HC& hc) const;
-    std::optional<slice> find_checks(const point& p, const HC& hc) const;
-    moveseq to_action(const point& p) const;
+    std::optional<slice> find_problem(const point &p, const HC &hc) const;
+    std::optional<slice> jump_order_consistent(const point &p, const HC &hc) const;
+    std::optional<slice> test_present(const point &p, const HC &hc) const;
+    std::optional<slice> find_checks(const point &p, const HC &hc) const;
+    moveseq to_action(const point &p) const;
 private:
     //private aggregate constructor
     HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<semimove>> crds, HC uni, index_t ax, index_t dim, const std::vector<int> pl)
         : s(std::move(s)), line_to_axis(std::move(lm)), axis_coords(std::move(crds)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
 
 public:
-    static std::tuple<HC_info, search_space> build_HC(const state& s);
+    static std::tuple<HC_info, search_space> build_HC(const state &s);
     generator<moveseq> search(search_space ss) const;
     generator<moveseq> iterative_search(search_space ss) const;
     generator<moveseq> stable_search(search_space ss) const;
     generator<moveseq> mixed_search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
-    void shuffle(search_space& ss);
+    void shuffle(search_space &ss);
 };
 
 #endif /* HYPERCUBOID_H */

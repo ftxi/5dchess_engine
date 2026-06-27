@@ -40,8 +40,9 @@ public:
     }
 
     state get_state();
-    const action& get_action() const { return act; }
-    const T& get_info() const { return info; }
+    const action &get_action() const { return act; }
+    T &get_info() { return info; }
+    const T &get_info() const { return info; }
     void set_info(const T &x) { info = x; }
     void set_info(T &&x) { info = x; }
     gnode<T> *get_parent() const { return parent; }
@@ -52,7 +53,7 @@ public:
         return children.back().get();
     }
 
-    const std::vector<std::unique_ptr<gnode>>& get_children() const 
+    const std::vector<std::unique_ptr<gnode>> &get_children() const 
     {
         return children;
     }

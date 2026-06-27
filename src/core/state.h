@@ -42,14 +42,14 @@ public:
     virtual ~state() = default;
     
     // standard copy-constructors
-    state(const state& other)
+    state(const state &other)
     : m{other.m->clone()}, present{other.present}, player{other.player} {}
     state(state&&) noexcept = default;
-    state& operator=(state other) noexcept {
+    state &operator=(state other) noexcept {
         swap(*this, other);
         return *this;
     }
-    friend void swap(state& a, state& b) noexcept {
+    friend void swap(state &a, state &b) noexcept {
         std::swap(a.m, b.m);
         std::swap(a.present, b.present);
         std::swap(a.player, b.player);

@@ -19,9 +19,9 @@ struct full_move
     full_move(vec4 from, vec4 to) : from(from), to(to) {}
     full_move(std::string);
     std::string to_string() const;
-    bool operator<(const full_move& other) const;
-    bool operator==(const full_move& other) const;
-    friend std::ostream& operator<<(std::ostream& os, const full_move& fm);
+    bool operator<(const full_move &other) const;
+    bool operator==(const full_move &other) const;
+    friend std::ostream &operator<<(std::ostream &os, const full_move &fm);
 };
 
 /*
@@ -63,13 +63,13 @@ public:
     action() : mvs{}, branching_index{0} {}
     /* Sort a vector of extended moves according to the standard order
     as a side effact and return the branching index */
-    static int sort(std::vector<ext_move>& mvs, const state &s);
-    static action from_vector(const std::vector<ext_move>& mvs, const state &s);
+    static int sort(std::vector<ext_move> &mvs, const state &s);
+    static action from_vector(const std::vector<ext_move> &mvs, const state &s);
     std::vector<ext_move> get_moves() const { return mvs; }
     int get_length() const { return static_cast<int>(mvs.size()); }
     int get_branching_index() const { return branching_index; }
     bool operator ==(const action &other) const = default;
-    friend std::ostream& operator<<(std::ostream &os, const action &act);
+    friend std::ostream &operator<<(std::ostream &os, const action &act);
 };
 
 #endif // ACTION_H
