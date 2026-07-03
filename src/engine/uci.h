@@ -49,6 +49,7 @@ private:
     std::mutex io_mutex;
     mutable std::mutex options_mutex;
 protected:
+    bool is_debug_mode = true;
     std::map<std::string, option_value_t> options;
     static const state& get_startpos()
     {
@@ -60,6 +61,8 @@ protected:
     // Starts an asynchronous engine task and marks the engine busy until the callback finishes.
     // Use this for work that may block, such as initialize() or find_best_move().
     void launch_async_task(task_state task, std::function<void(std::stop_token)> work);
+
+    virtual void on_option_changed(const std::string &key, const option_value_t &value);
 public:
     engine(std::unique_ptr<io_handler> io_handler) : s(std::nullopt), io(std::move(io_handler)) {}
     virtual void initialize() = 0;
@@ -77,9 +80,7 @@ public:
     void set_option(const std::string &key, const option_value_t &value);
     static option_value_t parse_option_value(const std::string &value);
     void send_info(const std::string &info);
-protected:
-    virtual void on_option_changed(const std::string &key, const option_value_t &value);
-public:
+    void send_debug_info(const std::string &info);
     virtual std::optional<action> find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token) = 0;
     void stop_search();
     virtual ~engine();

@@ -103,8 +103,11 @@ public:
     fine_node<T> *get_parent() const { return parent; }
     const std::vector<fine_node<T>*> get_children() const { return children; };
     nodal_pocession<T> *get_context() const; /* returns the newer context */
+    std::string print_semimove() const;
     fine_node<T> *get_nearby_ceiling();
     bool is_terminal(); /* non-const because it may add children found during the check */
+    index_t get_n() const { return n; }
+    index_t get_i() const { return i; }
 
     // -- expansion -- //
     generator<index_t> search();

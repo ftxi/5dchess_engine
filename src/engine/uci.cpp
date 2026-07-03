@@ -144,18 +144,19 @@ void engine::mainloop()
         }
         else if(command == "go")
         {
-            int time_limit_ms = 1000; // default 1 second
-            int depth_limit = 20; // default 20 search depth
+            std::optional<int> time_limit_ms; // default: no time limit
+            std::optional<int> depth_limit;   // default: no depth limit
             std::string token;
+            int val;
             while(iss >> token)
             {
-                if(token == "movetime")
+                if(token == "movetime" && (iss >> val))
                 {
-                    iss >> time_limit_ms;
+                    time_limit_ms = val;
                 }
-                else if(token == "depth")
+                else if(token == "depth" && (iss >> val))
                 {
-                    iss >> depth_limit;
+                    depth_limit = val;
                 }
                 // can add more time control options here
             }
@@ -166,7 +167,7 @@ void engine::mainloop()
             else
             {
                 launch_async_task(task_state::searching, [this, depth_limit, time_limit_ms](std::stop_token st) {
-                    auto best_move = find_best_move(std::optional<int>(depth_limit), std::optional<int>(time_limit_ms), st);
+                    auto best_move = find_best_move(depth_limit, time_limit_ms, st);
                     if(quit_requested.load())
                     {
                         return;
@@ -272,6 +273,10 @@ void engine::mainloop()
                     set_option(key, option_value_t{std::monostate()});
                 }
             }
+        }
+        else
+        {
+            send_debug_info("unknown command: " + line);
         }
 
         if(search_thread.joinable() && !is_busy())
@@ -460,6 +465,18 @@ void engine::set_option(const std::string &key, const option_value_t &value)
         std::lock_guard<std::mutex> lock(options_mutex);
         options[key] = value;
     }
+    if(key == "debug")
+    {
+        if(auto pval = std::get_if<bool>(&value))
+        {
+            is_debug_mode = *pval;
+        }
+        else if(std::holds_alternative<std::monostate>(value))
+        {
+            is_debug_mode = true;
+        }
+    }
+    send_debug_info("option changed: " + key + " type " + std::visit([](const auto &v) { return std::string(typeid(v).name()); }, value));
     on_option_changed(key, value);
 }
 
@@ -467,6 +484,15 @@ void engine::send_info(const std::string &info)
 {
     std::lock_guard<std::mutex> lock(io_mutex);
     io->write_line("info " + info);
+}
+
+void engine::send_debug_info(const std::string &info)
+{
+    if(is_debug_mode)
+    {
+        std::lock_guard<std::mutex> lock(io_mutex);
+        io->write_line("info [debug] " + info);
+    }
 }
 
 void engine::on_option_changed(const std::string & /*key*/, const option_value_t & /*value*/)

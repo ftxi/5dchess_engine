@@ -143,6 +143,20 @@ inline nodal_pocession<T> *fine_node<T>::get_context() const
     }
 }
 
+template <typename T>
+inline std::string fine_node<T>::print_semimove() const
+{
+    if(context)
+    {
+        semimove &sm = context->hc_info.axis_coords[n][i];
+        return show_semimove(sm);
+    }
+    else
+    {
+        return "root";
+    }
+}
+
 template<typename T>
 inline generator<index_t> fine_node<T>::search()
 {
@@ -202,6 +216,7 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
         {
             // while the search space of this cell is not exhausted
             HC &hc = cell->subspace.back();
+            std::cerr << "explore: cell subspace.back() has " << hc.dimension() << "axes, dimension =" << hc_info.dimension;
             //cell.subspace.hcs.pop_back();
             // try to take a point in this hc
             auto pt_opt = hc_info.take_point(hc);

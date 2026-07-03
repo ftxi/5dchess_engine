@@ -2,14 +2,13 @@
 #include "hypercuboid.h"
 #include "graph.h"
 
-
-// for debug
 #include <algorithm>
 #include <cassert>
 #include <iostream>
 #include <limits>
 #include <random>
-//#define DEBUGMSG
+
+#define DEBUGMSG
 #include "debug.h"
 
 std::shared_ptr<board> extract_board(const semimove& loc)
@@ -379,6 +378,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
 
 std::optional<point> HC_info::take_point(HC &hc) const
 {
+    assert(hc.dimension() == dimension);
     dprint("take_point()");
     graph g(dimension);
     std::vector<index_t> must_include;
@@ -1171,6 +1171,11 @@ moveseq HC_info::to_action(const point &p) const
     if(c)
     {
         std::reverse(mvs.begin(), mvs.end());
+    }
+    dprint("HC_info::to_action: returning", mvs.size(), "moves:");
+    for(const auto &mv : mvs)
+    {
+        dprint(" ", mv.to_string());
     }
     return mvs;
 }

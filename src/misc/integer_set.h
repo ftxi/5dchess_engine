@@ -170,6 +170,8 @@ public:
     void minus(const integer_set &other);
     integer_set operator |=(const integer_set &other);
     integer_set operator &=(const integer_set &other);
+
+    std::string to_string() const;
 };
 
 template<>

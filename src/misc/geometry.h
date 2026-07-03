@@ -43,7 +43,7 @@ public:
     returns {part with ith value, part without ith value}
     */
     std::pair<HC, HC> split(index_t n, index_t i) const;
-
+    size_t dimension() const { return axes.size(); }
     std::string to_string(bool verbose=true) const;
 };
 

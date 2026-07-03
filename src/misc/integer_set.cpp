@@ -1,5 +1,5 @@
 #include "integer_set.h"
-
+#include <sstream>
 
 bool integer_set::contains(value_type value) const
 {
@@ -104,4 +104,30 @@ integer_set integer_set::operator&=(const integer_set &other)
         data[i] &= other.data[i];
     }
     return *this;
+}
+
+std::string integer_set::to_string() const
+{
+    std::ostringstream oss;
+    oss << "{";
+    bool first = true;
+    for(value_type block_index = 0; block_index < data.size(); block_index++)
+    {
+        const block_t &block = data[block_index];
+        for(value_type bit_index = 0; bit_index < block_bits; bit_index++)
+        {
+            if(block & (static_cast<block_t>(1) << bit_index))
+            {
+                value_type value = (block_index << block_shift) | bit_index;
+                if(!first)
+                {
+                    oss << ", ";
+                }
+                oss << value;
+                first = false;
+            }
+        }
+    }
+    oss << "}";
+    return oss.str();
 }
