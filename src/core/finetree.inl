@@ -216,7 +216,6 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
         {
             // while the search space of this cell is not exhausted
             HC &hc = cell->subspace.back();
-            std::cerr << "explore: cell subspace.back() has " << hc.dimension() << "axes, dimension =" << hc_info.dimension;
             //cell.subspace.hcs.pop_back();
             // try to take a point in this hc
             auto pt_opt = hc_info.take_point(hc);
@@ -265,7 +264,6 @@ inline void fine_node<T>::remove_slice(const slice &s)
 template<typename T>
 inline fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, HC *target_hc)
 {
-    // dprint("ISOLATE: n =", n);
     assert(target_cell->space.contains(p));
     assert(target_hc->contains(p));
     fine_node<T> *current_node = this;
@@ -370,6 +368,8 @@ inline void fine_node<T>::ignite()
         },
         .verified_terminal = false
     });
+    // clear the old cells which are related to the old context
+    cells.clear(); 
     cells.push_back(&pocessed_context->cell_pool.back());
 }
 
@@ -379,7 +379,10 @@ inline moveseq fine_node<T>::to_action()
     assert(is_ceiling());
     std::vector<index_t> pt(context->hc_info.dimension);
     auto current = this;
-    while(!current->is_nodal())
+    // Walk parent pointers to build the point vector.
+    // Loop while current has a parent (i.e., not the root) so this works
+    // even if the ceiling node has been ignited (is_nodal() == true).
+    while(current->parent)
     {
         pt[current->n] = current->i;
         current = current->parent;

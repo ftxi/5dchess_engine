@@ -7,10 +7,10 @@
 #include "scope.h"
 #include "utils.h"
 
-#define DEBUGMSG
+//#define DEBUGMSG
 #include "debug.h"
 
-constexpr float INF = std::numeric_limits<float>::infinity();
+constexpr float WINNING_SCORE = 100000.0f;
 constexpr int ROLLOUT_MAX_ACTIONS = 200;
 constexpr int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
 
@@ -65,6 +65,9 @@ node_t *expand(node_t *node, std::stop_token stop_token)
     {
         node_t *child = node->get_child(*i_opt);
         assert(child != nullptr);
+        // Reset child info to defaults so it doesn't inherit the parent's accumulated
+        // sum_reward, visits, and tracking flags (all_children_included, is_included, etc.)
+        child->set_info(mcts_node_info{});
         dprint("expand: search() found child", child->print_semimove(), "visits=", child->get_info().visits);
         return child;
     }
@@ -78,7 +81,7 @@ node_t *best_child(node_t *node)
     dprint("best_child()", node->print_semimove(), "visits=", node->get_info().visits);
     node_t *best_child = nullptr;
     bool max_player = node->get_info().player; // white=max, black=min
-    float best_val = max_player ? -INF : INF;
+    float best_val = max_player ? -std::numeric_limits<float>::infinity() : std::numeric_limits<float>::infinity();
     for(node_t *child : node->get_children())
     {
         const auto &info = child->get_info();
@@ -161,7 +164,7 @@ simulation_result default_policy(node_t *node, int max_actions, std::stop_token 
         }
         else
         {
-            float outcome = player ? -INF : INF;
+            float outcome = player ? -WINNING_SCORE : WINNING_SCORE;
             return {outcome, num_actions, false, false};
         }
     }
@@ -173,8 +176,15 @@ void backpropagate(node_t *node, float outcome)
     while(node != nullptr)
     {
         auto &info = node->get_info();
+#ifdef DEBUGMSG
+        float old_sum = info.sum_reward;
+#endif
         info.visits++;
         info.sum_reward += outcome;
+#ifdef DEBUGMSG
+        assert(!std::isnan(info.sum_reward));
+        (void)old_sum;
+#endif
         node = node->get_parent();
     }
 }
@@ -187,7 +197,7 @@ float uct(float sum_reward, std::size_t visits, std::size_t parent_visits)
 {
     if(visits == 0)
     {
-        return INF;
+        return std::numeric_limits<float>::infinity();
     }
 
     const float average_reward = sum_reward / static_cast<float>(visits);
@@ -304,10 +314,12 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         dprint("find_best_move: pt =", range_to_string(pt));
         dprint("find_best_move: dimension =", hc_info.dimension);
         dprint("find_best_move: line_to_axis size =", hc_info.line_to_axis.size());
+#ifdef DEBUGMSG
         for(const auto &[l,i] : hc_info.line_to_axis) {
             dprint("  axis", i, "coord", pt[i], "type",
                    show_semimove(hc_info.axis_coords[i][pt[i]]));
         }
+#endif
         std::vector<ext_move> best_ext_moves;
         for(const full_move &fm : best_moves)
         {

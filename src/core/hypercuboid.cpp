@@ -8,7 +8,7 @@
 #include <limits>
 #include <random>
 
-#define DEBUGMSG
+//#define DEBUGMSG
 #include "debug.h"
 
 std::shared_ptr<board> extract_board(const semimove& loc)
