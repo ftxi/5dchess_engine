@@ -41,7 +41,9 @@ simulation_result default_policy(state s, int max_actions)
             s.submit();
             continue;
         }
-        float outcome = player ? -INF : INF;
+        float outcome = s.get_mate_type() == state::mate_type::STALEMATE
+            ? 0.0f
+            : (player ? INF : -INF);
         // std::cout << "Game ended in depth " << num_actions << ", outcome:" << outcome << ", board:\n";
         // std::cout << s.show_fen() << "\n";
         return {outcome, num_actions, false};
@@ -55,7 +57,38 @@ constexpr int SIMULATION_NUM = 100;
 
 int main(int argc, char **argv)
 {
-    const std::string default_pgn = R"([Board "Standard - Turn Zero"])";
+    const std::string default_pgn = //R"([Board "Standard - Turn Zero"])";
+    R"(
+[Size "4x4"]
+[Timeline "Odd"]
+[nbrk/3p*/P*3/KRBN:0:1:w]
+[nbrk/3p*/P*R2/K1BN:0:1:b]
+[n1rk/2bp*/P*R2/K1BN:0:2:w]
+[n1rk/2Np*/P*R2/K1B1:0:2:b]
+[n2k/2rp*/P*R2/K1B1:0:3:w]
+[n2k/2rp*/P*1R1/K1B1:0:3:b]
+[n2k/r2p*/P*1R1/K1B1:0:4:w]
+[n2k/r2p*/P*BR1/K3:0:4:b]
+[n2k/2rp*/P*BR1/K3:0:5:w]
+[n2k/2rp*/P*1R1/K1B1:0:5:b]
+[n1rk/3p*/P*1R1/K1B1:0:6:w]
+[n1rk/3p*/P*2R/K1B1:0:6:b]
+[n2k/3p*/P*2R/K1r1:0:7:w]
+[n2k/3p*/P*2R/2r1:0:7:b]
+[n2k/3p*/P*2R/3r:0:8:w]
+[n2k/3R/P*3/3r:0:8:b]
+[n2k/3r/P*3/4:0:9:w]
+[n2k/P2r/4/4:0:9:b]
+[n2k/r3/4/4:0:10:w]
+[n1rk/3p*/P*1R1/KKB1:1:6:b]
+[nr1k/3p*/P*1R1/KKB1:1:7:w]
+[nr1k/3p*/P*BR1/KK2:1:7:b]
+[1r1k/3p*/P*nR1/KK2:1:8:w]
+[1r1k/3p*/P*R2/KK2:1:8:b]
+[1r1k/4/P*R1p/KK2:1:9:w]
+[Qr1k/4/1R1p/KK2:1:9:b]
+[Qr1k/4/1R2/KK1q:1:10:w]
+)";
     std::string pgn = default_pgn;
     int max_actions = MAX_ACTIONS;
     int simulation_num = SIMULATION_NUM;

@@ -80,7 +80,7 @@ node_t *best_child(node_t *node)
 {
     dprint("best_child()", node->print_semimove(), "visits=", node->get_info().visits);
     node_t *best_child = nullptr;
-    bool max_player = node->get_info().player; // white=max, black=min
+    bool max_player = !node->get_info().player; // white=max, black=min
     float best_val = max_player ? -std::numeric_limits<float>::infinity() : std::numeric_limits<float>::infinity();
     for(node_t *child : node->get_children())
     {
@@ -170,7 +170,9 @@ simulation_result default_policy(node_t *node, int max_actions, std::stop_token 
         }
         else
         {
-            float outcome = player ? -WINNING_SCORE : WINNING_SCORE;
+            float outcome = s.get_mate_type() == state::mate_type::STALEMATE
+                ? 0.0f
+                : (player ? WINNING_SCORE : -WINNING_SCORE);
             return {outcome, num_actions, false, false};
         }
     }

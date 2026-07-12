@@ -379,12 +379,14 @@ inline moveseq fine_node<T>::to_action()
     // Walk parent pointers to build the point vector.
     // Loop while current has a parent (i.e., not the root) so this works
     // even if the ceiling node has been ignited (is_nodal() == true).
-    for(int j = 0; j < n; j++)
+    for(int j = 0; j < dim; j++)
     {
+        assert((j==0 || !current->is_nodal()) && "expected more temproary nodes");
         pt[current->n] = current->i;
         current = current->parent;
-        assert(current && !current->is_nodal() && "expected more temporary nodes");
+        assert(current && "expected more nodes before root");
     }
+    assert(current->is_nodal());
     return context->hc_info.to_action(pt);
 }
 

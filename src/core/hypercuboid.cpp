@@ -1024,7 +1024,11 @@ void HC_info::shuffle(search_space &ss)
         {
             inverses[n][permutation[new_idx]] = new_idx;
         }
-        if(axis_size <= 1)
+        // `axis_coords` may still contain ghost arriving moves pruned from `universe`.
+        // Even with 0 or 1 live coordinate, compact the axis when sizes differ so
+        // later arrival/departure idx rewrites never inspect pruned semimoves.
+        bool needs_remap = axis_size != axis_coords_size || axis_size > 1;
+        if(!needs_remap)
         {
             continue;
         }
@@ -1038,10 +1042,17 @@ void HC_info::shuffle(search_space &ss)
         } 
         axis_coords[n] = std::move(shuffled);
 
+        integer_set renumbered_axis;
+        for(index_t new_idx = 0; new_idx < axis_size; new_idx++)
+        {
+            renumbered_axis.insert(new_idx);
+        }
+        universe[n] = std::move(renumbered_axis);
+
         for(HC &hc : ss)
         {
             hc[n] = hc[n].transform([&inverses, n](index_t old_index){
-                return inverses[n][old_index];
+                return static_cast<index_t>(inverses[n][old_index]);
             });
         }
     }
@@ -1053,8 +1064,10 @@ void HC_info::shuffle(search_space &ss)
             {
                 index_t from_axis = line_to_axis.at(loc->m.from.l());
                 index_t old_idx = loc->idx;
-                index_t new_idx = inverses[from_axis][old_idx];
-                loc->idx = new_idx;
+                if(old_idx < inverses[from_axis].size() && inverses[from_axis][old_idx] >= 0)
+                {
+                    loc->idx = static_cast<index_t>(inverses[from_axis][old_idx]);
+                }
             }
         }
     }
