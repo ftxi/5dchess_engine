@@ -21,6 +21,7 @@
  * This class defines the interface for a 5D chess engine that can be used with the 5DUCI protocol.
  * An engine must implement the following methods:
  * - initialize(): called once received "5duci" command. When this methods halts, the base class will send "5duciok" to the GUI.
+ * - start_new_game(): called when the engine received "5ducinewgame" command. The derived class should reset its internal state to prepare for a new game.
  * - find_best_move(depth, time): called when the engine received "go" command. Return the best action found within the given limits. The base class will send "bestmove <move>" to the GUI after this method returns an action, or "nobestmove" if it returns std::nullopt.
  * on_option_changed(key, value): called when the engine received "setoption" command. The derived class may override this method to react to specific options instantly. The base class will store the option in a map and provide `get_option(key)` and `set_option(key, value)` methods for the derived class to access the options.
  */

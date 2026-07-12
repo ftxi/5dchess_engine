@@ -121,6 +121,9 @@ All resources inside this project are either open source online or created by my
 For more details on the structure of this repository, please read [this page](docs/index.md).
 
 ### TODOs
-- [ ] Write standard of and implement 5duci for communication.
-- [ ] Split `src/` folder into client-specific and engine-specific folders. Modify cmake file.
-- [ ] Create a basic 5d chess bot.
+- [x] Write standard of and implement 5duci for communication.
+- [x] Split `src/` folder into client-specific and engine-specific folders.
+- [ ] Modify cmake file to support building core only/build engine.
+- [x] Create a basic 5d chess bot.
+- [ ] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
+- [ ] Figure out the reason for unexpected nobestmove.

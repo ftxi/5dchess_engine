@@ -97,6 +97,12 @@ node_t *best_child(node_t *node)
             best_child = child;
         }
     }
+#ifdef DEBUGMSG
+    if(!best_child)
+    {
+        dprint("best_child: totally", node->get_children().size(), "children, none visited, returning nullptr");
+    }
+#endif
     return best_child;
 }
 

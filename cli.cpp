@@ -10,6 +10,7 @@
 #include "turn.h"
 #include "uci.h"
 #include "mcts.h"
+#include "monkey.h"
 
 //std::string pgn1 =
 //R"(
@@ -278,7 +279,7 @@ std::string helpmsg = R"(usage: cli <option>
 where <option> is one of:
   help: print this message (-h, --help)
   version: print the version (-v, --version)
-  uci: enter Universal 5D Chess Interface mode and work as a chess engine
+  uci [<engine>]: enter Universal 5D Chess Interface mode and work as a chess engine
   print: print the final state of the game
   count [<policy>] [<max>]: display number of available moves capped by <max>
   all [<policy>] [<max>]: display all legal moves capped by <max>
@@ -288,6 +289,8 @@ where <option> is one of:
 <policy> ::= balanced|naive|stable|iterative|mixed
 default value for <policy> is balanced
 default value for <max> is 10000
+<engine> ::= mcts|monkey
+default value for <engine> is mcts
 
 For commands print, count, all, checkmate, diff and perftest,
 the game being read is input in stdin (stopped by EOF)
@@ -339,8 +342,26 @@ int main(int argc, const char *argv[])
     }
     else if (command == "uci")
     {
-        mcts_engine engine(std::make_unique<stdio_handler>());
-        engine.mainloop();
+        std::string engine_name = argc > 2 ? argv[2] : "mcts";
+        
+        std::unique_ptr<io_handler> io_handler = std::make_unique<stdio_handler>();
+        std::unique_ptr<engine> engine = nullptr;
+
+        if (engine_name == "mcts")
+        {
+            engine = std::make_unique<mcts_engine>(std::make_unique<stdio_handler>());
+        }
+        else if (engine_name == "monkey")
+        {
+            engine = std::make_unique<monkey_engine>(std::make_unique<stdio_handler>());
+        }
+        else
+        {
+            std::cerr << "Unknown engine: " << engine_name << std::endl;
+            std::cerr << "Valid engines: mcts, monkey" << std::endl;
+            return 2;
+        }
+        engine->mainloop();
         return 0;
     }
     

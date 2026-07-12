@@ -79,15 +79,11 @@ template<typename T>
 inline fine_node<T> *fine_node<T>::get_nearby_ceiling()
 {
     fine_node<T> *current = this;
-    while (true) {
-        if (!current->is_nodal() && current->is_ceiling()) {
-            return current;
-        }
-        if (current->children.empty()) {
-            return nullptr;
-        }
+    while (!current->is_ceiling())
+    {
         current = current->children[0];
     }
+    return current;
 }
 
 template <typename T>
@@ -377,15 +373,17 @@ template<typename T>
 inline moveseq fine_node<T>::to_action()
 {
     assert(is_ceiling());
-    std::vector<index_t> pt(context->hc_info.dimension);
+    int dim = context->hc_info.dimension;
+    std::vector<index_t> pt(dim);
     auto current = this;
     // Walk parent pointers to build the point vector.
     // Loop while current has a parent (i.e., not the root) so this works
     // even if the ceiling node has been ignited (is_nodal() == true).
-    while(current->parent)
+    for(int j = 0; j < n; j++)
     {
         pt[current->n] = current->i;
         current = current->parent;
+        assert(current && !current->is_nodal() && "expected more temporary nodes");
     }
     return context->hc_info.to_action(pt);
 }

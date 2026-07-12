@@ -107,7 +107,16 @@ void engine::mainloop()
         }
         else if(command == "5ducinewgame")
         {
-            start_new_game();
+            if(is_busy())
+            {
+                write_line("info engine is busy, please run 'stop' first");
+            }
+            else
+            {
+                launch_async_task(task_state::initializing, [this](std::stop_token) {
+                    start_new_game();
+                });
+            }
         }
         else if(command == "position")
         {
@@ -273,6 +282,10 @@ void engine::mainloop()
                     set_option(key, option_value_t{std::monostate()});
                 }
             }
+        }
+        else if(command == "print")
+        {
+            write_line(s->to_string());
         }
         else
         {
