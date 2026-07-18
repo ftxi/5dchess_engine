@@ -217,8 +217,8 @@ float uct(float sum_reward, std::size_t visits, std::size_t parent_visits)
     }
 
     const float average_reward = sum_reward / static_cast<float>(visits);
-    const float logParent = std::logf(static_cast<float>(parent_visits) + 1.0f);
-    const float exploration = exploration_constant * std::sqrtf(logParent / static_cast<float>(visits));
+    const float logParent = std::log(static_cast<float>(parent_visits) + 1.0f);
+    const float exploration = exploration_constant * std::sqrt(logParent / static_cast<float>(visits));
     return average_reward + exploration;
 }
 

@@ -9,6 +9,7 @@
 #include <bit>
 #include <iterator>
 #include <type_traits>
+#include <string>
 #include <cassert>
 
 using index_t = std::uint_fast16_t;

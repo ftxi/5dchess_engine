@@ -553,7 +553,7 @@ std::vector<vec4> state::gen_movable_pieces() const
     return get_movable_pieces(lines);
 }
 
-std::vector<vec4> state::get_movable_pieces(std::vector<int> lines) const
+std::vector<vec4> state::get_movable_pieces(const std::vector<int> &lines) const
 {
     if (player == 0)
     {
@@ -566,7 +566,7 @@ std::vector<vec4> state::get_movable_pieces(std::vector<int> lines) const
 }
 
 template <bool C>
-std::vector<vec4> state::gen_movable_pieces_impl(std::vector<int> lines) const
+std::vector<vec4> state::gen_movable_pieces_impl(const std::vector<int> &lines) const
 {
     dprint("gen_movable_pieces_impl()");
     std::vector<vec4> result;
@@ -884,5 +884,5 @@ template bool state::submit<true>();
 
 template generator<full_move> state::find_checks_impl<false>(std::vector<int>) const;
 template generator<full_move> state::find_checks_impl<true>(std::vector<int>) const;
-template std::vector<vec4> state::gen_movable_pieces_impl<false>(std::vector<int>) const;
-template std::vector<vec4> state::gen_movable_pieces_impl<true>(std::vector<int>) const;
+template std::vector<vec4> state::gen_movable_pieces_impl<false>(const std::vector<int> &) const;
+template std::vector<vec4> state::gen_movable_pieces_impl<true>(const std::vector<int> &) const;
