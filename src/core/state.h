@@ -26,7 +26,7 @@ class state
     bool player;
     
     template<bool C>
-    std::vector<vec4> gen_movable_pieces_impl(std::vector<int> lines) const;
+    std::vector<vec4> gen_movable_pieces_impl(const std::vector<int> &lines) const;
     
     /*
      find_check_impl<C>(lines)
@@ -111,7 +111,7 @@ public:
     generator<full_move> find_checks(bool c) const;
     
     std::vector<vec4> gen_movable_pieces() const;
-    std::vector<vec4> get_movable_pieces(std::vector<int> lines) const;
+    std::vector<vec4> get_movable_pieces(const std::vector<int> &lines) const;
     
     
     /*

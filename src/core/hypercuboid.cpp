@@ -494,17 +494,6 @@ std::optional<slice> HC_info::find_problem(const point &p, const HC& hc) const
 std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc) const
 {
     dprint("jump_order_consistent()");
-    dprint("test_present()");
-    if(p == point{2,8,10,9,1,15,31,2,2,0})
-    {
-        std::cout << hc.to_string() << std::endl;
-        for(int n=0; n < dimension; n++)
-        {
-            std::cout << n << ", " << p[n] << std::endl;
-            std::cout << show_semimove(axis_coords[n][p[n]]) << std::endl;
-        }
-        
-    }
     /* throughout the search, maintain the jump_map of (l, t) => new_l
     so p[new_l] is a arriving move from (l0, t0) that jumps to (l, t) which create a branch
     remember t, l are stored as the higher part of a vec4
