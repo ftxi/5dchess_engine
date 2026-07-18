@@ -104,6 +104,11 @@ file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS
 
 # Create the core library target (without Python bindings)
 add_library(5dchess_engine_core OBJECT ${ENGINE_SOURCES})
+set_target_properties(5dchess_engine_core PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
 
 # Add version as compile definition for all targets using this library
 target_compile_definitions(5dchess_engine_core PUBLIC 
