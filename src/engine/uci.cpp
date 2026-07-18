@@ -183,10 +183,13 @@ void engine::mainloop()
                     }
                     if(best_move)
                     {
-                        std::string best_move_str = "bestmove ";
+                        std::string best_move_str = "bestmove";
+                        state output_state = get_current_state().value();
                         for(const auto &ext_mv : best_move->get_moves())
                         {
-                            best_move_str += ext_mv.to_string() + " ";
+                            best_move_str += ' ';
+                            best_move_str += output_state.lan_move(ext_mv.fm, ext_mv.promote_to);
+                            output_state.apply_move(ext_mv.fm, ext_mv.promote_to);
                         }
                         write_line(best_move_str);
                     }
@@ -428,7 +431,8 @@ void engine::set_position(const std::string &position, const std::string &moves)
         }
         else
         {
-            s->apply_move(full_move{move_str});
+            const ext_move move{move_str};
+            s->apply_move(move.fm, move.promote_to);
         }
     }
 }

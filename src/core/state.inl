@@ -203,7 +203,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
     }
     if constexpr(FLAGS & SHOW_PROMOTION)
     {
-        if((pic == PAWN_W) && (q.y() == (player ? 0 : (m->get_board_size().second - 1))))
+        if((pic == PAWN_W || pic == BRAWN_W) && (q.y() == (player ? 0 : (m->get_board_size().second - 1))))
         {
             oss << "=" << pt;
         }

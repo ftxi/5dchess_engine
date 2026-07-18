@@ -410,6 +410,18 @@ bool state::submit()
     return true;
 }
 
+std::string state::lan_move(full_move fm, piece_t promote_to) const
+{
+    std::string lan = fm.to_string();
+    const piece_t pic = to_white(piece_name(get_piece(fm.from, player)));
+    if((pic == PAWN_W || pic == BRAWN_W)
+        && fm.to.y() == (player ? 0 : (m->get_board_size().second - 1)))
+    {
+        lan += static_cast<char>(promote_to);
+    }
+    return lan;
+}
+
 state state::phantom() const
 {
     const auto [l_min, l_max] = get_lines_range();

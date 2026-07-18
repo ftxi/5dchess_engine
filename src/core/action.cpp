@@ -75,6 +75,21 @@ std::ostream &operator<<(std::ostream &os, const full_move &fm)
 
 /*********************************/
 
+ext_move::ext_move(std::string s)
+    : fm(s.empty() || s.back() < 'A' || s.back() > 'Z'
+             ? s : s.substr(0, s.size() - 1)),
+      promote_to(s.empty() || s.back() < 'A' || s.back() > 'Z'
+             ? QUEEN_W : static_cast<piece_t>(s.back()))
+{
+}
+
+std::string ext_move::to_string() const
+{
+    return fm.to_string() + static_cast<char>(promote_to);
+}
+
+/*********************************/
+
 int action::sort(std::vector<ext_move> &mvs, const state &s)
 {
     size_t rbranching_index = 0;

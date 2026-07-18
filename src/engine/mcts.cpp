@@ -140,11 +140,19 @@ struct simulation_result
 simulation_result default_policy(node_t *node, int max_actions, std::stop_token stop_token)
 {
     dprint("default_policy()", node->print_semimove(), "max_actions=", max_actions);
-    node_t *ceiling_node = node->get_nearby_ceiling();
-    if(!ceiling_node)
+    if(node->is_terminal())
     {
-        return {0.0f, 0, true, true};
+        const state &s = node->get_context()->hc_info.s;
+        float outcome = s.get_mate_type() == state::mate_type::STALEMATE
+            ? 0.0f
+            : (s.get_present().second ? WINNING_SCORE : -WINNING_SCORE);
+        dprint("default_policy: current node is already terminal, returning outcome=", outcome);
+        return {outcome, 0, false, false};
     }
+
+    node_t *ceiling_node = node->get_nearby_ceiling();
+    assert(ceiling_node != nullptr && "default_policy: noneterminal node should have a nearby ceiling node");
+    
     if(!ceiling_node->is_nodal())
     {
         ceiling_node->ignite();
@@ -226,6 +234,11 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
            "time_limit_ms=", (time_limit_ms.has_value() ? std::to_string(*time_limit_ms) : "none"));
     root = fine_node<mcts_node_info>::make_root(*get_current_state());
     root->get_info().player = get_current_state()->get_present().second;
+    // if(root->is_terminal())
+    // {
+    //     dprint("find_best_move: root is terminal, returning nullopt");
+    //     return std::nullopt;
+    // }
 
     // Convert depth_limit to iteration budget if provided
     std::optional<std::size_t> iteration_limit;

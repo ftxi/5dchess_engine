@@ -79,8 +79,15 @@ template<typename T>
 inline fine_node<T> *fine_node<T>::get_nearby_ceiling()
 {
     fine_node<T> *current = this;
+    if(current->is_terminal())
+    {
+        // there is no ceiling because node is already terminal
+        return nullptr;
+    }
     while (!current->is_ceiling())
     {
+        // otherwise, our construction gurantees a path to a ceiling node
+        assert(!current->get_children().empty() && "non-terminal node should have witness");
         current = current->children[0];
     }
     return current;

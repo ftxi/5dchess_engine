@@ -6,6 +6,8 @@ The `5dchess_engine` is a standalone program that can also be used as a library 
 
 This project is written in a serious language for chess-programming (c++). It aims to provide fast performance for basic game logic such as move generation and checkmate detection, which can be used as a solic foundation for a competant 5d chess bot. 
 
+There is a 5d chess bot implemented in this project, which utilizes a customized Monte Carlo Tree Search algorithm. Plans for the near future is to try out different modifications of MCTS to improve the performance of the bot.
+
 ### Try it online!
 
 Visit <https://ftxi.github.io/5dchess_engine/>.
@@ -19,7 +21,7 @@ The storage of a game state is based on [bitboards](https://www.chessprogramming
 
 Currently, the engine implements move generation and check detection using coroutine-based generators. Thus it won't work on compilers pre-C++20.
 
-For checkmate detection and action generation, this program implements the hypercuboid algorithm.
+For checkmate detection and action generation, this program implements the hypercuboid algorithm. The hypercuboid algorithm is also utilized in `core/fine_tree.h` for generating semimoves. This ensures that the branching factor of the search tree does not explode exponentially with the number of timelines.
 
 This program supports tree shaped traversal.
 
@@ -52,6 +54,19 @@ The command line tool will be built as `build/cli`. To use it, type `cli <option
 -  `checkmate [fast|naive]`: determine whether the final state is checkmate/stalemate
 -  `diff`: compare the output of two algorithms.
 -  `perftest [fast|naive]`: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
+-  `uci`: enter Universal 5D Chess Interface mode and work as a chess engine
+
+#### Engines and autoplay
+
+There are two existing engines: `cli uci mcts` and `cli uci monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+
+To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
+```sh
+python autoplay.py --white "./build/cli uci mcts" --black "./build/cli uci monkey"
+```
+Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
+
+#### Coding with IDE
 
 It is possible to run the c++ part of the code without interacting with python or web interface at all. It also makes sense to use a modern programming IDE:
 ```sh
@@ -126,4 +141,4 @@ For more details on the structure of this repository, please read [this page](do
 - [ ] Modify cmake file to support building core only/build engine.
 - [x] Create a basic 5d chess bot.
 - [ ] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
-- [ ] Figure out the reason for unexpected nobestmove.
+- [x] Figure out the reason for unexpected nobestmove.

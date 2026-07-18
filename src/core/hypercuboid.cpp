@@ -1185,11 +1185,13 @@ moveseq HC_info::to_action(const point &p) const
     {
         std::reverse(mvs.begin(), mvs.end());
     }
+#ifdef DEBUGMSG
     dprint("HC_info::to_action: returning", mvs.size(), "moves:");
     for(const auto &mv : mvs)
     {
         dprint(" ", mv.to_string());
     }
+#endif
     return mvs;
 }
 

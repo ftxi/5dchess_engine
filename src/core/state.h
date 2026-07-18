@@ -134,6 +134,7 @@ public:
     template<uint16_t FLAGS>
     std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W) const;
     std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W, uint16_t flags=SHOW_CAPTURE | SHOW_PROMOTION) const;
+    std::string lan_move(full_move fm, piece_t promote_to=QUEEN_W) const;
 private:
     struct detail;
     template<uint16_t FLAGS>

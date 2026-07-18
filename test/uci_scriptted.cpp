@@ -189,6 +189,15 @@ int main()
     assert(changes[3].key == "Clear Hash");
     assert(std::holds_alternative<std::monostate>(changes[3].value));
 
+    // Position moves retain the promotion piece encoded by ext_move.
+    auto promotion_io = std::make_unique<scripted_io_handler>(
+        std::vector<scripted_io_handler::scripted_line>{});
+    dummy_engine promotion_eng(std::move(promotion_io));
+    promotion_eng.set_position(
+        "size 4x4 odd fen [3k/P3/4/K*3:0:1:w]",
+        "(0T1)a3a4N");
+    assert(promotion_eng.get_current_state()->get_piece(vec4(0, 3, 1, 0), true) == KNIGHT_W);
+
     std::cout << "All setoption tests passed!\n";
     return 0;
 }
