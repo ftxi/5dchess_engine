@@ -329,6 +329,7 @@ inline fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell,
                 .parent = current_cell,
                 .node = nodes[next_n],
                 .space = with_i,
+                .children = {},
                 .subspace = search_space{with_i}
             });
             *current_hc = without_i;
