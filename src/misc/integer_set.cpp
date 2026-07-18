@@ -84,7 +84,7 @@ void integer_set::minus(const integer_set &other)
     }
 }
 
-integer_set integer_set::operator|=(const integer_set &other)
+integer_set &integer_set::operator|=(const integer_set &other)
 {
     size_t max_size = std::max(data.size(), other.data.size());
     data.resize(max_size, 0);
@@ -95,7 +95,7 @@ integer_set integer_set::operator|=(const integer_set &other)
     return *this;
 }
 
-integer_set integer_set::operator&=(const integer_set &other)
+integer_set &integer_set::operator&=(const integer_set &other)
 {
     size_t min_size = std::min(data.size(), other.data.size());
     data.resize(min_size, 0);

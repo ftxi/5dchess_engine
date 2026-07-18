@@ -226,26 +226,26 @@ search_space HC::remove_point(const point &p) const
 
 search_space HC::remove_slice_carefully(const slice &s) const
 {
-    search_space result;
-    HC remaining = *this;
-    auto fixed_axes = s.get_fixed_axes();
-    for(auto& [i, fixed_coords] : fixed_axes)
+    const auto &fixed_axes = s.get_fixed_axes();
+    for(const auto& [i, fixed_coords] : fixed_axes)
     {
-        if(!remaining.axes[i].intersects(fixed_coords))
+        if(!axes[i].intersects(fixed_coords))
         {
             return search_space({{*this}});
         }
-        else
-        {
-            fixed_coords &= remaining.axes[i];
-            assert(!fixed_coords.empty());
-        }
     }
+
+    search_space result;
+    HC remaining = *this;
     for(const auto& [i, fixed_coords] : fixed_axes)
     {
+        integer_set intersected_coords = fixed_coords;
+        intersected_coords &= remaining.axes[i];
+        assert(!intersected_coords.empty());
+
         HC x = remaining;
-        x.axes[i].minus(fixed_coords);
-        remaining.axes[i] = fixed_coords;
+        x.axes[i].minus(intersected_coords);
+        remaining.axes[i] = std::move(intersected_coords);
         if(!x.axes[i].empty()) // do not include empty hc
         {
             result.push_back(std::move(x));

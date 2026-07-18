@@ -169,8 +169,8 @@ public:
     integer_set operator &(const integer_set &other) const;
 
     void minus(const integer_set &other);
-    integer_set operator |=(const integer_set &other);
-    integer_set operator &=(const integer_set &other);
+    integer_set &operator |=(const integer_set &other);
+    integer_set &operator &=(const integer_set &other);
 
     std::string to_string() const;
 };
