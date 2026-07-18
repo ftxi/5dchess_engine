@@ -18,9 +18,11 @@ inline fine_node<T>::fine_node(fine_node *parent, state s, T info_value)
                 .parent = nullptr,
                 .node = this,
                 .space = std::move(universe),
+                .children = {},
                 .subspace = std::move(ss)
             }
-        }
+        },
+        .verified_terminal = false
     });
     cells.push_back(&pocessed_context->cell_pool.back());
 }
@@ -367,6 +369,7 @@ inline void fine_node<T>::ignite()
                 .parent = nullptr,
                 .node = this,
                 .space = std::move(universe),
+                .children = {},
                 .subspace = std::move(ss)
             }
         },

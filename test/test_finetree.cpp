@@ -4,7 +4,7 @@
 #include "state.h"
 #include "pgnparser.h"
 #include "finetree.h"
-#include "util.h"
+#include "utils.h"
 
 std::string str = R"(
 [Mode "5D"]
