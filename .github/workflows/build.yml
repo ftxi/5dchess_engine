@@ -67,7 +67,12 @@ jobs:
         with:
           toolset: ${{ matrix.msvc_toolset }}
 
-      # macOS uses system Apple Clang — no setup needed
+      # Xcode 16.4's libc++ lacks std::jthread and std::stop_token.
+      - name: Select Xcode 26 (macOS)
+        if: matrix.compiler == 'apple-clang'
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.0.app/Contents/Developer
+          xcodebuild -version
 
       # -----------------------
       # Configure
@@ -88,7 +93,7 @@ jobs:
       # -----------------------
 
       - name: Build
-        run: cmake --build build --config Release --parallel --verbose
+        run: cmake --build build --config Release --parallel
 
       # -----------------------
       # Collect artifacts
