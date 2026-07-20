@@ -2,13 +2,11 @@
 #include "hypercuboid.h"
 #include "graph.h"
 
-
-// for debug
 #include <algorithm>
 #include <cassert>
-#include <iostream>
 #include <limits>
 #include <random>
+
 //#define DEBUGMSG
 #include "debug.h"
 
@@ -379,13 +377,20 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
 
 std::optional<point> HC_info::take_point(HC &hc) const
 {
+    assert(hc.dimension() == dimension);
     dprint("take_point()");
     graph g(dimension);
     std::vector<index_t> must_include;
-    // store a pair of departing/arriving move for each edge
-    // edge_refs[{p,q}] = the corresponding move on axis p
-    std::map<std::pair<index_t,index_t>, index_t> edge_refs;
     constexpr index_t invalid_index = std::numeric_limits<index_t>::max();
+    // store a pair of departing/arriving move for each edge
+    // edge_refs[p * dimension + q] = the corresponding move on axis p.
+    // graph already uses a dense dimension-by-dimension adjacency matrix, so a
+    // second dense lookup avoids allocating and searching map nodes per edge.
+    const size_t num_edges = static_cast<std::size_t>(dimension) * dimension;
+    std::vector<index_t> edge_refs(num_edges, invalid_index);
+    const auto edge_ref = [&](index_t p, index_t q) -> index_t & {
+        return edge_refs[static_cast<std::size_t>(p) * dimension + q];
+    };
     point result = std::vector<index_t>(dimension, invalid_index);
     //build edge_refs and fill default physical moves in result
     for(index_t n = 0; n < dimension; n++)
@@ -403,22 +408,23 @@ std::optional<point> HC_info::take_point(HC &hc) const
                         result[n] = i;
                     }
                 },
-                [&](const arriving_move& loc) {
-                    index_t from_axis = line_to_axis.at(loc.m.from.l());
-                    if(!hc[from_axis].contains(loc.idx))
+                [&](const arriving_move& arriving) {
+                    index_t from_axis = line_to_axis.at(arriving.m.from.l());
+                    if(!hc[from_axis].contains(arriving.idx))
                     {
                         ghost_arrive_indices.insert(i);
-                        dprint("ghost arriving move",n,i, "(source", from_axis, loc.idx,")");//,show_semimove(loc));
+                        dprint("ghost arriving move",n,i, "(source", from_axis, arriving.idx,")");//,show_semimove(loc));
                         return;
                     }
-                    if(!edge_refs.contains(std::make_pair(from_axis, n)))
+                    index_t &departure_ref = edge_ref(from_axis, n);
+                    if(departure_ref == invalid_index)
                     {
                         dprint("new edge", from_axis, n, show_semimove(loc));
                         g.add_edge(from_axis, n);
                         assert(from_axis!=n);
-                        edge_refs[std::make_pair(from_axis, n)] = loc.idx;
-                        edge_refs[std::make_pair(n, from_axis)] = i;
-                        assert(loc.idx != invalid_index);
+                        departure_ref = arriving.idx;
+                        edge_ref(n, from_axis) = i;
+                        assert(arriving.idx != invalid_index);
                     }
                 },
                 [](const departing_move&) {},
@@ -452,8 +458,10 @@ std::optional<point> HC_info::take_point(HC &hc) const
         dprint("matching", range_to_string(*matching));
         for(const auto& [u,v] : matching.value())
         {
-            result[u] = edge_refs[std::make_pair(u,v)];
-            result[v] = edge_refs[std::make_pair(v,u)];
+            result[u] = edge_ref(u, v);
+            result[v] = edge_ref(v, u);
+            assert(result[u] != invalid_index);
+            assert(result[v] != invalid_index);
         }
 #ifndef NDEBUG
         for(index_t i:result)
@@ -494,17 +502,6 @@ std::optional<slice> HC_info::find_problem(const point &p, const HC& hc) const
 std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC& hc) const
 {
     dprint("jump_order_consistent()");
-    dprint("test_present()");
-    if(p == point{2,8,10,9,1,15,31,2,2,0})
-    {
-        std::cout << hc.to_string() << std::endl;
-        for(int n=0; n < dimension; n++)
-        {
-            std::cout << n << ", " << p[n] << std::endl;
-            std::cout << show_semimove(axis_coords[n][p[n]]) << std::endl;
-        }
-        
-    }
     /* throughout the search, maintain the jump_map of (l, t) => new_l
     so p[new_l] is a arriving move from (l0, t0) that jumps to (l, t) which create a branch
     remember t, l are stored as the higher part of a vec4
@@ -1024,7 +1021,11 @@ void HC_info::shuffle(search_space &ss)
         {
             inverses[n][permutation[new_idx]] = new_idx;
         }
-        if(axis_size <= 1)
+        // `axis_coords` may still contain ghost arriving moves pruned from `universe`.
+        // Even with 0 or 1 live coordinate, compact the axis when sizes differ so
+        // later arrival/departure idx rewrites never inspect pruned semimoves.
+        bool needs_remap = axis_size != axis_coords_size || axis_size > 1;
+        if(!needs_remap)
         {
             continue;
         }
@@ -1038,10 +1039,17 @@ void HC_info::shuffle(search_space &ss)
         } 
         axis_coords[n] = std::move(shuffled);
 
+        integer_set renumbered_axis;
+        for(index_t new_idx = 0; new_idx < axis_size; new_idx++)
+        {
+            renumbered_axis.insert(new_idx);
+        }
+        universe[n] = std::move(renumbered_axis);
+
         for(HC &hc : ss)
         {
             hc[n] = hc[n].transform([&inverses, n](index_t old_index){
-                return inverses[n][old_index];
+                return static_cast<index_t>(inverses[n][old_index]);
             });
         }
     }
@@ -1053,8 +1061,10 @@ void HC_info::shuffle(search_space &ss)
             {
                 index_t from_axis = line_to_axis.at(loc->m.from.l());
                 index_t old_idx = loc->idx;
-                index_t new_idx = inverses[from_axis][old_idx];
-                loc->idx = new_idx;
+                if(old_idx < inverses[from_axis].size() && inverses[from_axis][old_idx] >= 0)
+                {
+                    loc->idx = static_cast<index_t>(inverses[from_axis][old_idx]);
+                }
             }
         }
     }
@@ -1063,7 +1073,8 @@ void HC_info::shuffle(search_space &ss)
 // ------------------------------------------------------------
 
 
-generator<moveseq> HC_info::search(search_space ss) const
+
+generator<moveseq> HC_info::iterative_search(search_space ss) const
 {
     dprint("begining search: ", ss.to_string());
 #ifndef NDEBUG
@@ -1074,7 +1085,6 @@ generator<moveseq> HC_info::search(search_space ss) const
     {
 #ifndef NDEBUG
         boost::multiprecision::cpp_int new_vol = ss.volume();
-//        std::cerr << new_vol << std::endl;
         assert(!has_vol || new_vol < vol);
         vol = new_vol;
         has_vol = true;
@@ -1182,5 +1192,193 @@ moveseq HC_info::to_action(const point &p) const
     {
         std::reverse(mvs.begin(), mvs.end());
     }
+#ifdef DEBUGMSG
+    dprint("HC_info::to_action: returning", mvs.size(), "moves:");
+    for(const auto &mv : mvs)
+    {
+        dprint(" ", mv.to_string());
+    }
+#endif
     return mvs;
+}
+
+generator<moveseq> HC_info::stable_search(search_space ss) const
+{
+    dprint("begining psearch: ", ss.to_string());
+    while(!ss.empty())
+    {
+        HC hc = ss.back();
+        dprint("searching ", hc.to_string());
+        ss.pop_back();
+        auto pt_opt = take_point(hc);
+        if(pt_opt)
+        {
+            point pt = pt_opt.value();
+            dprint("got point: ", range_to_string(pt));
+            auto problem = find_problem(pt, hc);
+            if(problem)
+            {
+                const slice &problem_slice = problem.value();
+                dprint("found problem:", problem.value().to_string());
+                // Remove this slice from every remaining hypercuboid and re-join all pieces.
+                search_space adjoined;
+                adjoined.concat(hc.remove_slice(problem_slice));
+                for(const HC &other_hc : ss)
+                {
+                    search_space sstemp = other_hc.remove_slice_carefully(problem_slice);
+                    adjoined.concat(std::move(sstemp));
+                }
+                // make sure when a leave is removed, so is the corresponding arrive
+                dprint("removed problem from all hcs, continue search:", adjoined.to_string());
+                ss = std::move(adjoined);
+            }
+            else
+            {
+                dprint("point is okay, removing it from this hc");
+                co_yield to_action(pt);
+                search_space new_ss = hc.remove_point(pt);
+                dprint("removed point, continue search:", new_ss.to_string());
+                ss.concat(std::move(new_ss));
+            }
+        }
+        else
+        {
+            dprint("didn't secure any point in the first hypercuboid;");
+            dprint("continue searching the remaining part");
+        }
+    }
+    dprint("search space is empty; finish.");
+    co_return;
+}
+
+generator<moveseq> HC_info::search(search_space ss) const
+{
+    dprint("begining search: ", ss.to_string());
+    while(!ss.empty())
+    {
+        HC hc = ss.back();
+        dprint("searching ", hc.to_string());
+        ss.pop_back();
+        auto pt_opt = take_point(hc);
+        if(pt_opt)
+        {
+            point pt = pt_opt.value();
+            dprint("got point: ", range_to_string(pt));
+            auto problem = find_problem(pt, hc);
+            if(problem)
+            {
+                const slice &problem_slice = problem.value();
+                dprint("found problem:", problem.value().to_string());
+                // Remove this slice from every remaining hypercuboid and re-join all pieces.
+                search_space adjoined;
+                adjoined.concat(hc.remove_slice(problem_slice));
+                int intersect_count = 1, disjoint_count = 0;
+                while(!ss.empty() && (disjoint_count * 10 < intersect_count))
+                {
+                    HC &other_hc = ss.back();
+                    if(other_hc.intersects(problem_slice))
+                    {
+                        search_space sstemp = other_hc.remove_slice_carefully(problem_slice);
+                        adjoined.concat(std::move(sstemp));
+                        intersect_count++;
+                    }
+                    else
+                    {
+                        disjoint_count++;
+                        adjoined.concat({{other_hc}});
+                    }
+
+                    ss.pop_back();
+                }
+                ss.concat(std::move(adjoined));
+                // make sure when a leave is removed, so is the corresponding arrive
+                dprint("removed problem from all hcs, continue search:", ss.to_string());
+            }
+            else
+            {
+                dprint("point is okay, removing it from this hc");
+                co_yield to_action(pt);
+                search_space new_ss = hc.remove_point(pt);
+                dprint("removed point, continue search:", new_ss.to_string());
+                ss.concat(std::move(new_ss));
+            }
+        }
+        else
+        {
+            dprint("didn't secure any point in the first hypercuboid;");
+            dprint("continue searching the remaining part");
+        }
+    }
+    dprint("search space is empty; finish.");
+    co_return;
+}
+
+
+generator<moveseq> HC_info::mixed_search(search_space ss) const
+{
+    auto [l_min, l_max] = s.get_lines_range();
+    int line_span = l_max - l_min + 1;
+    dprint("number of lines:", line_span);
+    if(line_span >= 10)
+    {
+        dprint("searching the first point using stable method");
+        while(!ss.empty())
+        {
+            HC hc = ss.back();
+            ss.pop_back();
+            auto pt_opt = take_point(hc);
+            if(pt_opt)
+            {
+                point pt = pt_opt.value();
+                auto problem = find_problem(pt, hc);
+                if(problem)
+                {
+                    const slice &problem_slice = problem.value();
+                    // Remove this slice from every remaining hypercuboid and re-join all pieces.
+                    search_space adjoined;
+                    adjoined.concat(hc.remove_slice(problem_slice));
+                    for(const HC &other_hc : ss)
+                    {
+                        search_space sstemp = other_hc.remove_slice_carefully(problem_slice);
+                        adjoined.concat(std::move(sstemp));
+                    }
+                    // make sure when a leave is removed, so is the corresponding arrive
+                    ss = std::move(adjoined);
+                }
+                else
+                {
+                    co_yield to_action(pt);
+                    search_space new_ss = hc.remove_point(pt);
+                    ss.concat(std::move(new_ss));
+                    break;
+                }
+            }
+        }
+    }
+    dprint("searching the rest using iterative method");
+    while(!ss.empty())
+    {
+        HC hc = ss.back();
+        ss.pop_back();
+        auto pt_opt = take_point(hc);
+        if(pt_opt)
+        {
+            point pt = pt_opt.value();
+            auto problem = find_problem(pt, hc);
+            if(problem)
+            {
+                // remove the problematic slice from hc, and add the remaining to ss
+                search_space new_ss = hc.remove_slice(problem.value());
+                // make sure when a leave is removed, so is the corresponding arrive
+                ss.concat(std::move(new_ss));
+            }
+            else
+            {
+                co_yield to_action(pt);
+                search_space new_ss = hc.remove_point(pt);
+                ss.concat(std::move(new_ss));
+            }
+        }
+    }
+    co_return;
 }

@@ -12,7 +12,7 @@
 
 class parse_error : public std::runtime_error {
 public:
-    explicit parse_error(const std::string& message)
+    explicit parse_error(const std::string &message)
         : std::runtime_error(message) {}
 };
 
@@ -40,7 +40,7 @@ public:
     using absolute_board = pgnparser_ast::absolute_board;
     using physical_move = pgnparser_ast::physical_move;
     using superphysical_move = pgnparser_ast::superphysical_move;
-    using move= pgnparser_ast::move;
+    using move = pgnparser_ast::move;
     using actions = pgnparser_ast::actions;
     using gametree = pgnparser_ast::gametree;
     using game = pgnparser_ast::game;
@@ -58,6 +58,11 @@ public:
     std::optional<actions> parse_actions();
     std::optional<gametree> parse_gametree();
     std::optional<game> parse_game();
+
+    // Parse a metadata string that represents a board FEN entry
+    // Expected format: <fen-string> ':' ['+' | '-' | NIL] <line> ':' <time> ':' {'w'|'b'}
+    // Throws parse_error on malformed input.
+    static std::tuple<std::string, pgnparser_ast::token_t, int, int, bool> parse_board_fen_metadata(const std::string &s);
     
     static bool match_absolute_board(absolute_board simple, absolute_board full);
     static bool match_relative_board(relative_board simple, relative_board full);

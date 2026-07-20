@@ -8,6 +8,9 @@
 #include "pgnparser.h"
 #include "game.h"
 #include "turn.h"
+#include "uci.h"
+#include "mcts.h"
+#include "monkey.h"
 
 //std::string pgn1 =
 //R"(
@@ -106,7 +109,7 @@ generator<moveseq> naive_search(state s)
 //}
 
 template<bool PRINT=false>
-void count_hc(state s, int count)
+void count_balanced(state s, int count)
 {
     auto [w, ss] = HC_info::build_HC(s);
     std::vector<moveseq> legal_moves;
@@ -128,6 +131,79 @@ void count_hc(state s, int count)
     }
     std::cout << "Summary: totally " << legal_moves.size() << " options\n";
 }
+
+template<bool PRINT=false>
+void count_stable(state s, int count)
+{
+    auto [w, ss] = HC_info::build_HC(s);
+    std::vector<moveseq> legal_moves;
+    for(auto x : w.stable_search(ss))
+    {
+        if constexpr(PRINT)
+        {
+            state t = s;
+            for(full_move m : x)
+            {
+                std::cout << t.pretty_move<state::SHOW_CAPTURE>(m) << " ";
+                t.apply_move(m);
+            }
+            std::cout << "\n";
+        }
+        legal_moves.push_back(x);
+        if(--count==0)
+            break;
+    }
+    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+}
+
+template<bool PRINT=false>
+void count_iterative(state s, int count)
+{
+    auto [w, ss] = HC_info::build_HC(s);
+    std::vector<moveseq> legal_moves;
+    for(auto x : w.iterative_search(ss))
+    {
+        if constexpr(PRINT)
+        {
+            state t = s;
+            for(full_move m : x)
+            {
+                std::cout << t.pretty_move<state::SHOW_CAPTURE>(m) << " ";
+                t.apply_move(m);
+            }
+            std::cout << "\n";
+        }
+        legal_moves.push_back(x);
+        if(--count==0)
+            break;
+    }
+    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+}
+
+template<bool PRINT=false>
+void count_mixed(state s, int count)
+{
+    auto [w, ss] = HC_info::build_HC(s);
+    std::vector<moveseq> legal_moves;
+    for(auto x : w.mixed_search(ss))
+    {
+        if constexpr(PRINT)
+        {
+            state t = s;
+            for(full_move m : x)
+            {
+                std::cout << t.pretty_move<state::SHOW_CAPTURE>(m) << " ";
+                t.apply_move(m);
+            }
+            std::cout << "\n";
+        }
+        legal_moves.push_back(x);
+        if(--count==0)
+            break;
+    }
+    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+}
+
 
 template<bool PRINT=false>
 void count_naive(state s, int count)
@@ -203,19 +279,51 @@ std::string helpmsg = R"(usage: cli <option>
 where <option> is one of:
   help: print this message (-h, --help)
   version: print the version (-v, --version)
+  uci [<engine>]: enter Universal 5D Chess Interface mode and work as a chess engine
   print: print the final state of the game
-  count [fast|naive] [<max>]: display number of avialible moves capped by <max>
-  all [fast|naive] [<max>]: display all legal moves capped by <max>
-  checkmate [fast|naive]: determine whether the final state is checkmate/stalemate
-  diff: compare the output of two algorithms
-  perftest [fast|naive]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
+  count [<policy>] [<max>]: display number of available moves capped by <max>
+  all [<policy>] [<max>]: display all legal moves capped by <max>
+  checkmate [<policy>]: determine whether the final state is checkmate/stalemate
+  diff: compare the output of two algorithms (balanced and naive)
+  perftest [<policy>]: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
+<policy> ::= balanced|naive|stable|iterative|mixed
+default value for <policy> is balanced
 default value for <max> is 10000
+<engine> ::= mcts|monkey
+default value for <engine> is mcts
 
+For commands print, count, all, checkmate, diff and perftest,
 the game being read is input in stdin (stopped by EOF)
 )";
 
 int main(int argc, const char *argv[])
 {
+    enum class search_mode { balanced, naive, stable, iterative, mixed };
+    
+    auto parse_search_args = [&](int start_idx) -> std::pair<search_mode, int> {
+        search_mode mode = search_mode::balanced;
+        int max = 10000;
+        
+        for (int i = start_idx; i < argc; ++i) {
+            std::string arg = argv[i];
+            if (arg == "balanced") {
+                mode = search_mode::balanced;
+            } else if (arg == "naive") {
+                mode = search_mode::naive;
+            } else if (arg == "stable") {
+                mode = search_mode::stable;
+            } else if (arg == "iterative") {
+                mode = search_mode::iterative;
+            } else if (arg == "mixed") {
+                mode = search_mode::mixed;
+            } else {
+                max = std::stoi(arg);
+            }
+        }
+        
+        return {mode, max};
+    };
+    
     if (argc <= 1 || std::string(argv[1]) == "help" || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
         std::cout << helpmsg;
         return 0;
@@ -230,6 +338,30 @@ int main(int argc, const char *argv[])
 #else
         std::cout << "5d Chess Engine version unknown" << std::endl;
 #endif
+        return 0;
+    }
+    else if (command == "uci")
+    {
+        std::string engine_name = argc > 2 ? argv[2] : "mcts";
+        
+        std::unique_ptr<io_handler> io_handler = std::make_unique<stdio_handler>();
+        std::unique_ptr<engine> engine = nullptr;
+
+        if (engine_name == "mcts")
+        {
+            engine = std::make_unique<mcts_engine>(std::make_unique<stdio_handler>());
+        }
+        else if (engine_name == "monkey")
+        {
+            engine = std::make_unique<monkey_engine>(std::make_unique<stdio_handler>());
+        }
+        else
+        {
+            std::cerr << "Unknown engine: " << engine_name << std::endl;
+            std::cerr << "Valid engines: mcts, monkey" << std::endl;
+            return 2;
+        }
+        engine->mainloop();
         return 0;
     }
     
@@ -253,77 +385,78 @@ int main(int argc, const char *argv[])
     }
     else if (command == "count")
     {
-        bool use_fast = true;
-        int max = 10000;
+        auto [mode, max] = parse_search_args(2);
         
-        for (int i = 2; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "fast") {
-                use_fast = true;
-            } else if (arg == "naive") {
-                use_fast = false;
-            } else {
-                max = std::stoi(arg);
-            }
-        }
-        
-        if(use_fast)
-        {
-            count_hc(*ps, max);
-        }
-        else
-        {
-            count_naive(*ps, max);
+        switch (mode) {
+            case search_mode::balanced:
+                count_balanced(*ps, max);
+                break;
+            case search_mode::naive:
+                count_naive(*ps, max);
+                break;
+            case search_mode::stable:
+                count_stable(*ps, max);
+                break;
+            case search_mode::iterative:
+                count_iterative(*ps, max);
+                break;
+            case search_mode::mixed:
+                count_mixed(*ps, max);
+                break;
         }
     }
     else if (command == "all")
     {
-        // Parse optional arguments: [fast|naive] [<max>]
-        bool use_fast = true;
-        int max = 10000;
+        // Parse optional arguments: [<policy>] [<max>]
+        auto [mode, max] = parse_search_args(2);
         
-        for (int i = 2; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "fast") {
-                use_fast = true;
-            } else if (arg == "naive") {
-                use_fast = false;
-            } else {
-                max = std::stoi(arg);
-            }
-        }
-        
-        if(use_fast)
-        {
-            count_hc<true>(*ps, max);
-        }
-        else
-        {
-            count_naive<true>(*ps, max);
+        switch (mode) {
+            case search_mode::balanced:
+                count_balanced<true>(*ps, max);
+                break;
+            case search_mode::naive:
+                count_naive<true>(*ps, max);
+                break;
+            case search_mode::stable:
+                count_stable<true>(*ps, max);
+                break;
+            case search_mode::iterative:
+                count_iterative<true>(*ps, max);
+                break;
+            case search_mode::mixed:
+                count_mixed<true>(*ps, max);
+                break;
         }
     }
     else if (command == "checkmate")
     {
-        bool use_fast = true;
-        
-        for (int i = 2; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "fast") {
-                use_fast = true;
-            } else if (arg == "naive") {
-                use_fast = false;
-            }
-        }
+        auto [mode, _] = parse_search_args(2);
         
         std::optional<moveseq> mvs;
-        if(use_fast)
-        {
-            auto [w, ss] = HC_info::build_HC(*ps);
-            mvs = w.search(ss).first();
-        }
-        else
-        {
-            mvs = naive_search(*ps).first();
+        switch (mode) {
+            case search_mode::balanced: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.search(ss).first();
+                break;
+            }
+            case search_mode::naive:
+                mvs = naive_search(*ps).first();
+                break;
+            case search_mode::stable: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.stable_search(ss).first();
+                break;
+            }
+            case search_mode::iterative: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.iterative_search(ss).first();
+                break;
+            }
+            case search_mode::mixed: {
+                auto [w, ss] = HC_info::build_HC(*ps);
+                mvs = w.mixed_search(ss).first();
+                break;
+            }
         }
         auto [t,c] =ps->get_present();
         if(mvs)
@@ -355,16 +488,8 @@ int main(int argc, const char *argv[])
     }
     else if (command == "perftest")
     {
-        bool use_fast = true;
+        auto [mode, _] = parse_search_args(2);
         
-        for (int i = 2; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "fast") {
-                use_fast = true;
-            } else if (arg == "naive") {
-                use_fast = false;
-            }
-        }
         pgnparser_ast::game g = *pgnparser(pgn).parse_game();
         pgnparser_ast::gametree gt_root = std::move(g.gt);
         g.gt = pgnparser_ast::gametree{};
@@ -375,19 +500,35 @@ int main(int argc, const char *argv[])
         while (true)
         {
             std::optional<moveseq> mvs;
-            if(use_fast)
-            {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.search(ss).first();
-            }
-            else
-            {
-                mvs = naive_search(current_state).first();
+            switch (mode) {
+                case search_mode::balanced: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.search(ss).first();
+                    break;
+                }
+                case search_mode::naive:
+                    mvs = naive_search(current_state).first();
+                    break;
+                case search_mode::stable: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.stable_search(ss).first();
+                    break;
+                }
+                case search_mode::iterative: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.iterative_search(ss).first();
+                    break;
+                }
+                case search_mode::mixed: {
+                    auto [w, ss] = HC_info::build_HC(current_state);
+                    mvs = w.mixed_search(ss).first();
+                    break;
+                }
             }
             auto [t,c] = current_state.get_present();
             if(mvs)
             {
-                std::putchar('1');
+                std::cout << '1' << std::flush;
                 if(std::holds_alternative<pgnparser_ast::gametree::variations_t>(gt->variations_or_outcome))
                 {
                     const auto &variations = std::get<pgnparser_ast::gametree::variations_t>(gt->variations_or_outcome);

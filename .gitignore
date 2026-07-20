@@ -3,6 +3,9 @@
 build/
 build*/
 
+### logs
+
+logs/
 
 ### eslint
 
@@ -13,6 +16,7 @@ ui/package.json
 ### vscode
 
 .vscode/
+Testing/
 
 # Local History for Visual Studio Code
 .history/

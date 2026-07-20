@@ -82,17 +82,23 @@ if(TEST)
     enable_testing()
 endif()
 
-# Find all source files in src/ and src/core/ directories
+# Find all source files in src/ and its subdirectories
 file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/client/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.cpp"
 )
 
 # Find all header files
 file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/client/*.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.inl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/client/*.inl"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.inl"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.inl"
 )
 
@@ -111,6 +117,8 @@ target_include_directories(5dchess_engine_core
     PUBLIC 
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/core
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/client
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/engine
         ${CMAKE_CURRENT_SOURCE_DIR}/src/misc
 )
 

@@ -9,6 +9,7 @@
 #include <bit>
 #include <iterator>
 #include <type_traits>
+#include <string>
 #include <cassert>
 
 using index_t = std::uint_fast16_t;
@@ -168,8 +169,10 @@ public:
     integer_set operator &(const integer_set &other) const;
 
     void minus(const integer_set &other);
-    integer_set operator |=(const integer_set &other);
-    integer_set operator &=(const integer_set &other);
+    integer_set &operator |=(const integer_set &other);
+    integer_set &operator &=(const integer_set &other);
+
+    std::string to_string() const;
 };
 
 template<>

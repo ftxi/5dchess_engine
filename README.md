@@ -4,6 +4,10 @@
 
 The `5dchess_engine` is a standalone program that can also be used as a library for analyzing 5D chess game. Written in c++, it is also compiled for use in python and javascript environments. When used as a standalone tool, it offers both a command line interface and a web-based interface for viewing and analyzing games.
 
+This project is written in a serious language for chess-programming (c++). It aims to provide fast performance for basic game logic such as move generation and checkmate detection, which can be used as a solic foundation for a competant 5d chess bot. 
+
+There is a 5d chess bot implemented in this project, which utilizes a customized Monte Carlo Tree Search algorithm. Plans for the near future is to try out different modifications of MCTS to improve the performance of the bot.
+
 ### Try it online!
 
 Visit <https://ftxi.github.io/5dchess_engine/>.
@@ -17,11 +21,7 @@ The storage of a game state is based on [bitboards](https://www.chessprogramming
 
 Currently, the engine implements move generation and check detection using coroutine-based generators. Thus it won't work on compilers pre-C++20.
 
-There are two checkmate detection program: 
-1. hc, using method from [here](https://github.com/penteract/cwmtt), adapted to c++ with improvements.
-2. naive, plain DFS searching pruning states with checks/moves not in order.
-
-From my testing, hc has a better worse case performance than naive, especially when the search space is large while available actions are sparse, e.g. when the situation is almost checkmate. However, naive usually perform better when options are abundant.
+For checkmate detection and action generation, this program implements the hypercuboid algorithm. The hypercuboid algorithm is also utilized in `core/fine_tree.h` for generating semimoves. This ensures that the branching factor of the search tree does not explode exponentially with the number of timelines.
 
 This program supports tree shaped traversal.
 
@@ -54,6 +54,19 @@ The command line tool will be built as `build/cli`. To use it, type `cli <option
 -  `checkmate [fast|naive]`: determine whether the final state is checkmate/stalemate
 -  `diff`: compare the output of two algorithms.
 -  `perftest [fast|naive]`: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
+-  `uci`: enter Universal 5D Chess Interface mode and work as a chess engine
+
+#### Engines and autoplay
+
+There are two existing engines: `cli uci mcts` and `cli uci monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+
+To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
+```sh
+python autoplay.py --white "./build/cli uci mcts" --black "./build/cli uci monkey"
+```
+Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
+
+#### Coding with IDE
 
 It is possible to run the c++ part of the code without interacting with python or web interface at all. It also makes sense to use a modern programming IDE:
 ```sh
@@ -114,22 +127,18 @@ If you prefer [darkhttpd](https://github.com/emikulic/darkhttpd):
 darkhttpd ui/
 ```
 
+### Disclaimer
+
+All resources inside this project are either open source online or created by myself. It does not use any source code, copied directly or decompiled, from the 5D Chess With Multiverse Time Travel by Thunkspace, LLC. The original game is a commercial product and I have no affiliation with the developer.
+
 ### Documentation
 
-For more detail, please read [this page](docs/index.md).
+For more details on the structure of this repository, please read [this page](docs/index.md).
 
 ### TODOs
-- [x] checkmate display
-- [x] merge pixels
-- [ ] ~~flask static path~~
-- [x] embind
-- [x] debug nonstandard pieces
-- [x] editing comments
-- [x] L/T numbers
-- [ ] documentation
-- [x] variants loading
-- [x] ctest
-- [x] Reduce resource usage when displaying pgn
-- [x] Check arrows in the new ui
-- [x] Export pgn options
-- [ ] Next move arrows
+- [x] Write standard of and implement 5duci for communication.
+- [x] Split `src/` folder into client-specific and engine-specific folders.
+- [ ] Modify cmake file to support building core only/build engine.
+- [x] Create a basic 5d chess bot.
+- [ ] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
+- [x] Figure out the reason for unexpected nobestmove.

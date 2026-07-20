@@ -3,11 +3,19 @@
 #include <iostream>
 #include <random>
 #include <set>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "integer_set.h"
 #include "utils.h"
 
+static_assert(std::is_same_v<
+    decltype(std::declval<integer_set &>() |= std::declval<const integer_set &>()),
+    integer_set &>);
+static_assert(std::is_same_v<
+    decltype(std::declval<integer_set &>() &= std::declval<const integer_set &>()),
+    integer_set &>);
 
 template <typename T>
 std::vector<uint32_t> snapshot(const T &values)

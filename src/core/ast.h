@@ -34,13 +34,13 @@ typedef enum {
 struct relative_board {
    std::optional<int> line_difference;
    std::optional<int> time_difference;
-   friend std::ostream& operator<<(std::ostream& os, const relative_board& rb);
+   friend std::ostream &operator<<(std::ostream &os, const relative_board &rb);
 };
 struct absolute_board {
    token_t sign;
    std::optional<int> line;
    std::optional<int> time;
-   friend std::ostream& operator<<(std::ostream& os, const absolute_board& ab);
+   friend std::ostream &operator<<(std::ostream &os, const absolute_board &ab);
 };
 struct physical_move {
    std::optional<absolute_board> board;
@@ -52,7 +52,7 @@ struct physical_move {
    char to_file;
    char to_rank;
    std::optional<char> promote_to;
-   friend std::ostream& operator<<(std::ostream& os, const physical_move& pm);
+   friend std::ostream &operator<<(std::ostream &os, const physical_move &pm);
 };
 struct superphysical_move {
    std::optional<absolute_board> from_board;
@@ -65,29 +65,29 @@ struct superphysical_move {
    char to_file;
    char to_rank;
    std::optional<char> promote_to;
-   friend std::ostream& operator<<(std::ostream& os, const superphysical_move& sm);
+   friend std::ostream &operator<<(std::ostream &os, const superphysical_move &sm);
 };
 struct move {
     std::variant<physical_move, superphysical_move> data;
-    friend std::ostream& operator<<(std::ostream& os, const move& mv);
+    friend std::ostream &operator<<(std::ostream &os, const move &mv);
 };
 struct actions {
     std::vector<move> moves;
     std::vector<std::string> comments;
-    friend std::ostream& operator<<(std::ostream& os, const actions& ac);
+    friend std::ostream &operator<<(std::ostream &os, const actions &ac);
 };
 struct gametree {
     using variation_t = std::pair<actions, std::unique_ptr<gametree>>;
     using variations_t = std::vector<variation_t>;
     std::variant<variations_t, token_t> variations_or_outcome;
-    friend std::ostream& operator<<(std::ostream& os, const gametree& gt);
+    friend std::ostream &operator<<(std::ostream &os, const gametree &gt);
 };
 struct game {
     std::map<std::string, std::string> headers;
     std::vector<std::tuple<std::string, token_t, int, int, bool>> boards;
     gametree gt;
     std::vector<std::string> comments;
-    friend std::ostream& operator<<(std::ostream& os, const game& g);
+    friend std::ostream &operator<<(std::ostream &os, const game &g);
 };
 
 } //namespace

@@ -26,7 +26,7 @@ class state
     bool player;
     
     template<bool C>
-    std::vector<vec4> gen_movable_pieces_impl(std::vector<int> lines) const;
+    std::vector<vec4> gen_movable_pieces_impl(const std::vector<int> &lines) const;
     
     /*
      find_check_impl<C>(lines)
@@ -42,14 +42,14 @@ public:
     virtual ~state() = default;
     
     // standard copy-constructors
-    state(const state& other)
+    state(const state &other)
     : m{other.m->clone()}, present{other.present}, player{other.player} {}
     state(state&&) noexcept = default;
-    state& operator=(state other) noexcept {
+    state &operator=(state other) noexcept {
         swap(*this, other);
         return *this;
     }
-    friend void swap(state& a, state& b) noexcept {
+    friend void swap(state &a, state &b) noexcept {
         std::swap(a.m, b.m);
         std::swap(a.present, b.present);
         std::swap(a.player, b.player);
@@ -111,7 +111,7 @@ public:
     generator<full_move> find_checks(bool c) const;
     
     std::vector<vec4> gen_movable_pieces() const;
-    std::vector<vec4> get_movable_pieces(std::vector<int> lines) const;
+    std::vector<vec4> get_movable_pieces(const std::vector<int> &lines) const;
     
     
     /*
@@ -134,6 +134,7 @@ public:
     template<uint16_t FLAGS>
     std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W) const;
     std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W, uint16_t flags=SHOW_CAPTURE | SHOW_PROMOTION) const;
+    std::string lan_move(full_move fm, piece_t promote_to=QUEEN_W) const;
 private:
     struct detail;
     template<uint16_t FLAGS>
