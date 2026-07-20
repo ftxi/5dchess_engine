@@ -382,10 +382,16 @@ std::optional<point> HC_info::take_point(HC &hc) const
     dprint("take_point()");
     graph g(dimension);
     std::vector<index_t> must_include;
-    // store a pair of departing/arriving move for each edge
-    // edge_refs[{p,q}] = the corresponding move on axis p
-    std::map<std::pair<index_t,index_t>, index_t> edge_refs;
     constexpr index_t invalid_index = std::numeric_limits<index_t>::max();
+    // store a pair of departing/arriving move for each edge
+    // edge_refs[p * dimension + q] = the corresponding move on axis p.
+    // graph already uses a dense dimension-by-dimension adjacency matrix, so a
+    // second dense lookup avoids allocating and searching map nodes per edge.
+    const size_t num_edges = static_cast<std::size_t>(dimension) * dimension;
+    std::vector<index_t> edge_refs(num_edges, invalid_index);
+    const auto edge_ref = [&](index_t p, index_t q) -> index_t & {
+        return edge_refs[static_cast<std::size_t>(p) * dimension + q];
+    };
     point result = std::vector<index_t>(dimension, invalid_index);
     //build edge_refs and fill default physical moves in result
     for(index_t n = 0; n < dimension; n++)
@@ -403,22 +409,23 @@ std::optional<point> HC_info::take_point(HC &hc) const
                         result[n] = i;
                     }
                 },
-                [&](const arriving_move& loc) {
-                    index_t from_axis = line_to_axis.at(loc.m.from.l());
-                    if(!hc[from_axis].contains(loc.idx))
+                [&](const arriving_move& arriving) {
+                    index_t from_axis = line_to_axis.at(arriving.m.from.l());
+                    if(!hc[from_axis].contains(arriving.idx))
                     {
                         ghost_arrive_indices.insert(i);
-                        dprint("ghost arriving move",n,i, "(source", from_axis, loc.idx,")");//,show_semimove(loc));
+                        dprint("ghost arriving move",n,i, "(source", from_axis, arriving.idx,")");//,show_semimove(loc));
                         return;
                     }
-                    if(!edge_refs.contains(std::make_pair(from_axis, n)))
+                    index_t &departure_ref = edge_ref(from_axis, n);
+                    if(departure_ref == invalid_index)
                     {
                         dprint("new edge", from_axis, n, show_semimove(loc));
                         g.add_edge(from_axis, n);
                         assert(from_axis!=n);
-                        edge_refs[std::make_pair(from_axis, n)] = loc.idx;
-                        edge_refs[std::make_pair(n, from_axis)] = i;
-                        assert(loc.idx != invalid_index);
+                        departure_ref = arriving.idx;
+                        edge_ref(n, from_axis) = i;
+                        assert(arriving.idx != invalid_index);
                     }
                 },
                 [](const departing_move&) {},
@@ -452,8 +459,10 @@ std::optional<point> HC_info::take_point(HC &hc) const
         dprint("matching", range_to_string(*matching));
         for(const auto& [u,v] : matching.value())
         {
-            result[u] = edge_refs[std::make_pair(u,v)];
-            result[v] = edge_refs[std::make_pair(v,u)];
+            result[u] = edge_ref(u, v);
+            result[v] = edge_ref(v, u);
+            assert(result[u] != invalid_index);
+            assert(result[v] != invalid_index);
         }
 #ifndef NDEBUG
         for(index_t i:result)
