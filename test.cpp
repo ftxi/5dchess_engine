@@ -3,6 +3,9 @@
 #include <memory>
 #include <iostream>
 #include <pgnparser.h>
+#include <array>
+#include <chrono>
+#include <stdexcept>
 
 std::string pgn = R"(
 [Board "Standard - Turn Zero"]
@@ -205,11 +208,83 @@ std::string pgn = R"(
 int main()
 {
     using fn = fine_node<std::monostate>;
+    constexpr std::array<index_t, 28> expected_witness{
+        1, 10,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+
     state s(*pgnparser(pgn).parse_game());
     std::unique_ptr<fn> root = fn::make_root(s);
-    for(int i : root->search())
+
+    // The first MCTS iteration asks whether the root is terminal. That search
+    // materializes one complete witness path from the root to a ceiling node.
+    auto first_root_index = root->search().first();
+    if(!first_root_index)
     {
-        std::cout << i << " ";
+        throw std::runtime_error("expected the root to have a witness");
     }
+    if(*first_root_index != expected_witness.front())
+    {
+        throw std::runtime_error("root witness changed");
+    }
+
+    fn *first_axis_node = root->get_child(*first_root_index);
+    if(first_axis_node == nullptr)
+    {
+        throw std::runtime_error("root witness child was not materialized");
+    }
+
+    std::cout << "root witness index: " << *first_root_index << '\n';
+    std::cout << "witness path:\n";
+    fn *ceiling = first_axis_node;
+    std::size_t depth = 0;
+    while(true)
+    {
+        if(depth >= expected_witness.size()
+           || ceiling->get_n() != static_cast<index_t>(depth)
+           || ceiling->get_i() != expected_witness[depth])
+        {
+            throw std::runtime_error(
+                "fine-tree witness differs at depth " + std::to_string(depth));
+        }
+        std::cout << "  axis " << ceiling->get_n()
+                  << ", coordinate " << ceiling->get_i()
+                  << ": " << ceiling->print_semimove() << '\n';
+        if(ceiling->is_ceiling())
+        {
+            break;
+        }
+        const auto children = ceiling->get_children();
+        if(children.size() != 1)
+        {
+            throw std::runtime_error("expected a single-child witness path");
+        }
+        ceiling = children.front();
+        depth++;
+    }
+    if(depth + 1 != expected_witness.size())
+    {
+        throw std::runtime_error("fine-tree witness has an unexpected length");
+    }
+
+    // default_policy() ignites this ceiling during the first iteration.
+    ceiling->ignite();
+
+    // During the next visit to first_axis_node, MCTS first includes its already
+    // materialized child. On the following visit it asks for another child.
+    // That exact fine-tree expansion is the long-running operation seen in the
+    // sampled UCI process.
+    const auto started = std::chrono::steady_clock::now();
+    std::cout << "expanding first-axis node again..." << std::endl;
+    auto second_child = first_axis_node->search().first();
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    std::cout << "expansion returned after "
+              << std::chrono::duration<double>(elapsed).count() << " s";
+    if(second_child)
+    {
+        std::cout << " with coordinate " << *second_child;
+    }
+    std::cout << '\n';
     return 0;
 }
