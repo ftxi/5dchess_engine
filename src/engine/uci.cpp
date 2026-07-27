@@ -288,7 +288,7 @@ void engine::mainloop()
         }
         else if(command == "print")
         {
-            write_line(s->to_string());
+            write_line(s->show_fen());
         }
         else
         {
