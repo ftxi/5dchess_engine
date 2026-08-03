@@ -207,23 +207,6 @@ std::string pgn = R"(
 )";
 
 
-fine_tree_pruning_policy parse_policy(const std::string &name)
-{
-    if(name == "current_hc")
-        return fine_tree_pruning_policy::current_hc;
-    if(name == "current_cell")
-        return fine_tree_pruning_policy::current_cell;
-    if(name == "current_node")
-        return fine_tree_pruning_policy::current_node;
-    if(name == "descendant_subtree")
-        return fine_tree_pruning_policy::descendant_subtree;
-    if(name == "ancestor_nodes")
-        return fine_tree_pruning_policy::ancestor_nodes;
-    if(name == "ancestor_fanout")
-        return fine_tree_pruning_policy::ancestor_fanout;
-    throw std::runtime_error("unknown pruning policy: " + name);
-}
-
 int main(int argc, char **argv)
 {
     using fn = fine_node<std::monostate>;
@@ -233,25 +216,18 @@ int main(int argc, char **argv)
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
 
-    const std::string policy_name =
-        argc > 1 ? argv[1] : "current_node";
-    const size_t disjoint_weight =
-        argc > 2 ? std::stoull(argv[2]) : 10;
-    if(argc > 4)
+    if(argc > 2)
     {
-        std::cerr << "usage: " << argv[0]
-                  << " [current_hc|current_cell|current_node|"
-                     "descendant_subtree|ancestor_nodes|ancestor_fanout]"
-                     " [disjoint-weight; 0 scans all] [pgn-file]\n";
+        std::cerr << "usage: " << argv[0] << " [pgn-file]\n";
         return 2;
     }
 
     std::string pgn_text = pgn;
     std::string position_name = "hardcoded";
-    const bool loaded_from_file = argc > 3;
+    const bool loaded_from_file = argc > 1;
     if(loaded_from_file)
     {
-        position_name = argv[3];
+        position_name = argv[1];
         std::ifstream input(position_name);
         if(!input)
         {
@@ -263,20 +239,10 @@ int main(int argc, char **argv)
         pgn_text = contents.str();
     }
 
-    const fine_tree_pruning_policy policy = parse_policy(policy_name);
-    std::cout << "policy: " << policy_name
-              << "; disjoint weight: " << disjoint_weight
-              << "; position: " << position_name << '\n';
+    std::cout << "position: " << position_name << '\n';
 
     state s(*pgnparser(pgn_text).parse_game());
-    fine_tree_options options{
-        .pruning_policy = policy,
-        .scan_policy = {
-            .disjoint_weight = disjoint_weight
-        }
-    };
-    std::unique_ptr<fn> root =
-        fn::make_root(s, std::monostate{}, options);
+    std::unique_ptr<fn> root = fn::make_root(s);
 
     // Materialize the first complete witness path, as root::is_terminal()
     // does in the first MCTS iteration.
@@ -284,8 +250,7 @@ int main(int argc, char **argv)
     auto root_index = root->search().first();
     const auto initial_elapsed =
         std::chrono::steady_clock::now() - initial_started;
-    std::cout << "policy " << policy_name
-              << " initial search completed in "
+    std::cout << "initial search completed in "
               << std::chrono::duration<double>(initial_elapsed).count()
               << " s; result=";
     if(root_index)
@@ -365,8 +330,7 @@ int main(int argc, char **argv)
     const auto started = std::chrono::steady_clock::now();
     auto next_child = first_axis_node->search().first();
     const auto elapsed = std::chrono::steady_clock::now() - started;
-    std::cout << "policy " << policy_name
-              << " post-ignite search completed in "
+    std::cout << "post-ignite search completed in "
               << std::chrono::duration<double>(elapsed).count()
               << " s; result=";
     if(next_child)

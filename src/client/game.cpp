@@ -176,6 +176,10 @@ std::pair<std::vector<boards_info_t>, std::vector<full_move>> game::get_phantom_
     {
         checks.push_back(fm);
         tls.insert(fm.from.tl());
+        // A check can travel to another timeline.  The UI needs the
+        // destination board as well as the origin board in order to draw
+        // the complete arrow when phantom boards are enabled.
+        tls.insert(fm.to.tl());
     }
 	//print_range("Phantom timelines: ", tls);
     std::vector<boards_info_t> all_boards = ps.get_boards();

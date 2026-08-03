@@ -87,41 +87,28 @@ void test_backward_slice_removal()
         HC{{2}},
         HC{{0, 3}}
     };
-    local.remove_slice_backwards(problem);
+    local.remove_slice_backwards(problem, false);
     assert(local.size() == 3);
     assert(local.contains(point{0}));
     assert(local.contains(point{2}));
     assert(local.contains(point{3}));
 
-    // The scan density is configurable. Two hits provide enough evidence for
-    // weight 1 to cross one miss and reach the intersecting front HC.
-    search_space permissive{
+    // With the fixed weight of 2, three hits provide enough evidence to cross
+    // one miss and reach the intersecting front HC.
+    search_space dense_enough{
         HC{{0, 4}},
         HC{{5}},
+        HC{{0, 6}},
         HC{{0, 3}},
         HC{{0, 2}}
     };
-    permissive.remove_slice_backwards(problem, 1);
-    assert(!permissive.contains(point{0}));
-    assert(permissive.contains(point{2}));
-    assert(permissive.contains(point{3}));
-    assert(permissive.contains(point{4}));
-    assert(permissive.contains(point{5}));
-
-    // Weight zero disables early stopping and therefore crosses any number of
-    // misses to remove the slice from every intersecting HC.
-    search_space exhaustive{
-        HC{{0, 6}},
-        HC{{7}},
-        HC{{8}},
-        HC{{0, 9}}
-    };
-    exhaustive.remove_slice_backwards(problem, 0);
-    assert(!exhaustive.contains(point{0}));
-    assert(exhaustive.contains(point{6}));
-    assert(exhaustive.contains(point{7}));
-    assert(exhaustive.contains(point{8}));
-    assert(exhaustive.contains(point{9}));
+    dense_enough.remove_slice_backwards(problem, false);
+    assert(!dense_enough.contains(point{0}));
+    assert(dense_enough.contains(point{2}));
+    assert(dense_enough.contains(point{3}));
+    assert(dense_enough.contains(point{4}));
+    assert(dense_enough.contains(point{5}));
+    assert(dense_enough.contains(point{6}));
 
     // A slice may only partially intersect an HC on several axes. Backward
     // removal must not introduce slice coordinates that were absent from the
@@ -133,8 +120,12 @@ void test_backward_slice_removal()
         {0, {0, 9}},
         {1, {0, 9}}
     }};
+    assert(!rejected_as_too_fragmented.back()
+                .is_slice_good(broad_problem));
+    assert(rejected_as_too_fragmented.back()
+               .is_slice_good(broad_problem, 2));
     rejected_as_too_fragmented.remove_slice_backwards(
-        broad_problem, 0);
+        broad_problem, false);
     assert(rejected_as_too_fragmented.size() == 1);
     assert(rejected_as_too_fragmented.contains(point{0, 0}));
 
@@ -143,7 +134,7 @@ void test_backward_slice_removal()
     search_space partial{
         HC{{0, 1}, {0, 1}}
     };
-    partial.remove_slice_backwards(broad_problem, 0, true);
+    partial.remove_slice_backwards(broad_problem, true);
     assert(!partial.contains(point{0, 0}));
     assert(partial.contains(point{0, 1}));
     assert(partial.contains(point{1, 0}));
@@ -156,7 +147,7 @@ void test_backward_slice_removal()
         HC{{0, 1}},
         HC{{0, 2}}
     };
-    dense.remove_slice_backwards(problem);
+    dense.remove_slice_backwards(problem, false);
     assert(dense.size() == 2);
     assert(!dense.contains(point{0}));
     assert(dense.contains(point{1}));

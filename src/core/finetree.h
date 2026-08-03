@@ -14,31 +14,6 @@
 #include "integer_set.h"
 #include "generator.h"
 
-enum class fine_tree_pruning_policy
-{
-    current_hc,
-    current_cell,
-    current_node,
-    descendant_subtree,
-    ancestor_nodes,
-    ancestor_fanout
-};
-
-struct dynamic_scan_policy
-{
-    // Equivalent to HC_info::search(): continue while
-    // disjoint_weight * disjoint_count < intersect_count.
-    // A weight of zero disables early stopping.
-    size_t disjoint_weight = 10;
-};
-
-struct fine_tree_options
-{
-    fine_tree_pruning_policy pruning_policy =
-        fine_tree_pruning_policy::current_node;
-    dynamic_scan_policy scan_policy;
-};
-
 template<typename T = std::monostate>
 class fine_node;
 
@@ -48,7 +23,6 @@ struct fine_cell
     fine_cell *parent;
     fine_node<T> *node; // the associated node for this cell
     HC space;
-    std::vector<fine_cell*> children;
     search_space subspace;
 };
 
@@ -98,10 +72,8 @@ class fine_node
     fine_node<T> *expand();
     std::optional<std::tuple<point, fine_cell<T>*, HC*>> explore();
     void remove_problem(const slice&, fine_cell<T>* origin_cell);
-    void remove_from_cell(const slice&, fine_cell<T>*, bool force_back_removal = false);
-    void remove_from_node(const slice&, fine_node<T>*, fine_cell<T>* preferred_cell = nullptr, bool force_preferred_removal = false);
-    void remove_from_cell_subtree(const slice&, fine_cell<T>*, nodal_pocession<T>*, bool force_back_removal = false);
-    void remove_from_node_subtree(const slice&, fine_node<T>*, nodal_pocession<T>*, fine_cell<T>* preferred_cell = nullptr, bool force_preferred_removal = false);
+    void remove_from_cell(const slice&, fine_cell<T>*, bool force_back_removal);
+    void remove_from_node(const slice&, fine_node<T>*, fine_cell<T>* critical_cell, bool force_critical_removal);
     fine_node<T> *isolate(point, fine_cell<T>*, HC*);
     fine_node<T> *normalize(point, fine_cell<T>*, fine_node<T>*);
 
@@ -114,12 +86,12 @@ public:
     fine_node &operator=(fine_node &&other) = delete;
 
     // -- constructors (prefer not to use directly) -- //
-    fine_node(fine_node *parent, state s, T info = T{}, fine_tree_options options = {});
+    fine_node(fine_node *parent, state s, T info = T{});
     fine_node(fine_node *parent, index_t n, index_t i, T info = T{});
     static std::unique_ptr<fine_node<T>> make_temproary(fine_node *parent, index_t n, index_t i, T info = T{});
 
     // -- factory -- //
-    static std::unique_ptr<fine_node<T>> make_root(state s, T info = T{}, fine_tree_options options = {});
+    static std::unique_ptr<fine_node<T>> make_root(state s, T info = T{});
 
     // -- queries -- //
     bool is_nodal() const { return pocessed_context != nullptr; }
@@ -155,7 +127,6 @@ struct nodal_pocession
     HC_info hc_info;
     std::deque<fine_node<T>> node_pool;
     std::deque<fine_cell<T>> cell_pool;
-    fine_tree_options options;
     bool verified_terminal; /* value is
     + true if no further expansion is possible
     + false if not terminal or not yet verified
