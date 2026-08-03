@@ -3,6 +3,11 @@
 #include <memory>
 #include <iostream>
 #include <pgnparser.h>
+#include <array>
+#include <chrono>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 
 std::string pgn = R"(
 [Board "Standard - Turn Zero"]
@@ -202,14 +207,217 @@ std::string pgn = R"(
 )";
 
 
-int main()
+fine_tree_pruning_policy parse_policy(const std::string &name)
+{
+    if(name == "current_hc")
+        return fine_tree_pruning_policy::current_hc;
+    if(name == "current_cell")
+        return fine_tree_pruning_policy::current_cell;
+    if(name == "current_node")
+        return fine_tree_pruning_policy::current_node;
+    if(name == "descendant_subtree")
+        return fine_tree_pruning_policy::descendant_subtree;
+    if(name == "ancestor_nodes")
+        return fine_tree_pruning_policy::ancestor_nodes;
+    if(name == "ancestor_fanout")
+        return fine_tree_pruning_policy::ancestor_fanout;
+    throw std::runtime_error("unknown pruning policy: " + name);
+}
+
+int main(int argc, char **argv)
 {
     using fn = fine_node<std::monostate>;
-    state s(*pgnparser(pgn).parse_game());
-    std::unique_ptr<fn> root = fn::make_root(s);
-    for(int i : root->search())
+    constexpr std::array<index_t, 28> expected_witness{
+        1, 10,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+
+    const std::string policy_name =
+        argc > 1 ? argv[1] : "current_node";
+    const size_t disjoint_weight =
+        argc > 2 ? std::stoull(argv[2]) : 10;
+    if(argc > 4)
     {
-        std::cout << i << " ";
+        std::cerr << "usage: " << argv[0]
+                  << " [current_hc|current_cell|current_node|"
+                     "descendant_subtree|ancestor_nodes|ancestor_fanout]"
+                     " [disjoint-weight; 0 scans all] [pgn-file]\n";
+        return 2;
+    }
+
+    std::string pgn_text = pgn;
+    std::string position_name = "hardcoded";
+    const bool loaded_from_file = argc > 3;
+    if(loaded_from_file)
+    {
+        position_name = argv[3];
+        std::ifstream input(position_name);
+        if(!input)
+        {
+            throw std::runtime_error(
+                "cannot open PGN file: " + position_name);
+        }
+        std::ostringstream contents;
+        contents << input.rdbuf();
+        pgn_text = contents.str();
+    }
+
+    const fine_tree_pruning_policy policy = parse_policy(policy_name);
+    std::cout << "policy: " << policy_name
+              << "; disjoint weight: " << disjoint_weight
+              << "; position: " << position_name << '\n';
+
+    state s(*pgnparser(pgn_text).parse_game());
+    fine_tree_options options{
+        .pruning_policy = policy,
+        .scan_policy = {
+            .disjoint_weight = disjoint_weight
+        }
+    };
+    std::unique_ptr<fn> root =
+        fn::make_root(s, std::monostate{}, options);
+
+    // Materialize the first complete witness path, as root::is_terminal()
+    // does in the first MCTS iteration.
+    const auto initial_started = std::chrono::steady_clock::now();
+    auto root_index = root->search().first();
+    const auto initial_elapsed =
+        std::chrono::steady_clock::now() - initial_started;
+    std::cout << "policy " << policy_name
+              << " initial search completed in "
+              << std::chrono::duration<double>(initial_elapsed).count()
+              << " s; result=";
+    if(root_index)
+    {
+        std::cout << *root_index << '\n';
+    }
+    else
+    {
+        std::cout << "none\n";
+    }
+    if(!root_index)
+    {
+        std::cout << "position has no initial witness\n";
+        return 0;
+    }
+    if(!loaded_from_file
+       && *root_index != expected_witness.front())
+    {
+        throw std::runtime_error("unexpected root witness");
+    }
+
+    fn *first_axis_node = root->get_child(*root_index);
+    if(first_axis_node == nullptr)
+    {
+        throw std::runtime_error("root witness child was not materialized");
+    }
+
+    fn *ceiling = nullptr;
+    if(loaded_from_file)
+    {
+        ceiling = first_axis_node->get_nearby_ceiling();
+        if(ceiling == nullptr)
+        {
+            throw std::runtime_error(
+                "initial witness has no ceiling");
+        }
+    }
+    else
+    {
+        ceiling = first_axis_node;
+        std::size_t depth = 0;
+        while(true)
+        {
+            if(depth >= expected_witness.size()
+               || ceiling->get_n() != static_cast<index_t>(depth)
+               || ceiling->get_i() != expected_witness[depth])
+            {
+                throw std::runtime_error(
+                    "fine-tree witness differs at depth "
+                    + std::to_string(depth));
+            }
+            if(ceiling->is_ceiling())
+            {
+                break;
+            }
+
+            const auto children = ceiling->get_children();
+            if(children.size() != 1)
+            {
+                throw std::runtime_error(
+                    "expected a single-child witness path");
+            }
+            ceiling = children.front();
+            depth++;
+        }
+        if(depth + 1 != expected_witness.size())
+        {
+            throw std::runtime_error(
+                "fine-tree witness has an unexpected length");
+        }
+    }
+
+    // The first rollout ignites the witness ceiling. The slow operation is the
+    // later request for another child below the fixed axis-0 coordinate.
+    ceiling->ignite();
+    std::cout << "expanding axis 1..." << std::endl;
+    const auto started = std::chrono::steady_clock::now();
+    auto next_child = first_axis_node->search().first();
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    std::cout << "policy " << policy_name
+              << " post-ignite search completed in "
+              << std::chrono::duration<double>(elapsed).count()
+              << " s; result=";
+    if(next_child)
+    {
+        std::cout << *next_child;
+    }
+    else
+    {
+        std::cout << "none";
+    }
+    std::cout << '\n';
+
+    if(next_child)
+    {
+        fn *result_node = first_axis_node->get_child(*next_child);
+        if(result_node == nullptr)
+        {
+            throw std::runtime_error(
+                "returned child was not materialized");
+        }
+        fn *result_ceiling = result_node->get_nearby_ceiling();
+        if(result_ceiling == nullptr)
+        {
+            throw std::runtime_error(
+                "returned child has no ceiling witness");
+        }
+
+        auto *result_context = first_axis_node->get_context();
+        point result_point(result_context->hc_info.dimension);
+        fn *cursor = result_ceiling;
+        for(index_t axis_count = 0;
+            axis_count < result_context->hc_info.dimension;
+            axis_count++)
+        {
+            result_point[cursor->get_n()] = cursor->get_i();
+            cursor = cursor->get_parent();
+            if(cursor == nullptr)
+            {
+                throw std::runtime_error(
+                    "ceiling witness ended before the nodal ancestor");
+            }
+        }
+
+        HC validation_hc = result_context->hc_info.universe;
+        if(result_context->hc_info.find_problem(
+               result_point, validation_hc))
+        {
+            throw std::runtime_error(
+                "returned ceiling witness still contains a problem");
+        }
+        std::cout << "find_problem recheck: valid\n";
     }
     return 0;
 }

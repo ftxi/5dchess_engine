@@ -142,3 +142,4 @@ For more details on the structure of this repository, please read [this page](do
 - [x] Create a basic 5d chess bot.
 - [ ] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
 - [x] Figure out the reason for unexpected nobestmove.
+- [ ] Implement new search policy to only remove good non-necessary problem slices

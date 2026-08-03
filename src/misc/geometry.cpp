@@ -1,5 +1,6 @@
 #include "geometry.h"
 #include <cassert>
+#include <iterator>
 #include <sstream>
 #include "utils.h"
 
@@ -157,6 +158,55 @@ void search_space::pop_back()
     hcs.pop_back();
 }
 
+void search_space::remove_slice_backwards(
+    const slice &s,
+    size_t disjoint_weight,
+    bool force_back_removal)
+{
+    if(hcs.empty())
+    {
+        return;
+    }
+
+    size_t intersect_count = 0;
+    size_t disjoint_count = 0;
+    auto current = std::prev(hcs.end());
+
+    while(true)
+    {
+        const bool has_previous = current != hcs.begin();
+        auto previous = current;
+        if(has_previous)
+        {
+            --previous;
+        }
+
+        if(current->intersects(s))
+        {
+            auto after = std::next(current);
+            search_space pieces = force_back_removal
+                ? current->remove_slice_carefully(s)
+                : current->remove_slice_if_good(s);
+            hcs.erase(current);
+            hcs.splice(after, pieces.hcs);
+            intersect_count++;
+        }
+        else
+        {
+            disjoint_count++;
+        }
+
+        if(!has_previous
+           || (disjoint_weight != 0
+               && disjoint_count * disjoint_weight >= intersect_count))
+        {
+            break;
+        }
+        force_back_removal = false;
+        current = previous;
+    }
+}
+
 std::list<HC>::iterator search_space::begin()
 {
     return hcs.begin();
@@ -264,6 +314,45 @@ search_space HC::remove_point_carefully(const point &p) const
     {
         return remove_point(p);
     }
+}
+
+search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const
+{
+    const auto &fixed_axes = s.get_fixed_axes();
+    for(const auto& [i, fixed_coords] : fixed_axes)
+    {
+        if(!axes[i].intersects(fixed_coords))
+        {
+            return search_space({{*this}});
+        }
+    }
+
+    search_space result;
+    HC remaining = *this;
+    index_t count = 0;
+    for(const auto& [i, fixed_coords] : fixed_axes)
+    {
+        integer_set intersected_coords = fixed_coords;
+        intersected_coords &= remaining.axes[i];
+        assert(!intersected_coords.empty());
+
+        HC x = remaining;
+        x.axes[i].minus(intersected_coords);
+        remaining.axes[i] = std::move(intersected_coords);
+        if(!x.axes[i].empty()) // do not include empty hc
+        {
+            if(count < max_codim)
+            {
+                count++;
+                result.push_back(std::move(x));
+            }
+            else
+            {
+                return search_space({{*this}});
+            }
+        }
+    }
+    return result;
 }
 
 

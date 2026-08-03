@@ -1269,7 +1269,7 @@ generator<moveseq> HC_info::search(search_space ss) const
                     HC &other_hc = ss.back();
                     if(other_hc.intersects(problem_slice))
                     {
-                        search_space sstemp = other_hc.remove_slice_carefully(problem_slice);
+                        search_space sstemp = other_hc.remove_slice_if_good(problem_slice, 1);
                         adjoined.concat(std::move(sstemp));
                         intersect_count++;
                     }

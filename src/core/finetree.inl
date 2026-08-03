@@ -5,7 +5,11 @@
 #include "finetree.h"
 
 template<typename T>
-inline fine_node<T>::fine_node(fine_node *parent, state s, T info_value)
+inline fine_node<T>::fine_node(
+    fine_node *parent,
+    state s,
+    T info_value,
+    fine_tree_options options)
 : parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}, info{std::move(info_value)}
 {
     auto [hc_info, ss] = HC_info::build_HC(s);
@@ -22,6 +26,7 @@ inline fine_node<T>::fine_node(fine_node *parent, state s, T info_value)
                 .subspace = std::move(ss)
             }
         },
+        .options = options,
         .verified_terminal = false
     });
     cells.push_back(&pocessed_context->cell_pool.back());
@@ -32,9 +37,13 @@ inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i, T info_v
 : parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, info{std::move(info_value)} {}
 
 template<typename T>
-inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(state s, T info)
+inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(
+    state s,
+    T info,
+    fine_tree_options options)
 {
-    return std::unique_ptr<fine_node<T>>(new fine_node(nullptr, s, std::move(info)));
+    return std::unique_ptr<fine_node<T>>(
+        new fine_node(nullptr, s, std::move(info), options));
 }
 
 template<typename T>
@@ -231,7 +240,7 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
                 {
                     // if there is a problem with this point
                     // remove the problem for all relevant cells
-                    remove_slice(*problem);
+                    remove_problem(*problem, cell);
                 }
                 else
                 {
@@ -251,18 +260,190 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
 }
 
 template<typename T>
-inline void fine_node<T>::remove_slice(const slice &s)
+inline void fine_node<T>::remove_from_cell(
+    const slice &s,
+    fine_cell<T> *cell,
+    bool force_back_removal)
 {
-    //current policy: remove slices just for cells in this node
-    for(fine_cell<T> *cell : cells)
+    if(cell->space.intersects(s))
     {
-        search_space adjoined;
-        for(const HC &hc : cell->subspace)
+        cell->subspace.remove_slice_backwards(
+            s,
+            get_context()->options.scan_policy.disjoint_weight,
+            force_back_removal);
+    }
+}
+
+template<typename T>
+inline void fine_node<T>::remove_from_node(
+    const slice &s,
+    fine_node<T> *node,
+    fine_cell<T> *preferred_cell,
+    bool force_preferred_removal)
+{
+    if(preferred_cell != nullptr)
+    {
+        remove_from_cell(
+            s, preferred_cell, force_preferred_removal);
+    }
+    for(fine_cell<T> *cell : node->cells)
+    {
+        if(cell != preferred_cell)
         {
-            search_space new_ss = hc.remove_slice_carefully(s);
-            adjoined.concat(std::move(new_ss));
+            remove_from_cell(s, cell);
         }
-        cell->subspace = std::move(adjoined);
+    }
+}
+
+template<typename T>
+inline void fine_node<T>::remove_from_cell_subtree(
+    const slice &s,
+    fine_cell<T> *cell,
+    nodal_pocession<T> *problem_context,
+    bool force_back_removal)
+{
+    if(!cell->space.intersects(s))
+    {
+        return;
+    }
+
+    cell->subspace.remove_slice_backwards(
+        s,
+        problem_context->options.scan_policy.disjoint_weight,
+        force_back_removal);
+    for(fine_cell<T> *child : cell->children)
+    {
+        // An ignited ceiling owns a new context. Its old cell can remain in
+        // this historical cell tree, but the problem slice uses the old
+        // context's axis coordinates and must not cross that boundary.
+        if(child->node->get_context() == problem_context)
+        {
+            remove_from_cell_subtree(s, child, problem_context);
+        }
+    }
+}
+
+template<typename T>
+inline void fine_node<T>::remove_from_node_subtree(
+    const slice &s,
+    fine_node<T> *node,
+    nodal_pocession<T> *problem_context,
+    fine_cell<T> *preferred_cell,
+    bool force_preferred_removal)
+{
+    if(node->get_context() != problem_context)
+    {
+        return;
+    }
+
+    if(preferred_cell != nullptr)
+    {
+        remove_from_cell_subtree(
+            s,
+            preferred_cell,
+            problem_context,
+            force_preferred_removal);
+    }
+    for(fine_cell<T> *cell : node->cells)
+    {
+        if(cell != preferred_cell)
+        {
+            remove_from_cell_subtree(s, cell, problem_context);
+        }
+    }
+}
+
+template<typename T>
+inline void fine_node<T>::remove_problem(
+    const slice &s,
+    fine_cell<T> *origin_cell)
+{
+    nodal_pocession<T> *problem_context = get_context();
+    switch(problem_context->options.pruning_policy)
+    {
+    case fine_tree_pruning_policy::current_hc:
+    {
+        search_space pieces =
+            origin_cell->subspace.back().remove_slice(s);
+        origin_cell->subspace.pop_back();
+        origin_cell->subspace.concat(std::move(pieces));
+        return;
+    }
+
+    case fine_tree_pruning_policy::current_cell:
+        remove_from_cell(s, origin_cell, true);
+        return;
+
+    case fine_tree_pruning_policy::current_node:
+        remove_from_node(s, this, origin_cell, true);
+        return;
+
+    case fine_tree_pruning_policy::descendant_subtree:
+        remove_from_node_subtree(
+            s, this, problem_context, origin_cell, true);
+        return;
+
+    case fine_tree_pruning_policy::ancestor_nodes:
+    {
+        // Process only the cells owned by the current node and its ancestors.
+        // Do not enter either the current node's descendants or off-path
+        // child subtrees of an ancestor.
+        remove_from_node(s, this, origin_cell, true);
+        if(is_nodal())
+        {
+            return;
+        }
+
+        fine_node<T> *ancestor = parent;
+        while(ancestor != nullptr
+              && ancestor->get_context() == problem_context)
+        {
+            remove_from_node(s, ancestor);
+            if(ancestor->is_nodal())
+            {
+                break;
+            }
+            ancestor = ancestor->parent;
+        }
+        return;
+    }
+
+    case fine_tree_pruning_policy::ancestor_fanout:
+        break;
+    }
+
+    // Work from the local region outwards. First process the current node's
+    // complete descendant subtree. At each ancestor, process the ancestor's
+    // own cells and every off-path child subtree, skipping the child subtree
+    // already visited at the previous step.
+    remove_from_node_subtree(
+        s, this, problem_context, origin_cell, true);
+    if(is_nodal())
+    {
+        return;
+    }
+
+    fine_node<T> *visited_child = this;
+    fine_node<T> *ancestor = parent;
+    while(ancestor != nullptr
+          && ancestor->get_context() == problem_context)
+    {
+        remove_from_node(s, ancestor);
+        for(fine_node<T> *child : ancestor->children)
+        {
+            if(child != visited_child)
+            {
+                remove_from_node_subtree(
+                    s, child, problem_context);
+            }
+        }
+
+        if(ancestor->is_nodal())
+        {
+            break;
+        }
+        visited_child = ancestor;
+        ancestor = ancestor->parent;
     }
 }
 
@@ -352,6 +533,7 @@ inline fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell,
 template<typename T>
 inline void fine_node<T>::ignite()
 {
+    fine_tree_options options = context->options;
     state s = context->hc_info.s;
     moveseq mvs = to_action();
     for(full_move mv : mvs)
@@ -373,6 +555,7 @@ inline void fine_node<T>::ignite()
                 .subspace = std::move(ss)
             }
         },
+        .options = options,
         .verified_terminal = false
     });
     // clear the old cells which are related to the old context

@@ -39,6 +39,8 @@ public:
     /* general purpose methods that includes a safety check */
     search_space remove_slice_carefully(const slice &s) const;
     search_space remove_point_carefully(const point &p) const;
+    /* remove slice if the codimension of the slice in this hc is small */
+    search_space remove_slice_if_good(const slice &s, index_t max_codim = 1) const;
     /* split the hypercuboid along the nth axis at the ith value 
     returns {part with ith value, part without ith value}
     */
@@ -78,12 +80,23 @@ public:
     void concat(search_space &&other);
     void prune_empty();
     std::string to_string() const;
+    size_t size() const { return hcs.size(); }
 
     void push_back(HC hc);
     void push_front(HC hc);
     HC &back();
     const HC &back() const;
     void pop_back();
+    /*
+     Starting at back(), remove the slice while intersections remain locally
+     dense. This uses the HC_info::search() stopping rule:
+         continue while disjoint_weight * disjoint_count < intersect_count.
+     A disjoint_weight of zero scans the entire list.
+     */
+    void remove_slice_backwards(
+        const slice &s,
+        size_t disjoint_weight = 10,
+        bool force_back_removal = false);
 
     std::list<HC>::iterator begin();
     std::list<HC>::iterator end();
