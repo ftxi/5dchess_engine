@@ -394,16 +394,32 @@ inline void fine_node<T>::remove_problem(
             return;
         }
 
-        fine_node<T> *ancestor = parent;
-        while(ancestor != nullptr
-              && ancestor->get_context() == problem_context)
+        // Cells grow monotonically along the parent chain. If cutting the
+        // problem slice from the current path cell already exceeds the
+        // quality limit, the corresponding parent cells cannot improve.
+        if(!origin_cell->space.is_slice_good(s))
         {
-            remove_from_node(s, ancestor);
+            return;
+        }
+
+        fine_node<T> *ancestor = parent;
+        fine_cell<T> *path_cell = origin_cell->parent;
+        while(ancestor != nullptr
+              && ancestor->get_context() == problem_context
+              && path_cell != nullptr)
+        {
+            if(!path_cell->space.is_slice_good(s))
+            {
+                break;
+            }
+
+            remove_from_node(s, ancestor, path_cell);
             if(ancestor->is_nodal())
             {
                 break;
             }
             ancestor = ancestor->parent;
+            path_cell = path_cell->parent;
         }
         return;
     }

@@ -316,21 +316,41 @@ search_space HC::remove_point_carefully(const point &p) const
     }
 }
 
-search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const
+bool HC::is_slice_good(const slice &s, index_t max_codim) const
 {
     const auto &fixed_axes = s.get_fixed_axes();
+    index_t count = 0;
     for(const auto& [i, fixed_coords] : fixed_axes)
     {
         if(!axes[i].intersects(fixed_coords))
         {
-            return search_space({{*this}});
+            return false;
         }
+
+        integer_set remaining_coords = axes[i];
+        remaining_coords.minus(fixed_coords);
+        if(!remaining_coords.empty())
+        {
+            if(count >= max_codim)
+            {
+                return false;
+            }
+            count++;
+        }
+    }
+    return true;
+}
+
+search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const
+{
+    if(!is_slice_good(s, max_codim))
+    {
+        return search_space({{*this}});
     }
 
     search_space result;
     HC remaining = *this;
-    index_t count = 0;
-    for(const auto& [i, fixed_coords] : fixed_axes)
+    for(const auto& [i, fixed_coords] : s.get_fixed_axes())
     {
         integer_set intersected_coords = fixed_coords;
         intersected_coords &= remaining.axes[i];
@@ -341,15 +361,7 @@ search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const
         remaining.axes[i] = std::move(intersected_coords);
         if(!x.axes[i].empty()) // do not include empty hc
         {
-            if(count < max_codim)
-            {
-                count++;
-                result.push_back(std::move(x));
-            }
-            else
-            {
-                return search_space({{*this}});
-            }
+            result.push_back(std::move(x));
         }
     }
     return result;

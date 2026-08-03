@@ -133,6 +133,10 @@ void test_backward_slice_removal()
         {0, {0, 9}},
         {1, {0, 9}}
     }};
+    assert(!rejected_as_too_fragmented.back()
+                .is_slice_good(broad_problem));
+    assert(rejected_as_too_fragmented.back()
+               .is_slice_good(broad_problem, 2));
     rejected_as_too_fragmented.remove_slice_backwards(
         broad_problem, 0);
     assert(rejected_as_too_fragmented.size() == 1);
