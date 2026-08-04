@@ -624,9 +624,8 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
     auto [l1_min, l1_max] = s.get_lines_range();
     auto [active_min, active_max] = s.get_active_range();
     // step one: find the new present
-    int mint = old_present; // mint is the new present
+    int mint = old_present; // mint will be the new present
     std::optional<std::pair<index_t,index_t>> pass_coord = std::nullopt; // record the axis of the problematic pass
-    std::optional<index_t> reactivate_move_axis = std::nullopt;
     for(int l : mandatory_lines)
     {
         assert(line_to_axis.contains(l));
@@ -691,7 +690,6 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
             mint = t;
             // if the move jumps backward, the previous threat is eliminated
             pass_coord = std::nullopt;
-            reactivate_move_axis = std::nullopt;
         }
         // there is probably a newly activated line after this branching move
         // which moves the present
@@ -707,7 +705,6 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
                 if(std::holds_alternative<null_move>(axis_coords[n1][p[n1]]))
                 {
                     pass_coord = {n1, p[n1]};
-                    reactivate_move_axis = n;
                 }
             }
         }
@@ -721,7 +718,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
         //if(pass_n >= new_axis)
         
         /*
-         on new axes (except for the reactivate_move_axis in cases where pass belongs to a reactivated line):
+         on new axes:
          ban all moves that doesn't create an *active* branch before the pass's time
          i.e. if this_axis - new_axis + 1 <= opponents_timeline - players_timeline + 1, ban every pass/arrives later than this line's time
          otherwise, ban everything
@@ -737,10 +734,6 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
             static_cast<int>(n) <= std::min<int>(timeline_advantage + static_cast<int>(new_axis), static_cast<int>(dimension) - 1);
             n++)
         {
-            if(reactivate_move_axis == n)
-            {
-                continue;
-            }
             integer_set s;
             for(index_t i : hc[n])
             {
@@ -982,8 +975,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                          it is still checking despite the path is technically blocked
                          */
                         bitboard_t friendly = c ? newboard->black() : newboard->white();
-                        bool is_royal = pmask(check.to.xy()) & newboard->royal() & friendly;
-                        if(z & is_royal)
+                        if(z & newboard->royal() & friendly)
                         {
                             dprint(n, i, sliding_type, show_semimove(loc));
                             dprint("axis", n, "not blocking (expose royal)", i);
