@@ -863,10 +863,6 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
          Otherwise, don't alter that axis futher.
          */
         int l2 = check.to.l();
-//        if(p == std::vector<int>{2, 12, 8, 9, 0, 22, 0, 0, 0, 0})
-//        {
-//            std::cout << "ach!\n";
-//        }
         if(line_to_axis.contains(l2))
         {
             index_t n2 = line_to_axis.at(l2);
