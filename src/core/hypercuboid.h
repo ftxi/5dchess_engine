@@ -9,6 +9,7 @@
 #include <vector>
 #include <variant>
 #include <optional>
+#include <random>
 #include <string>
 #include <memory>
 #include <tuple>
@@ -129,6 +130,7 @@ public:
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
     void shuffle(search_space &ss);
+    void shuffle(search_space &ss, std::mt19937 &rng);
 };
 
 #endif /* HYPERCUBOID_H */

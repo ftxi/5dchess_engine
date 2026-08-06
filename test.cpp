@@ -6,6 +6,7 @@
 #include <pgnparser.h>
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -82,6 +83,70 @@ protocol_position load_protocol_position(const std::string &path)
         .moves = position_command.substr(moves_pos + 7),
         .pgn = text.substr(pgn_pos + pgn_marker.size())
     };
+}
+
+void simulate_hypercuboid_search(
+    const fine_tree_search_diagnostic &diagnostic)
+{
+    std::cout << "slow search call: " << diagnostic.operation
+              << " " << diagnostic.seconds << " s; path=";
+    if(diagnostic.path.empty())
+    {
+        std::cout << "root";
+    }
+    else
+    {
+        for(const auto &[axis, coordinate] : diagnostic.path)
+        {
+            std::cout << "node{n=" << axis
+                      << ",i=" << coordinate << "}->";
+        }
+        std::cout << "search";
+    }
+    std::cout << "; searched next-axis coordinates=";
+    for(index_t coordinate : diagnostic.searched_children)
+    {
+        std::cout << coordinate << ',';
+    }
+    std::cout << '\n' << std::flush;
+
+    auto [hc_info, search_space] =
+        HC_info::build_HC(diagnostic.nodal_state);
+    const std::size_t initial_hcs = search_space.size();
+    for(HC &hc : search_space)
+    {
+        for(const auto &[axis, coordinate] : diagnostic.path)
+        {
+            hc[axis] &= integer_set{coordinate};
+        }
+    }
+
+    const index_t next_axis = diagnostic.path.empty()
+        ? 0
+        : diagnostic.path.back().first + 1;
+    if(next_axis < hc_info.dimension)
+    {
+        for(HC &hc : search_space)
+        {
+            for(index_t coordinate : diagnostic.searched_children)
+            {
+                hc[next_axis].erase(coordinate);
+            }
+        }
+    }
+    search_space.prune_empty();
+
+    std::cout << "fresh restricted search: dimensions="
+              << hc_info.dimension
+              << "; initial_hcs=" << initial_hcs
+              << "; restricted_hcs=" << search_space.size()
+              << "; next_axis=" << next_axis << '\n' << std::flush;
+    const auto started = clock_type::now();
+    auto result = hc_info.stable_search(search_space).first();
+    std::cout << "fresh restricted stable_search "
+              << seconds_since(started)
+              << " s; result=" << (result ? "move" : "none")
+              << '\n';
 }
 }
 
@@ -309,12 +374,12 @@ int main(int argc, char **argv)
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
 
-    if(argc < 3 || argc > 4)
+    if(argc < 3 || argc > 5)
     {
         std::cerr << "usage: " << argv[0]
                   << " <current_hc|current_cell|current_node|"
                      "descendant_subtree|ancestor_nodes|ancestor_fanout]"
-                     " <max-codim> [protocol-log]\n";
+                     " <max-codim> [protocol-log [rollout-seed]]\n";
         return 2;
     }
 
@@ -322,7 +387,10 @@ int main(int argc, char **argv)
     const index_t max_codim =
         static_cast<index_t>(std::stoul(argv[2]));
     constexpr size_t disjoint_weight = 2;
-    const bool loaded_from_file = argc == 4;
+    const std::uint32_t rollout_seed = argc == 5
+        ? static_cast<std::uint32_t>(std::stoul(argv[4]))
+        : 0;
+    const bool loaded_from_file = argc >= 4;
     std::string pgn_text = pgn;
     std::string position_name = "hardcoded";
 
@@ -344,7 +412,8 @@ int main(int argc, char **argv)
             load_protocol_position(position_name);
         pgn_text = std::move(input.pgn);
 
-        mcts_engine mcts(std::make_unique<sink_io>(), options);
+        mcts_engine mcts(
+            std::make_unique<sink_io>(), options, rollout_seed, 1.0);
         auto started = clock_type::now();
         mcts.set_position(input.initial_position, input.moves);
         std::cout << "UCI set_position " << seconds_since(started)
@@ -355,11 +424,17 @@ int main(int argc, char **argv)
         std::cout << "MCTS movetime 1000 " << seconds_since(started)
                   << " s, result=" << (best ? "move" : "none")
                   << '\n' << std::flush;
+        for(const fine_tree_search_diagnostic &diagnostic
+            : mcts.get_search_diagnostics())
+        {
+            simulate_hypercuboid_search(diagnostic);
+        }
     }
 
     std::cout << "policy: " << policy_name
               << "; disjoint weight: " << disjoint_weight
               << "; max codim: " << max_codim
+              << "; rollout seed: " << rollout_seed
               << "; position: " << position_name << '\n';
 
     const auto parse_started = clock_type::now();

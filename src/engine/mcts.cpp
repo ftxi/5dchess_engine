@@ -1,8 +1,10 @@
 #include "mcts.h"
+#include <algorithm>
 #include <limits>
 #include <cmath>
 #include <chrono>
 #include <stop_token>
+#include <random>
 #include "hypercuboid.h"
 #include "scope.h"
 #include "utils.h"
@@ -18,8 +20,78 @@ namespace
 {
 
 using node_t = fine_node<mcts_node_info>;
+using diagnostic_list = std::vector<fine_tree_search_diagnostic>;
 
-node_t *expand(node_t *node, std::stop_token stop_token)
+std::vector<index_t> child_coordinates(node_t *node)
+{
+    std::vector<index_t> result;
+    for(node_t *child : node->get_children())
+    {
+        result.push_back(child->get_i());
+    }
+    return result;
+}
+
+void record_search_diagnostic(
+    node_t *node,
+    const char *operation,
+    std::chrono::steady_clock::time_point started,
+    std::vector<index_t> searched_children,
+    diagnostic_list *diagnostics,
+    double threshold)
+{
+    const double seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - started).count();
+    if(seconds < threshold)
+    {
+        return;
+    }
+
+    std::vector<std::pair<index_t, index_t>> path;
+    for(node_t *current = node;
+        current != nullptr && !current->is_nodal();
+        current = current->get_parent())
+    {
+        path.emplace_back(current->get_n(), current->get_i());
+    }
+    std::reverse(path.begin(), path.end());
+    diagnostics->push_back(fine_tree_search_diagnostic{
+        .operation = operation,
+        .seconds = seconds,
+        .nodal_state = node->get_context()->hc_info.s,
+        .path = std::move(path),
+        .searched_children = std::move(searched_children)
+    });
+}
+
+bool is_terminal(
+    node_t *node,
+    diagnostic_list *diagnostics,
+    double threshold)
+{
+    if(diagnostics == nullptr)
+    {
+        return node->is_terminal();
+    }
+
+    std::vector<index_t> searched_children = child_coordinates(node);
+    const auto started = std::chrono::steady_clock::now();
+    const bool result = node->is_terminal();
+    record_search_diagnostic(
+        node,
+        "is_terminal",
+        started,
+        std::move(searched_children),
+        diagnostics,
+        threshold);
+    return result;
+}
+
+node_t *expand(
+    node_t *node,
+    std::stop_token stop_token,
+    diagnostic_list *diagnostics,
+    double threshold)
 {
     dprint("expand", node->print_semimove(), (node->is_nodal() ? "nodal" : "temporary"), (node->is_ceiling() ? "ceiling" : ""),
            "fully_expanded=", node->get_info().fully_expanded,
@@ -61,7 +133,25 @@ node_t *expand(node_t *node, std::stop_token stop_token)
     }
     // search out another branch
     dprint("expand: calling search()");
-    if(auto i_opt = node->search().first())
+    std::optional<index_t> i_opt;
+    if(diagnostics == nullptr)
+    {
+        i_opt = node->search().first();
+    }
+    else
+    {
+        std::vector<index_t> searched_children = child_coordinates(node);
+        const auto started = std::chrono::steady_clock::now();
+        i_opt = node->search().first();
+        record_search_diagnostic(
+            node,
+            "expand/search.first",
+            started,
+            std::move(searched_children),
+            diagnostics,
+            threshold);
+    }
+    if(i_opt)
     {
         node_t *child = node->get_child(*i_opt);
         assert(child != nullptr);
@@ -107,12 +197,18 @@ node_t *best_child(node_t *node)
 }
 
 
-node_t *tree_policy(node_t *node, std::stop_token stop_token)
+node_t *tree_policy(
+    node_t *node,
+    std::stop_token stop_token,
+    diagnostic_list *diagnostics,
+    double threshold)
 {
     dprint("tree_policy()", node->print_semimove(), (node->is_nodal() ? "nodal" : "temporary"), (node->is_ceiling() ? "ceiling" : ""));
-    while(!node->is_terminal() && !stop_token.stop_requested())
+    while(!is_terminal(node, diagnostics, threshold)
+          && !stop_token.stop_requested())
     {
-        node_t *next_node = expand(node, stop_token);
+        node_t *next_node = expand(
+            node, stop_token, diagnostics, threshold);
         if(next_node)
         {
             return next_node;
@@ -137,7 +233,13 @@ struct simulation_result
     bool aborted;
 };
 
-simulation_result default_policy(node_t *node, int max_actions, std::stop_token stop_token)
+simulation_result default_policy(
+    node_t *node,
+    int max_actions,
+    std::stop_token stop_token,
+    std::mt19937 *rng,
+    diagnostic_list *diagnostics,
+    double threshold)
 {
     dprint("default_policy()", node->print_semimove(), "max_actions=", max_actions);
     if(node->is_terminal())
@@ -167,8 +269,29 @@ simulation_result default_policy(node_t *node, int max_actions, std::stop_token 
         }
         [[maybe_unused]] auto [present, player] = s.get_present();
         auto [w, ss] = HC_info::build_HC(s);
-        w.shuffle(ss);
-        if(auto mvs = w.iterative_search(ss).first())
+        if(rng != nullptr)
+        {
+            w.shuffle(ss, *rng);
+        }
+        else
+        {
+            w.shuffle(ss);
+        }
+        const auto search_started = std::chrono::steady_clock::now();
+        auto mvs = w.iterative_search(ss).first();
+        const double search_seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - search_started).count();
+        if(diagnostics != nullptr && search_seconds >= threshold)
+        {
+            diagnostics->push_back(fine_tree_search_diagnostic{
+                .operation = "rollout/iterative_search",
+                .seconds = search_seconds,
+                .nodal_state = s,
+                .path = {},
+                .searched_children = {}
+            });
+        }
+        if(mvs)
         {
             for(full_move fm : *mvs)
             {
@@ -234,6 +357,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
            "time_limit_ms=", (time_limit_ms.has_value() ? std::to_string(*time_limit_ms) : "none"));
     root = fine_node<mcts_node_info>::make_root(
         *get_current_state(), mcts_node_info{}, fine_tree_config);
+    search_diagnostics.clear();
     root->get_info().player = get_current_state()->get_present().second;
     // if(root->is_terminal())
     // {
@@ -256,6 +380,11 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     }
 
     std::size_t iteration_count = 0;
+    std::optional<std::mt19937> rollout_rng;
+    if(rollout_seed.has_value())
+    {
+        rollout_rng.emplace(*rollout_seed);
+    }
     while(!stop_token.stop_requested())
     {
         if(iteration_limit.has_value() && iteration_count >= iteration_limit.value())
@@ -268,7 +397,13 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
             dprint("find_best_move: time deadline reached", iteration_count);
             break;
         }
-        node_t *node = tree_policy(root.get(), stop_token);
+        node_t *node = tree_policy(
+            root.get(),
+            stop_token,
+            diagnostic_threshold.has_value()
+                ? &search_diagnostics
+                : nullptr,
+            diagnostic_threshold.value_or(0.0));
         if(node == nullptr)
         {
             dprint("find_best_move: tree_policy returned nullptr at iteration", iteration_count,
@@ -276,7 +411,15 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
                    "root_children=", root->get_children().size());
             break;
         }
-        simulation_result result = default_policy(node, ROLLOUT_MAX_ACTIONS, stop_token);
+        simulation_result result = default_policy(
+            node,
+            ROLLOUT_MAX_ACTIONS,
+            stop_token,
+            rollout_rng.has_value() ? &*rollout_rng : nullptr,
+            diagnostic_threshold.has_value()
+                ? &search_diagnostics
+                : nullptr,
+            diagnostic_threshold.value_or(0.0));
         if(result.aborted)
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count,
