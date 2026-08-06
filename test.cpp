@@ -1,4 +1,5 @@
 #include "finetree.h"
+#include "mcts.h"
 #include <string>
 #include <memory>
 #include <iostream>
@@ -8,6 +9,81 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
+
+namespace
+{
+using clock_type = std::chrono::steady_clock;
+
+class sink_io final : public io_handler
+{
+public:
+    std::string read_line() override { return {}; }
+    void write_line(const std::string &) override {}
+    bool is_open() override { return false; }
+};
+
+struct protocol_position
+{
+    std::string initial_position;
+    std::string moves;
+    std::string pgn;
+};
+
+double seconds_since(clock_type::time_point started)
+{
+    return std::chrono::duration<double>(
+        clock_type::now() - started).count();
+}
+
+protocol_position load_protocol_position(const std::string &path)
+{
+    std::ifstream input(path);
+    if(!input)
+    {
+        throw std::runtime_error("cannot open protocol log: " + path);
+    }
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    const std::string text = contents.str();
+
+    constexpr std::string_view position_marker = "> position ";
+    const std::size_t position_pos = text.rfind(position_marker);
+    if(position_pos == std::string::npos)
+    {
+        throw std::runtime_error("protocol log has no UCI position");
+    }
+    const std::size_t go_pos =
+        text.find(" | > go movetime", position_pos);
+    if(go_pos == std::string::npos)
+    {
+        throw std::runtime_error(
+            "protocol log has no go after its final position");
+    }
+    const std::string position_command = text.substr(
+        position_pos + position_marker.size(),
+        go_pos - position_pos - position_marker.size());
+    const std::size_t moves_pos = position_command.find(" moves ");
+    if(moves_pos == std::string::npos)
+    {
+        throw std::runtime_error(
+            "final UCI position has no moves component");
+    }
+
+    constexpr std::string_view pgn_marker = "Partial game PGN:\n";
+    const std::size_t pgn_pos = text.rfind(pgn_marker);
+    if(pgn_pos == std::string::npos)
+    {
+        throw std::runtime_error("protocol log has no partial PGN");
+    }
+
+    return {
+        .initial_position = position_command.substr(0, moves_pos),
+        .moves = position_command.substr(moves_pos + 7),
+        .pgn = text.substr(pgn_pos + pgn_marker.size())
+    };
+}
+}
 
 std::string pgn = R"(
 [Board "Standard - Turn Zero"]
@@ -233,48 +309,62 @@ int main(int argc, char **argv)
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     };
 
-    const std::string policy_name =
-        argc > 1 ? argv[1] : "current_node";
-    const size_t disjoint_weight =
-        argc > 2 ? std::stoull(argv[2]) : 10;
-    if(argc > 4)
+    if(argc < 3 || argc > 4)
     {
         std::cerr << "usage: " << argv[0]
-                  << " [current_hc|current_cell|current_node|"
+                  << " <current_hc|current_cell|current_node|"
                      "descendant_subtree|ancestor_nodes|ancestor_fanout]"
-                     " [disjoint-weight; 0 scans all] [pgn-file]\n";
+                     " <max-codim> [protocol-log]\n";
         return 2;
     }
 
+    const std::string policy_name = argv[1];
+    const index_t max_codim =
+        static_cast<index_t>(std::stoul(argv[2]));
+    constexpr size_t disjoint_weight = 2;
+    const bool loaded_from_file = argc == 4;
     std::string pgn_text = pgn;
     std::string position_name = "hardcoded";
-    const bool loaded_from_file = argc > 3;
-    if(loaded_from_file)
-    {
-        position_name = argv[3];
-        std::ifstream input(position_name);
-        if(!input)
-        {
-            throw std::runtime_error(
-                "cannot open PGN file: " + position_name);
-        }
-        std::ostringstream contents;
-        contents << input.rdbuf();
-        pgn_text = contents.str();
-    }
 
     const fine_tree_pruning_policy policy = parse_policy(policy_name);
-    std::cout << "policy: " << policy_name
-              << "; disjoint weight: " << disjoint_weight
-              << "; position: " << position_name << '\n';
-
-    state s(*pgnparser(pgn_text).parse_game());
     fine_tree_options options{
         .pruning_policy = policy,
         .scan_policy = {
             .disjoint_weight = disjoint_weight
+        },
+        .quality_policy = {
+            .max_codim = max_codim
         }
     };
+
+    if(loaded_from_file)
+    {
+        position_name = argv[3];
+        protocol_position input =
+            load_protocol_position(position_name);
+        pgn_text = std::move(input.pgn);
+
+        mcts_engine mcts(std::make_unique<sink_io>(), options);
+        auto started = clock_type::now();
+        mcts.set_position(input.initial_position, input.moves);
+        std::cout << "UCI set_position " << seconds_since(started)
+                  << " s\n" << std::flush;
+
+        started = clock_type::now();
+        auto best = mcts.find_best_move(std::nullopt, 1000, {});
+        std::cout << "MCTS movetime 1000 " << seconds_since(started)
+                  << " s, result=" << (best ? "move" : "none")
+                  << '\n' << std::flush;
+    }
+
+    std::cout << "policy: " << policy_name
+              << "; disjoint weight: " << disjoint_weight
+              << "; max codim: " << max_codim
+              << "; position: " << position_name << '\n';
+
+    const auto parse_started = clock_type::now();
+    state s(*pgnparser(pgn_text).parse_game());
+    std::cout << "parse " << seconds_since(parse_started) << " s\n";
     std::unique_ptr<fn> root =
         fn::make_root(s, std::monostate{}, options);
 

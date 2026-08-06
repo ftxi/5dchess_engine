@@ -34,9 +34,14 @@ struct mcts_node_info
 class mcts_engine : public engine
 {
     std::unique_ptr<fine_node<mcts_node_info>> root;
+    fine_tree_options fine_tree_config;
 public:
-    mcts_engine(std::unique_ptr<io_handler> io_handler)
-    : engine(std::move(io_handler)), root(nullptr) {}
+    mcts_engine(
+        std::unique_ptr<io_handler> io_handler,
+        fine_tree_options options = {})
+    : engine(std::move(io_handler)),
+      root(nullptr),
+      fine_tree_config(options) {}
     void initialize() override;
     std::optional<action> find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token) override;
 };

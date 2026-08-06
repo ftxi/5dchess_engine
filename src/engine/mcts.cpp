@@ -232,7 +232,8 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     dprint("find_best_move()",
            "depth_limit=", (depth_limit.has_value() ? std::to_string(*depth_limit) : "none"),
            "time_limit_ms=", (time_limit_ms.has_value() ? std::to_string(*time_limit_ms) : "none"));
-    root = fine_node<mcts_node_info>::make_root(*get_current_state());
+    root = fine_node<mcts_node_info>::make_root(
+        *get_current_state(), mcts_node_info{}, fine_tree_config);
     root->get_info().player = get_current_state()->get_present().second;
     // if(root->is_terminal())
     // {

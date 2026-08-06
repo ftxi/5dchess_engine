@@ -32,11 +32,19 @@ struct dynamic_scan_policy
     size_t disjoint_weight = 10;
 };
 
+struct slice_quality_policy
+{
+    // Maximum number of partially intersected axes accepted when removing a
+    // problem slice from a secondary HC. The critical HC is always removed.
+    index_t max_codim = 1;
+};
+
 struct fine_tree_options
 {
     fine_tree_pruning_policy pruning_policy =
         fine_tree_pruning_policy::current_node;
     dynamic_scan_policy scan_policy;
+    slice_quality_policy quality_policy;
 };
 
 template<typename T = std::monostate>

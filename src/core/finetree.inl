@@ -270,7 +270,8 @@ inline void fine_node<T>::remove_from_cell(
         cell->subspace.remove_slice_backwards(
             s,
             get_context()->options.scan_policy.disjoint_weight,
-            force_back_removal);
+            force_back_removal,
+            get_context()->options.quality_policy.max_codim);
     }
 }
 
@@ -310,7 +311,8 @@ inline void fine_node<T>::remove_from_cell_subtree(
     cell->subspace.remove_slice_backwards(
         s,
         problem_context->options.scan_policy.disjoint_weight,
-        force_back_removal);
+        force_back_removal,
+        problem_context->options.quality_policy.max_codim);
     for(fine_cell<T> *child : cell->children)
     {
         // An ignited ceiling owns a new context. Its old cell can remain in
@@ -397,7 +399,9 @@ inline void fine_node<T>::remove_problem(
         // Cells grow monotonically along the parent chain. If cutting the
         // problem slice from the current path cell already exceeds the
         // quality limit, the corresponding parent cells cannot improve.
-        if(!origin_cell->space.is_slice_good(s))
+        const index_t max_codim =
+            problem_context->options.quality_policy.max_codim;
+        if(!origin_cell->space.is_slice_good(s, max_codim))
         {
             return;
         }
@@ -408,7 +412,7 @@ inline void fine_node<T>::remove_problem(
               && ancestor->get_context() == problem_context
               && path_cell != nullptr)
         {
-            if(!path_cell->space.is_slice_good(s))
+            if(!path_cell->space.is_slice_good(s, max_codim))
             {
                 break;
             }

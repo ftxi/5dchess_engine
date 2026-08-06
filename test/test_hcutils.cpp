@@ -142,6 +142,18 @@ void test_backward_slice_removal()
     assert(rejected_as_too_fragmented.size() == 1);
     assert(rejected_as_too_fragmented.contains(point{0, 0}));
 
+    // Raising max_codim to two accepts the same secondary removal.
+    search_space accepted_with_codim_two{
+        HC{{0, 1}, {0, 1}}
+    };
+    accepted_with_codim_two.remove_slice_backwards(
+        broad_problem, 0, false, 2);
+    assert(accepted_with_codim_two.size() == 2);
+    assert(!accepted_with_codim_two.contains(point{0, 0}));
+    assert(accepted_with_codim_two.contains(point{0, 1}));
+    assert(accepted_with_codim_two.contains(point{1, 0}));
+    assert(accepted_with_codim_two.contains(point{1, 1}));
+
     // The originating HC must be cut even when the same operation would be
     // rejected for a secondary HC, or exploration could repeat forever.
     search_space partial{

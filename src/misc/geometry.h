@@ -98,7 +98,8 @@ public:
     void remove_slice_backwards(
         const slice &s,
         size_t disjoint_weight = 10,
-        bool force_back_removal = false);
+        bool force_back_removal = false,
+        index_t max_codim = 1);
 
     std::list<HC>::iterator begin();
     std::list<HC>::iterator end();
