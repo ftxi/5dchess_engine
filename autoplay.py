@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import contextlib
 from collections import deque
 import importlib
@@ -12,6 +13,7 @@ import multiprocessing
 import re
 import shlex
 import sys
+import time
 from pathlib import Path
 
 
@@ -40,6 +42,8 @@ class EngineProcess:
         self.protocol_log = deque(maxlen=24)
         self.stderr_log = deque(maxlen=24)
         self.stderr_task: asyncio.Task | None = None
+        self.last_mcts_stats: dict[str, str] = {}
+        self.last_go_seconds: float | None = None
 
     def _record(self, direction: str, line: str) -> None:
         self.protocol_log.append(f"{direction} {line}")
@@ -110,6 +114,12 @@ class EngineProcess:
                     raise ProtocolError(f"{self.name}: exited with {code}; {self.diagnostic()}")
                 line = raw.decode(errors="replace").strip()
                 self._record("<", line)
+                if line.startswith("info mcts_stats "):
+                    self.last_mcts_stats = dict(
+                        token.split("=", 1)
+                        for token in line.split()[2:]
+                        if "=" in token
+                    )
                 if any(line == item or line.startswith(item + " ") for item in choices):
                     return line
                 if not line.startswith("info "):
@@ -138,6 +148,9 @@ class EngineProcess:
         if history:
             request += " moves " + " ".join(history)
         await self.send(request)
+        self.last_mcts_stats = {}
+        self.last_go_seconds = None
+        go_started = time.perf_counter()
         await self.send(f"go movetime {movetime_ms}")
 
         # Wait for engine output and terminal input concurrently.  Keeping
@@ -175,6 +188,7 @@ class EngineProcess:
                     print("Type 'stop' to force the thinking engine to move.", file=sys.stderr)
             line = await response
         finally:
+            self.last_go_seconds = time.perf_counter() - go_started
             if command and not command.done():
                 command.cancel()
             if stop_deadline and not stop_deadline.done():
@@ -207,6 +221,69 @@ class EngineProcess:
                 await self.stderr_task
             self.stderr_task = None
         self.phase = "closed"
+
+
+METRICS_FIELDS = (
+    "game",
+    "action",
+    "move_number",
+    "color",
+    "engine_name",
+    "engine_command",
+    "requested_movetime_ms",
+    "wall_time_seconds",
+    "nodes_visited",
+    "nodes_per_wall_second",
+    "engine_search_seconds",
+    "engine_nodes_per_second",
+    "status",
+)
+
+
+def initialize_metrics(path: Path) -> None:
+    """Create a fresh per-go metrics file for this autoplay invocation."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as output:
+        csv.DictWriter(output, fieldnames=METRICS_FIELDS).writeheader()
+
+
+def record_go_metrics(
+    path: Path,
+    player: EngineProcess,
+    game_number: int,
+    action_number: int,
+    move_number: int,
+    color: str,
+    movetime_ms: int,
+    status: str,
+) -> None:
+    """Append one completed or failed `go` command, flushing it immediately."""
+
+    nodes_text = player.last_mcts_stats.get("nodes_visited", "")
+    wall_seconds = player.last_go_seconds
+    nodes_per_wall_second = ""
+    if nodes_text and wall_seconds and wall_seconds > 0.0:
+        nodes_per_wall_second = float(nodes_text) / wall_seconds
+    row = {
+        "game": game_number,
+        "action": action_number,
+        "move_number": move_number,
+        "color": color,
+        "engine_name": player.name,
+        "engine_command": player.command,
+        "requested_movetime_ms": movetime_ms,
+        "wall_time_seconds": wall_seconds if wall_seconds is not None else "",
+        "nodes_visited": nodes_text,
+        "nodes_per_wall_second": nodes_per_wall_second,
+        "engine_search_seconds": player.last_mcts_stats.get("elapsed_seconds", ""),
+        "engine_nodes_per_second": player.last_mcts_stats.get("nodes_per_second", ""),
+        "status": status,
+    }
+    with path.open("a", newline="") as output:
+        writer = csv.DictWriter(output, fieldnames=METRICS_FIELDS)
+        writer.writerow(row)
+        output.flush()
 
 
 def load_rules(module_dir: Path):
@@ -481,12 +558,19 @@ async def play(args, rules, game_number: int = 1) -> str:
             try:
                 moves = await player.choose(initial_position, history, args.movetime, commands)
             except ProtocolError as exc:
+                record_go_metrics(
+                    args.metrics_csv, player, game_number, turn, move_number,
+                    "black" if index else "white", args.movetime, "protocol_error")
                 outcome = "protocol"
                 result = f"protocol failure from {player_label(index)}: {exc}"
                 failure_file = save_protocol_failure(game, players, result, show_flags, game_number)
                 if failure_file:
                     print(f"Protocol diagnostics saved at\n  {failure_file}", file=sys.stderr)
                 break
+            record_go_metrics(
+                args.metrics_csv, player, game_number, turn, move_number,
+                "black" if index else "white", args.movetime,
+                "bestmove" if moves else "nobestmove")
             if not moves:
                 adjudication_file = save_adjudication_position(game)
                 print(
@@ -573,6 +657,8 @@ def print_summary(counts: dict[str, int], requested: int) -> None:
 async def run(args, rules) -> int:
     """Run one game, or a requested series of independent games."""
 
+    initialize_metrics(args.metrics_csv)
+    print(f"Per-go metrics: {args.metrics_csv.resolve()}")
     if args.games is None:
         await play(args, rules)
         return 0
@@ -608,6 +694,12 @@ def main() -> int:
     )
     parser.add_argument("--max-actions", type=int, default=500)
     parser.add_argument("-n", "--games", type=int, help="number of games to play")
+    parser.add_argument(
+        "--metrics-csv",
+        type=Path,
+        default=Path("logs/autoplay-go-metrics.csv"),
+        help="CSV output for per-go timing and MCTS visit counts",
+    )
     args = parser.parse_args()
     if args.movetime <= 0 or args.timeout <= 0 or args.max_actions <= 0:
         parser.error("time and action limits must be positive")

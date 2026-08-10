@@ -2,7 +2,9 @@
 #include <limits>
 #include <cmath>
 #include <chrono>
+#include <iomanip>
 #include <stop_token>
+#include <sstream>
 #include "hypercuboid.h"
 #include "scope.h"
 #include "utils.h"
@@ -229,6 +231,7 @@ void mcts_engine::initialize()
 
 std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token)
 {
+    const auto search_started = std::chrono::steady_clock::now();
     dprint("find_best_move()",
            "depth_limit=", (depth_limit.has_value() ? std::to_string(*depth_limit) : "none"),
            "time_limit_ms=", (time_limit_ms.has_value() ? std::to_string(*time_limit_ms) : "none"));
@@ -289,6 +292,21 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     dprint("find_best_move: post-loop, iterations=", iteration_count,
            "root_visits=", root->get_info().visits,
            "root_children=", root->get_children().size());
+    const auto report_search_metrics = [&]()
+    {
+        const double seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - search_started).count();
+        const std::size_t visits = root->get_info().visits;
+        const double visits_per_second = seconds > 0.0
+            ? static_cast<double>(visits) / seconds
+            : 0.0;
+        std::ostringstream info;
+        info << std::setprecision(17)
+             << "mcts_stats elapsed_seconds=" << seconds
+             << " nodes_visited=" << visits
+             << " nodes_per_second=" << visits_per_second;
+        send_info(info.str());
+    };
     node_t *current_node = root.get();
     node_t *previous_node = nullptr;
     while(current_node && !current_node->is_ceiling())
@@ -346,6 +364,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         {
             best_ext_moves.emplace_back(fm);
         }
+        report_search_metrics();
         return action::from_vector(best_ext_moves, get_current_state().value());
     }
     else
@@ -354,6 +373,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
                "iterations=", iteration_count,
                "root_visits=", root->get_info().visits,
                "root_children=", root->get_children().size());
+        report_search_metrics();
         return std::nullopt;
     }
 }
