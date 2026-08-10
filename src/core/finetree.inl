@@ -9,7 +9,7 @@ inline fine_node<T>::fine_node(
     fine_node *parent,
     state s,
     T info_value)
-: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}, info{std::move(info_value)}
+: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}, next_cell_index{0}, info{std::move(info_value)}
 {
     auto [hc_info, ss] = HC_info::build_HC(s);
     HC universe = hc_info.universe;
@@ -31,7 +31,7 @@ inline fine_node<T>::fine_node(
 
 template<typename T>
 inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i, T info_value)
-: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, info{std::move(info_value)} {}
+: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, next_cell_index{0}, info{std::move(info_value)} {}
 
 template<typename T>
 inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(
@@ -218,39 +218,42 @@ template<typename T>
 inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
 {
     HC_info &hc_info = get_context()->hc_info;
-    for(fine_cell<T> *cell : cells)
+    std::size_t consecutive_empty_cells = 0;
+    while(!cells.empty()
+          && consecutive_empty_cells < cells.size())
     {
-        // search for each cell in cells
-        while(!cell->subspace.empty())
+        if(next_cell_index >= cells.size())
         {
-            // while the search space of this cell is not exhausted
-            HC &hc = cell->subspace.back();
-            //cell.subspace.hcs.pop_back();
-            // try to take a point in this hc
-            auto pt_opt = hc_info.take_point(hc);
-            if(pt_opt)
-            {
-                auto problem = hc_info.find_problem(*pt_opt, hc);
-                if(problem)
-                {
-                    // if there is a problem with this point
-                    // remove the problem for all relevant cells
-                    remove_problem(*problem, cell);
-                }
-                else
-                {
-                    // otherwise we are done
-                    return std::optional<std::tuple<point, fine_cell<T> *, HC *>>{std::in_place, *pt_opt, cell, &hc};
-                }
-            }
-            else
-            {
-                // if there is no more point, remove this hc
-                cell->subspace.pop_back();
-            }
+            next_cell_index = 0;
         }
+        fine_cell<T> *cell = cells[next_cell_index];
+        next_cell_index++;
+
+        if(cell->subspace.empty())
+        {
+            consecutive_empty_cells++;
+            continue;
+        }
+        consecutive_empty_cells = 0;
+
+        HC &hc = cell->subspace.back();
+        auto pt_opt = hc_info.take_point(hc);
+        if(!pt_opt)
+        {
+            cell->subspace.pop_back();
+            continue;
+        }
+
+        auto problem = hc_info.find_problem(*pt_opt, hc);
+        if(problem)
+        {
+            remove_problem(*problem, cell);
+            continue;
+        }
+
+        return std::optional<std::tuple<point, fine_cell<T> *, HC *>>{
+            std::in_place, *pt_opt, cell, &hc};
     }
-    // explored all cells without finding a solution; report failure
     return std::nullopt;
 }
 
@@ -435,7 +438,8 @@ inline void fine_node<T>::ignite()
         .verified_terminal = false
     });
     // clear the old cells which are related to the old context
-    cells.clear(); 
+    cells.clear();
+    next_cell_index = 0;
     cells.push_back(&pocessed_context->cell_pool.back());
 }
 

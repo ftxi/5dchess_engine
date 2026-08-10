@@ -63,6 +63,7 @@ class fine_node
     nodal_pocession<T> *context;
     index_t n, i; // only meaningful for temporary nodes
     std::vector<fine_cell<T>*> cells;
+    std::size_t next_cell_index;
     std::vector<fine_node<T>*> children;
     T info;
 
