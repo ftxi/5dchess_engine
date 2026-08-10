@@ -2,6 +2,7 @@
 #include "mcts.h"
 
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -30,11 +31,17 @@ double seconds_since(clock_type::time_point started)
 
 int main(int argc, char **argv)
 {
-    if(argc != 2)
+    if(argc < 2 || argc > 3)
     {
-        std::cerr << "usage: " << argv[0] << " protocol-failure-log\n";
+        std::cerr << "usage: " << argv[0]
+                  << " protocol-failure-log [rollout-seed]\n";
         return 2;
     }
+
+    const std::optional<std::uint32_t> rollout_seed = argc == 3
+        ? std::optional<std::uint32_t>{
+            static_cast<std::uint32_t>(std::stoul(argv[2]))}
+        : std::nullopt;
 
     std::ifstream input(argv[1]);
     if(!input)
@@ -66,7 +73,12 @@ int main(int argc, char **argv)
     const std::string initial_position = position_command.substr(0, moves_pos);
     const std::string moves = position_command.substr(moves_pos + 7);
 
-    mcts_engine mcts(std::make_unique<sink_io>());
+    mcts_engine mcts(std::make_unique<sink_io>(), rollout_seed);
+    std::cout << "rollout seed "
+              << (rollout_seed.has_value()
+                    ? std::to_string(*rollout_seed)
+                    : "random")
+              << '\n';
     auto started = clock_type::now();
     mcts.set_position(initial_position, moves);
     std::cout << "UCI set_position " << seconds_since(started) << " s\n"

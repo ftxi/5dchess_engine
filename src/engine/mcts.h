@@ -7,6 +7,7 @@
 #include <atomic>
 #include <stop_token>
 #include <memory>
+#include <cstdint>
 #include "uci.h"
 #include "finetree.h"
 
@@ -34,9 +35,14 @@ struct mcts_node_info
 class mcts_engine : public engine
 {
     std::unique_ptr<fine_node<mcts_node_info>> root;
+    std::optional<std::uint32_t> rollout_seed;
 public:
-    mcts_engine(std::unique_ptr<io_handler> io_handler)
-    : engine(std::move(io_handler)), root(nullptr) {}
+    mcts_engine(
+        std::unique_ptr<io_handler> io_handler,
+        std::optional<std::uint32_t> seed = std::nullopt)
+    : engine(std::move(io_handler)),
+      root(nullptr),
+      rollout_seed(seed) {}
     void initialize() override;
     std::optional<action> find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token) override;
 };

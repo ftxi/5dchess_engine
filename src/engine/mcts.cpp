@@ -4,6 +4,7 @@
 #include <chrono>
 #include <iomanip>
 #include <stop_token>
+#include <random>
 #include <sstream>
 #include "hypercuboid.h"
 #include "scope.h"
@@ -139,7 +140,11 @@ struct simulation_result
     bool aborted;
 };
 
-simulation_result default_policy(node_t *node, int max_actions, std::stop_token stop_token)
+simulation_result default_policy(
+    node_t *node,
+    int max_actions,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
 {
     dprint("default_policy()", node->print_semimove(), "max_actions=", max_actions);
     if(node->is_terminal())
@@ -169,7 +174,14 @@ simulation_result default_policy(node_t *node, int max_actions, std::stop_token 
         }
         [[maybe_unused]] auto [present, player] = s.get_present();
         auto [w, ss] = HC_info::build_HC(s);
-        w.shuffle(ss);
+        if(rng != nullptr)
+        {
+            w.shuffle(ss, *rng);
+        }
+        else
+        {
+            w.shuffle(ss);
+        }
         if(auto mvs = w.iterative_search(ss).first())
         {
             for(full_move fm : *mvs)
@@ -258,6 +270,11 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     }
 
     std::size_t iteration_count = 0;
+    std::optional<std::mt19937> rollout_rng;
+    if(rollout_seed.has_value())
+    {
+        rollout_rng.emplace(*rollout_seed);
+    }
     while(!stop_token.stop_requested())
     {
         if(iteration_limit.has_value() && iteration_count >= iteration_limit.value())
@@ -278,7 +295,11 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
                    "root_children=", root->get_children().size());
             break;
         }
-        simulation_result result = default_policy(node, ROLLOUT_MAX_ACTIONS, stop_token);
+        simulation_result result = default_policy(
+            node,
+            ROLLOUT_MAX_ACTIONS,
+            stop_token,
+            rollout_rng.has_value() ? &*rollout_rng : nullptr);
         if(result.aborted)
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count,

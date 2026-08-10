@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <memory>
+#include <random>
 #include <tuple>
 #include <functional>
 #include "geometry.h"
@@ -129,6 +130,7 @@ public:
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
     void shuffle(search_space &ss);
+    void shuffle(search_space &ss, std::mt19937 &rng);
 };
 
 #endif /* HYPERCUBOID_H */

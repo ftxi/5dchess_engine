@@ -995,6 +995,11 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
 void HC_info::shuffle(search_space &ss)
 {
     static thread_local std::mt19937 rng(std::random_device{}());
+    shuffle(ss, rng);
+}
+
+void HC_info::shuffle(search_space &ss, std::mt19937 &rng)
+{
     std::vector<std::vector<int>> inverses(dimension);
     for(index_t n = 0; n < dimension; n++)
     {
