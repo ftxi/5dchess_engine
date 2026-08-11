@@ -161,6 +161,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     if(PYMODULE)
         message(STATUS ">>> Building python library...")
         # Add pybind11 for Python bindings
+        set(PYBIND11_FINDPYTHON ON CACHE BOOL "Use modern FindPython mode")
         add_subdirectory(extern/pybind11)
         
         # Create the Python module

@@ -141,5 +141,8 @@ For more details on the structure of this repository, please read [this page](do
 - [ ] Modify cmake file to support building core only/build engine.
 - [x] Create a basic 5d chess bot.
 - [ ] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
+    + In fact, I can consider a randomized version of HC_info class
 - [x] Figure out the reason for unexpected nobestmove.
 - [x] Implement new search policy to only remove good non-necessary problem slices
+- [ ] Try shortened rollout for MCTS default policy. Make it a parameter in `cli uci mcts`.
+- [ ] Separate tools such as cli.cpp and rollout.cpp in a folder.
