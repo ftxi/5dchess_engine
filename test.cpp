@@ -10,6 +10,7 @@
 #include <string>
 
 #include "pgnparser.h"
+#include "ordering.h"
 
 namespace
 {

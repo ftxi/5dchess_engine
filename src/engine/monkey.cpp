@@ -7,12 +7,19 @@ std::optional<action> monkey_engine::find_best_move(std::optional<int> depth_lim
     (void)time_limit_ms;
     const state &s = get_current_state().value();
     auto [w, ss] = HC_info::build_HC(s);
-    w.shuffle(ss);
+    std::optional<std::mt19937> rng;
+    if(move_seed.has_value())
+    {
+        rng.emplace(*move_seed);
+    }
+    random_HC_ordering order = rng.has_value()
+        ? random_HC_ordering(w.universe, *rng)
+        : random_HC_ordering(w.universe);
     if(stop_token.stop_requested())
     {
         return std::nullopt;
     }
-    if(auto mvs = w.iterative_search(ss).first())
+    if(auto mvs = w.iterative_search(std::move(ss), std::move(order)).first())
     {
         std::vector<ext_move> ext_mvs;
         for(full_move fm : *mvs)

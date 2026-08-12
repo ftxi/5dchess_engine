@@ -1,3 +1,6 @@
+#ifndef GRAPH_H
+#define GRAPH_H
+
 #include <string>
 #include <optional>
 #include <vector>
@@ -28,3 +31,5 @@ public:
     
     std::string to_string() const;
 };
+
+#endif /* GRAPH_H */

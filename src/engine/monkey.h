@@ -1,6 +1,8 @@
 #ifndef MONKEY_H
 #define MONKEY_H
 
+#include <cstdint>
+#include <optional>
 #include "uci.h"
 
 /*
@@ -10,9 +12,12 @@
 */
 class monkey_engine : public engine
 {
+    std::optional<std::uint32_t> move_seed;
 public:
-    monkey_engine(std::unique_ptr<io_handler> io_handler)
-    : engine(std::move(io_handler)) {}
+    monkey_engine(
+        std::unique_ptr<io_handler> io_handler,
+        std::optional<std::uint32_t> seed = std::nullopt)
+    : engine(std::move(io_handler)), move_seed(seed) {}
     void initialize() override {};
     std::optional<action> find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token) override;
 };

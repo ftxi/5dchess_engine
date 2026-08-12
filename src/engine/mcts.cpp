@@ -174,15 +174,10 @@ simulation_result default_policy(
         }
         [[maybe_unused]] auto [present, player] = s.get_present();
         auto [w, ss] = HC_info::build_HC(s);
-        if(rng != nullptr)
-        {
-            w.shuffle(ss, *rng);
-        }
-        else
-        {
-            w.shuffle(ss);
-        }
-        if(auto mvs = w.iterative_search(ss).first())
+        random_HC_ordering order = rng != nullptr
+            ? random_HC_ordering(w.universe, *rng)
+            : random_HC_ordering(w.universe);
+        if(auto mvs = w.iterative_search(std::move(ss), std::move(order)).first())
         {
             for(full_move fm : *mvs)
             {

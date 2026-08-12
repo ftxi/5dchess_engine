@@ -2,6 +2,8 @@
 #include <string>
 #include <regex>
 #include <chrono>
+#include <cstdint>
+#include <limits>
 #include <sstream>
 
 #include "hypercuboid.h"
@@ -279,7 +281,7 @@ std::string helpmsg = R"(usage: cli <option>
 where <option> is one of:
   help: print this message (-h, --help)
   version: print the version (-v, --version)
-  uci [<engine>]: enter Universal 5D Chess Interface mode and work as a chess engine
+  uci [<engine>] [<seed>]: enter Universal 5D Chess Interface mode and work as a chess engine
   print: print the final state of the game
   count [<policy>] [<max>]: display number of available moves capped by <max>
   all [<policy>] [<max>]: display all legal moves capped by <max>
@@ -291,6 +293,7 @@ default value for <policy> is balanced
 default value for <max> is 10000
 <engine> ::= mcts|monkey
 default value for <engine> is mcts
+<seed> is an optional unsigned 32-bit random seed for the monkey engine
 
 For commands print, count, all, checkmate, diff and perftest,
 the game being read is input in stdin (stopped by EOF)
@@ -343,8 +346,6 @@ int main(int argc, const char *argv[])
     else if (command == "uci")
     {
         std::string engine_name = argc > 2 ? argv[2] : "mcts";
-        
-        std::unique_ptr<io_handler> io_handler = std::make_unique<stdio_handler>();
         std::unique_ptr<engine> engine = nullptr;
 
         if (engine_name == "mcts")
@@ -353,7 +354,37 @@ int main(int argc, const char *argv[])
         }
         else if (engine_name == "monkey")
         {
-            engine = std::make_unique<monkey_engine>(std::make_unique<stdio_handler>());
+            std::optional<std::uint32_t> seed;
+            if(argc > 4)
+            {
+                std::cerr << "Usage: cli uci monkey [seed]" << std::endl;
+                return 2;
+            }
+            if(argc == 4)
+            {
+                try
+                {
+                    std::size_t consumed = 0;
+                    const std::string value = argv[3];
+                    const unsigned long long parsed = std::stoull(value, &consumed);
+                    if(consumed != value.size()
+                       || parsed > std::numeric_limits<std::uint32_t>::max())
+                    {
+                        throw std::out_of_range("seed");
+                    }
+                    seed = static_cast<std::uint32_t>(parsed);
+                }
+                catch(const std::exception&)
+                {
+                    std::cerr << "Invalid monkey seed: " << argv[3]
+                              << " (expected 0.."
+                              << std::numeric_limits<std::uint32_t>::max()
+                              << ")" << std::endl;
+                    return 2;
+                }
+            }
+            engine = std::make_unique<monkey_engine>(
+                std::make_unique<stdio_handler>(), seed);
         }
         else
         {

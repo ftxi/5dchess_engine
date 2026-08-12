@@ -58,7 +58,7 @@ The command line tool will be built as `build/cli`. To use it, type `cli <option
 
 #### Engines and autoplay
 
-There are two existing engines: `cli uci mcts` and `cli uci monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are two existing engines: `cli uci mcts` and `cli uci monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). The optional unsigned 32-bit monkey seed makes its move selection reproducible. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
@@ -140,7 +140,7 @@ For more details on the structure of this repository, please read [this page](do
 - [x] Split `src/` folder into client-specific and engine-specific folders.
 - [ ] Modify cmake file to support building core only/build engine.
 - [x] Create a basic 5d chess bot.
-- [ ] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
+- [x] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
     + In fact, I can consider a randomized version of HC_info class
 - [x] Figure out the reason for unexpected nobestmove.
 - [x] Implement new search policy to only remove good non-necessary problem slices

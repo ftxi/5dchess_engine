@@ -29,9 +29,9 @@ int main()
 {
     state s(*pgnparser(ultra_wide).parse_game());
     auto [w, ss] = HC_info::build_HC(s);
-    w.shuffle(ss);
+    random_HC_ordering order(w.universe);
 
-    auto gen = w.search(ss);
+    auto gen = w.search(std::move(ss), std::move(order));
     int printed = 0;
     for(const moveseq &mvs : gen)
     {

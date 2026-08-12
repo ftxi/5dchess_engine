@@ -1,6 +1,5 @@
 
 #include "hypercuboid.h"
-#include "graph.h"
 
 #include <algorithm>
 #include <cassert>
@@ -375,114 +374,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
 
 std::optional<point> HC_info::take_point(HC &hc) const
 {
-    assert(hc.dimension() == dimension);
-    dprint("take_point()");
-    graph g(dimension);
-    std::vector<index_t> must_include;
-    constexpr index_t invalid_index = std::numeric_limits<index_t>::max();
-    // store a pair of departing/arriving move for each edge
-    // edge_refs[p * dimension + q] = the corresponding move on axis p.
-    // graph already uses a dense dimension-by-dimension adjacency matrix, so a
-    // second dense lookup avoids allocating and searching map nodes per edge.
-    const size_t num_edges = static_cast<std::size_t>(dimension) * dimension;
-    std::vector<index_t> edge_refs(num_edges, invalid_index);
-    const auto edge_ref = [&](index_t p, index_t q) -> index_t & {
-        return edge_refs[static_cast<std::size_t>(p) * dimension + q];
-    };
-    point result = std::vector<index_t>(dimension, invalid_index);
-    //build edge_refs and fill default physical moves in result
-    for(index_t n = 0; n < dimension; n++)
-    {
-        bool has_nonjump = false;
-        integer_set ghost_arrive_indices;
-        for(index_t i : hc[n])
-        {
-            const entry& loc = axis_coords[n][i];
-            std::visit(overloads {
-                [&](const physical_entry&) {
-                    if(!has_nonjump)
-                    {
-                        has_nonjump = true;
-                        result[n] = i;
-                    }
-                },
-                [&](const arriving_entry& arriving) {
-                    index_t from_axis = line_to_axis.at(arriving.m.from.l());
-                    if(!hc[from_axis].contains(arriving.idx))
-                    {
-                        ghost_arrive_indices.insert(i);
-                        dprint("ghost arriving move",n,i, "(source", from_axis, arriving.idx,")");//,to_semimove(loc).to_string(s));
-                        return;
-                    }
-                    index_t &departure_ref = edge_ref(from_axis, n);
-                    if(departure_ref == invalid_index)
-                    {
-                        dprint("new edge", from_axis, n, to_semimove(loc).to_string(s));
-                        g.add_edge(from_axis, n);
-                        assert(from_axis!=n);
-                        departure_ref = arriving.idx;
-                        edge_ref(n, from_axis) = i;
-                        assert(arriving.idx != invalid_index);
-                    }
-                },
-                [](const departing_entry&) {},
-                [&](const null_entry&) {
-                    if(!has_nonjump)
-                    {
-                        has_nonjump = true;
-                        result[n] = i;
-                    }
-                },
-            }, loc);
-        }
-        hc[n].minus(ghost_arrive_indices);
-        if(hc[n].empty())
-        {
-            // search space is empty after prune; abort
-            return std::nullopt;
-        }
-        if(!has_nonjump)
-        {
-            must_include.push_back(n);
-        }
-    }
-    dprint("after prune:", hc.to_string());
-    dprint("constructed", g.to_string());
-    dprint("must include: ", range_to_string(must_include));
-    dprint("intermediate result:", range_to_string(result));
-    auto matching = g.find_matching(must_include);
-    if(matching)
-    {
-        dprint("matching", range_to_string(*matching));
-        for(const auto& [u,v] : matching.value())
-        {
-            result[u] = edge_ref(u, v);
-            result[v] = edge_ref(v, u);
-            assert(result[u] != invalid_index);
-            assert(result[v] != invalid_index);
-        }
-#ifndef NDEBUG
-        for(index_t i:result)
-        {
-            assert(i != invalid_index && "some axis is still null");
-        }
-#endif // !NDEBUG
-        dprint("final result:", range_to_string(result));
-        assert(hc.contains(result));
-#ifdef DEBUGMSG
-        for(index_t n = 0; n < static_cast<index_t>(result.size()); n++)
-        {
-            index_t i = result[n];
-            dprint("n=",n,",i=",i,",loc=",to_semimove(axis_coords[n][i]).to_string(s));
-        }
-#endif // DEBUGMSG
-        return std::optional<point>(result);
-    }
-    else
-    {
-        dprint("no match");
-        return std::nullopt;
-    }
+    return take_point(hc, natural_HC_ordering{});
 }
 
 
@@ -989,122 +881,13 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
     return std::nullopt;
 }
 
-void HC_info::shuffle(search_space &ss)
-{
-    static thread_local std::mt19937 rng(std::random_device{}());
-    shuffle(ss, rng);
-}
-
-void HC_info::shuffle(search_space &ss, std::mt19937 &rng)
-{
-    std::vector<std::vector<int>> inverses(dimension);
-    for(index_t n = 0; n < dimension; n++)
-    {
-        std::vector<index_t> permutation(universe[n].begin(), universe[n].end());
-        index_t axis_size = static_cast<index_t>(permutation.size());
-        index_t axis_coords_size = static_cast<index_t>(axis_coords[n].size());
-        inverses[n].assign(axis_coords_size, -1);
-        if(axis_size > 1)
-        {
-            std::shuffle(permutation.begin(), permutation.end(), rng);
-        }
-        for(index_t new_idx = 0; new_idx < axis_size; new_idx++)
-        {
-            inverses[n][permutation[new_idx]] = new_idx;
-        }
-        // `axis_coords` may still contain ghost arriving moves pruned from `universe`.
-        // Even with 0 or 1 live coordinate, compact the axis when sizes differ so
-        // later arrival/departure idx rewrites never inspect pruned semimoves.
-        bool needs_remap = axis_size != axis_coords_size || axis_size > 1;
-        if(!needs_remap)
-        {
-            continue;
-        }
-
-        std::vector<entry> old_axis = std::move(axis_coords[n]);
-        std::vector<entry> shuffled;
-        shuffled.reserve(axis_size);
-        for(index_t new_idx = 0; new_idx < axis_size; new_idx++)
-        {
-            shuffled.push_back(std::move(old_axis[permutation[new_idx]]));
-        } 
-        axis_coords[n] = std::move(shuffled);
-
-        integer_set renumbered_axis;
-        for(index_t new_idx = 0; new_idx < axis_size; new_idx++)
-        {
-            renumbered_axis.insert(new_idx);
-        }
-        universe[n] = std::move(renumbered_axis);
-
-        for(HC &hc : ss)
-        {
-            hc[n] = hc[n].transform([&inverses, n](index_t old_index){
-                return static_cast<index_t>(inverses[n][old_index]);
-            });
-        }
-    }
-    for(index_t n = 0; n < dimension; n++)
-    {
-        for(auto &sm : axis_coords[n])
-        {
-            if(auto *loc = std::get_if<arriving_entry>(&sm))
-            {
-                index_t from_axis = line_to_axis.at(loc->m.from.l());
-                index_t old_idx = loc->idx;
-                if(old_idx < inverses[from_axis].size() && inverses[from_axis][old_idx] >= 0)
-                {
-                    loc->idx = static_cast<index_t>(inverses[from_axis][old_idx]);
-                }
-            }
-        }
-    }
-}
-
 // ------------------------------------------------------------
 
 
 
 generator<moveseq> HC_info::iterative_search(search_space ss) const
 {
-    dprint("begining search: ", ss.to_string());
-    while(!ss.empty())
-    {
-        HC hc = ss.back();
-        dprint("searching ", hc.to_string());
-        ss.pop_back();
-        auto pt_opt = take_point(hc);
-        if(pt_opt)
-        {
-            point pt = pt_opt.value();
-            dprint("got point: ", range_to_string(pt));
-            auto problem = find_problem(pt, hc);
-            if(problem)
-            {
-                dprint("found problem:", problem.value().to_string());
-                // remove the problematic slice from hc, and add the remaining to ss
-                search_space new_ss = hc.remove_slice(problem.value());
-                // make sure when a leave is removed, so is the corresponding arrive
-                dprint("removed problem, continue search:", new_ss.to_string());
-                ss.concat(std::move(new_ss));
-            }
-            else
-            {
-                dprint("point is okay, removing it from this hc");
-                co_yield to_action(pt);
-                search_space new_ss = hc.remove_point(pt);
-                dprint("removed point, continue search:", new_ss.to_string());
-                ss.concat(std::move(new_ss));
-            }
-        }
-        else
-        {
-            dprint("didn't secure any point in the first hypercuboid;");
-            dprint("continue searching the remaining part");
-        }
-    }
-    dprint("search space is empty; finish.");
-    co_return;
+    return iterative_search(std::move(ss), natural_HC_ordering{});
 }
 
 // /* for debugging only (this version is more friendly with stacktracing) */
@@ -1234,64 +1017,7 @@ generator<moveseq> HC_info::stable_search(search_space ss) const
 
 generator<moveseq> HC_info::search(search_space ss) const
 {
-    dprint("begining search: ", ss.to_string());
-    while(!ss.empty())
-    {
-        HC hc = ss.back();
-        dprint("searching ", hc.to_string());
-        ss.pop_back();
-        auto pt_opt = take_point(hc);
-        if(pt_opt)
-        {
-            point pt = pt_opt.value();
-            dprint("got point: ", range_to_string(pt));
-            auto problem = find_problem(pt, hc);
-            if(problem)
-            {
-                const slice &problem_slice = problem.value();
-                dprint("found problem:", problem.value().to_string());
-                // Remove this slice from every remaining hypercuboid and re-join all pieces.
-                search_space adjoined;
-                adjoined.concat(hc.remove_slice(problem_slice));
-                int intersect_count = 1, disjoint_count = 0;
-                while(!ss.empty() && (disjoint_count * 10 < intersect_count))
-                {
-                    HC &other_hc = ss.back();
-                    if(other_hc.intersects(problem_slice))
-                    {
-                        search_space sstemp = other_hc.remove_slice_if_good(problem_slice, 1);
-                        adjoined.concat(std::move(sstemp));
-                        intersect_count++;
-                    }
-                    else
-                    {
-                        disjoint_count++;
-                        adjoined.concat({{other_hc}});
-                    }
-                    
-                    ss.pop_back();
-                }
-                ss.concat(std::move(adjoined));
-                // make sure when a leave is removed, so is the corresponding arrive
-                dprint("removed problem from all hcs, continue search:", ss.to_string());
-            }
-            else
-            {
-                dprint("point is okay, removing it from this hc");
-                co_yield to_action(pt);
-                search_space new_ss = hc.remove_point(pt);
-                dprint("removed point, continue search:", new_ss.to_string());
-                ss.concat(std::move(new_ss));
-            }
-        }
-        else
-        {
-            dprint("didn't secure any point in the first hypercuboid;");
-            dprint("continue searching the remaining part");
-        }
-    }
-    dprint("search space is empty; finish.");
-    co_return;
+    return search(std::move(ss), natural_HC_ordering{});
 }
 
 

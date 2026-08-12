@@ -19,6 +19,7 @@
 #include "vec4.h"
 #include "generator.h"
 #include "semimove.h"
+#include "ordering.h"
 
 
 /*
@@ -37,6 +38,9 @@
  - `search_space`: integer data that describes the range of candidate
  points to examine.
  A search space must only be used with the `HC_info` from the same call.
+
+ To randomize the search order, construct a `random_HC_ordering` with the
+ `universe` from `HC_info`, then pass it to `search()` or `iterative_search()`.
 
  Terminology and representation:
 
@@ -143,6 +147,8 @@ public:
      non-const reference)
      */
     std::optional<point> take_point(HC &hc) const;
+    template<HC_ordering Order>
+    std::optional<point> take_point(HC &hc, const Order &order) const;
     
     /*
      find_problem(p, hc): find any problem about p and returns the problem 
@@ -159,13 +165,17 @@ public:
     moveseq to_action(const point &p) const;
     static std::tuple<HC_info, search_space> build_HC(const state &s);
     generator<moveseq> search(search_space ss) const;
+    template<HC_ordering Order>
+    generator<moveseq> search(search_space ss, Order order) const;
     generator<moveseq> iterative_search(search_space ss) const;
+    template<HC_ordering Order>
+    generator<moveseq> iterative_search(search_space ss, Order order) const;
     generator<moveseq> stable_search(search_space ss) const;
     generator<moveseq> mixed_search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
-    void shuffle(search_space &ss);
-    void shuffle(search_space &ss, std::mt19937 &rng);
 };
+
+#include "hypercuboid.inl"
 
 #endif /* HYPERCUBOID_H */
