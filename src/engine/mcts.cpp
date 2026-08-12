@@ -1,4 +1,5 @@
 #include "mcts.h"
+#include "rollout.h"
 #include <limits>
 #include <cmath>
 #include <chrono>
@@ -132,68 +133,19 @@ node_t *tree_policy(node_t *node, std::stop_token stop_token)
     return node;
 }
 
-struct simulation_result
+state rollout_state(node_t *node)
 {
-    float outcome;
-    int actions;
-    bool limit_reached;
-    bool aborted;
-};
-
-simulation_result default_policy(
-    node_t *node,
-    int max_actions,
-    std::stop_token stop_token,
-    std::mt19937 *rng)
-{
-    dprint("default_policy()", node->print_semimove(), "max_actions=", max_actions);
     if(node->is_terminal())
     {
-        const state &s = node->get_context()->hc_info.s;
-        float outcome = s.get_mate_type() == state::mate_type::STALEMATE
-            ? 0.0f
-            : (s.get_present().second ? WINNING_SCORE : -WINNING_SCORE);
-        dprint("default_policy: current node is already terminal, returning outcome=", outcome);
-        return {outcome, 0, false, false};
+        return node->get_context()->hc_info.s;
     }
-
     node_t *ceiling_node = node->get_nearby_ceiling();
-    assert(ceiling_node != nullptr && "default_policy: noneterminal node should have a nearby ceiling node");
-    
+    assert(ceiling_node != nullptr && "rollout node should have a nearby ceiling node");
     if(!ceiling_node->is_nodal())
     {
         ceiling_node->ignite();
     }
-    state s = ceiling_node->get_context()->hc_info.s;
-    int num_actions;
-    for(num_actions = 0; num_actions < max_actions; num_actions++)
-    {
-        if(stop_token.stop_requested())
-        {
-            return {0.0f, num_actions, true, true};
-        }
-        [[maybe_unused]] auto [present, player] = s.get_present();
-        auto [w, ss] = HC_info::build_HC(s);
-        random_HC_ordering order = rng != nullptr
-            ? random_HC_ordering(w.universe, *rng)
-            : random_HC_ordering(w.universe);
-        if(auto mvs = w.iterative_search(std::move(ss), std::move(order)).first())
-        {
-            for(full_move fm : *mvs)
-            {
-                s.apply_move(fm);
-            }
-            s.submit();
-        }
-        else
-        {
-            float outcome = s.get_mate_type() == state::mate_type::STALEMATE
-                ? 0.0f
-                : (player ? WINNING_SCORE : -WINNING_SCORE);
-            return {outcome, num_actions, false, false};
-        }
-    }
-    return {0.0f, num_actions, true, false};
+    return ceiling_node->get_context()->hc_info.s;
 }
 
 void backpropagate(node_t *node, float outcome)
@@ -291,10 +243,11 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
             break;
         }
         simulation_result result = default_policy(
-            node,
+            rollout_state(node),
             ROLLOUT_MAX_ACTIONS,
             stop_token,
-            rollout_rng.has_value() ? &*rollout_rng : nullptr);
+            rollout_rng.has_value() ? &*rollout_rng : nullptr,
+            WINNING_SCORE);
         if(result.aborted)
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count,

@@ -15,7 +15,7 @@ foreach(TEST_FILE ${TEST_SOURCES})
     )
 
     # Link against the core engine library
-    target_link_libraries(${TEST_NAME} PRIVATE 5dchess_engine_core)
+    target_link_libraries(${TEST_NAME} PRIVATE 5dchess_client 5dchess_engine)
 
     # Include necessary directories
     target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)

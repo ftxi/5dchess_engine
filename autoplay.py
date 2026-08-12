@@ -677,8 +677,8 @@ async def run(args, rules) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--white", default="./build/cli uci mcts", help="white engine command")
-    parser.add_argument("--black", default="./build/cli uci monkey", help="black engine command")
+    parser.add_argument("--white", default="./build/5dchess mcts", help="white engine command")
+    parser.add_argument("--black", default="./build/5dchess monkey", help="black engine command")
     parser.add_argument("--white-name", default="")
     parser.add_argument("--black-name", default="")
     game_group = parser.add_mutually_exclusive_group()

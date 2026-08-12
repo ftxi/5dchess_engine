@@ -72,8 +72,10 @@ elseif(MSVC)
     add_compile_options(/constexpr:steps100000000)
 endif()
 
-# Option for building tests
-option(TEST "Build test executable" ON)
+# Optional products. With every option disabled, only the core library is built.
+option(ENGINE "Build the 5dchess UCI executable" OFF)
+option(TOOLS "Build the 5dtools command-line utilities" OFF)
+option(TEST "Build test executables" OFF)
 option(PYMODULE "Build Python module" OFF)
 option(EMMODULE "Build Emscripten/WebAssembly module" OFF)
 
@@ -82,12 +84,16 @@ if(TEST)
     enable_testing()
 endif()
 
-# Find all source files in src/ and its subdirectories
-file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
+# Find the sources for each library component.
+file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/client/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.cpp"
+)
+file(GLOB_RECURSE CLIENT_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/client/*.cpp"
+)
+file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/*.cpp"
 )
 
 # Find all header files
@@ -102,18 +108,24 @@ file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/misc/*.inl"
 )
 
-# Create the core library target (without Python bindings)
-add_library(5dchess_engine_core OBJECT ${ENGINE_SOURCES})
+# The client and engine components are excluded from the default build. They are
+# built automatically when a requested product links against them.
+add_library(5dchess_core STATIC ${CORE_SOURCES})
+add_library(5dchess_client STATIC EXCLUDE_FROM_ALL ${CLIENT_SOURCES})
+add_library(5dchess_engine STATIC EXCLUDE_FROM_ALL ${ENGINE_SOURCES})
+
+target_link_libraries(5dchess_client PUBLIC 5dchess_core)
+target_link_libraries(5dchess_engine PUBLIC 5dchess_core)
 
 # Add version as compile definition for all targets using this library
-target_compile_definitions(5dchess_engine_core PUBLIC 
+target_compile_definitions(5dchess_core PUBLIC
     PROJECT_VERSION_STRING="${PROJECT_VERSION}"
 )
 
 # Ensure header files show up in IDEs
-target_sources(5dchess_engine_core PRIVATE ${ENGINE_HEADERS})
+target_sources(5dchess_core PRIVATE ${ENGINE_HEADERS})
 
-target_include_directories(5dchess_engine_core 
+target_include_directories(5dchess_core
     PUBLIC 
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/core
@@ -122,40 +134,23 @@ target_include_directories(5dchess_engine_core
         ${CMAKE_CURRENT_SOURCE_DIR}/src/misc
 )
 
+target_include_directories(5dchess_client PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/client)
+target_include_directories(5dchess_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src/engine)
+
 # Check if this is being built as a submodule
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-    # Standalone mode - include Python bindings / build tests
-    
-    # Build tests if enabled
+    # Standalone mode - build only the explicitly requested products.
+    if(ENGINE OR TOOLS)
+        add_subdirectory(tools)
+    endif()
+
     if(TEST)
-        message(STATUS ">>> Compiling test.cpp...")
-        add_executable(test_exec "test.cpp")
-        target_link_libraries(test_exec PRIVATE 5dchess_engine_core)
-        # Note: test_exec is not registered as a ctest (it hangs)
-        
-        add_subdirectory(test)  # Add test directory
-        
-        add_executable(cli "cli.cpp")
-        target_link_libraries(cli PRIVATE 5dchess_engine_core)
-        target_compile_definitions(cli PRIVATE 
-            PROJECT_VERSION_STRING="${PROJECT_VERSION}"
-        )
-        
-        add_custom_command(TARGET cli POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            ${CMAKE_SOURCE_DIR}/test/pgn
-            $<TARGET_FILE_DIR:cli>/pgn
-        )
-        
-        # Register perftest for each .5dpgn file
-        file(GLOB PGN_FILES "${CMAKE_SOURCE_DIR}/test/pgn/*.5dpgn")
-        foreach(PGN_FILE ${PGN_FILES})
-            get_filename_component(PGN_NAME ${PGN_FILE} NAME_WE)
-            add_test(
-                NAME perftest_${PGN_NAME}
-                COMMAND bash -c "cat ${CMAKE_SOURCE_DIR}/test/pgn/${PGN_NAME}.5dpgn | $<TARGET_FILE:cli> perftest"
-            )
-        endforeach()
+        message(STATUS ">>> Building tests...")
+        # Scratch executable for temporary, ad hoc experiments. Keep this out
+        # of CTest because test.cpp is intentionally edited and cleared often.
+        add_executable(test_exec test.cpp)
+        target_link_libraries(test_exec PRIVATE 5dchess_client 5dchess_engine)
+        add_subdirectory(test)
     endif()
     
     if(PYMODULE)
@@ -166,7 +161,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         
         # Create the Python module
         pybind11_add_module(engine pymodule.cpp)
-        target_link_libraries(engine PRIVATE 5dchess_engine_core)
+        target_link_libraries(engine PRIVATE 5dchess_client)
         target_compile_definitions(engine PRIVATE 
             PROJECT_VERSION_STRING="${PROJECT_VERSION}"
         )
@@ -192,7 +187,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         
         # Create the WebAssembly module
         add_executable(engine_wasm emmodule.cpp)
-        target_link_libraries(engine_wasm PRIVATE 5dchess_engine_core)
+        target_link_libraries(engine_wasm PRIVATE 5dchess_client)
         target_compile_definitions(engine_wasm PRIVATE 
             PROJECT_VERSION_STRING="${PROJECT_VERSION}"
         )
@@ -241,8 +236,5 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         )
     endif()
 else()
-    message(STATUS ">>> Building as a cpp library submodule...")
-    # Being used as a submodule - create an interface target
-    add_library(5dchess_engine INTERFACE)
-    target_link_libraries(5dchess_engine INTERFACE 5dchess_engine_core)
+    message(STATUS ">>> Building libraries as a cpp submodule...")
 endif()

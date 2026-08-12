@@ -1,9 +1,9 @@
-// created by ftxi on 2026-03-09
-
 #include "state.h"
 #include "pgnparser.h"
-#include "hypercuboid.h"
+#include "rollout.h"
+#include "run_rollout.h"
 #include <limits>
+#include <optional>
 #include <string>
 #include <iostream>
 #include <iomanip>
@@ -13,49 +13,11 @@
 #include <sstream>
 #include <stdexcept>
 
-constexpr float INF = std::numeric_limits<float>::infinity();
-
 constexpr int MAX_ACTIONS = 200;
-
-struct simulation_result
-{
-    float outcome;
-    int actions;
-    bool limit_reached;
-};
-
-simulation_result default_policy(state s, int max_actions)
-{
-    int num_actions;
-    for(num_actions = 0; num_actions < max_actions; num_actions++)
-    {
-        auto [present, player] = s.get_present();
-        auto [w, ss] = HC_info::build_HC(s);
-        random_HC_ordering order(w.universe);
-        if(auto mvs = w.iterative_search(std::move(ss), std::move(order)).first())
-        {
-            for(full_move fm : *mvs)
-            {
-                s.apply_move(fm);
-            }
-            s.submit();
-            continue;
-        }
-        float outcome = s.get_mate_type() == state::mate_type::STALEMATE
-            ? 0.0f
-            : (player ? INF : -INF);
-        // std::cout << "Game ended in depth " << num_actions << ", outcome:" << outcome << ", board:\n";
-        // std::cout << s.show_fen() << "\n";
-        return {outcome, num_actions, false};
-    }
-    // std::cout << "Reached depth limit, board:\n";
-    // std::cout << s.show_fen() << "\n";
-    return {0.0f, num_actions, true};
-}
 
 constexpr int SIMULATION_NUM = 100;
 
-int main(int argc, char **argv)
+int run_rollout(int argc, const char *argv[])
 {
     const std::string default_pgn = //R"([Board "Standard - Turn Zero"])";
     R"(
@@ -103,9 +65,8 @@ int main(int argc, char **argv)
     bool csv_output = false;
     bool show_help = false;
     bool read_pgn_from_stdin = false;
-    const char *program_name = (argc > 0) ? argv[0] : "rollout";
-    auto print_help = [&]() {
-        std::cout << "Usage: " << program_name << " [OPTIONS]\n"
+    auto print_help = [&](std::ostream &out = std::cout) {
+        out << "Usage: 5dtools rollout [OPTIONS]\n"
                   << "  -m, --max-actions <n>  limit exploration depth per simulation (default " << MAX_ACTIONS << ")\n"
                   << "  -s, --simulations <n>  number of simulations to run (default " << SIMULATION_NUM << ")\n"
                   << "  -i                     read PGN from stdin until EOF (overrides default position)\n"
@@ -129,8 +90,9 @@ int main(int argc, char **argv)
         {
             if(++arg >= argc)
             {
-                std::cerr << "Missing argument for " << argv[arg - 1] << "\n";
-                return 1;
+                std::cerr << "Error: missing argument for " << argv[arg - 1] << "\n";
+                print_help(std::cerr);
+                return 2;
             }
             try
             {
@@ -144,8 +106,9 @@ int main(int argc, char **argv)
             }
             catch(const std::exception &)
             {
-                std::cerr << "Invalid number for " << argv[arg - 1] << ": " << argv[arg] << "\n";
-                return 1;
+                std::cerr << "Error: invalid number for " << argv[arg - 1] << ": " << argv[arg] << "\n";
+                print_help(std::cerr);
+                return 2;
             }
             continue;
         }
@@ -153,8 +116,9 @@ int main(int argc, char **argv)
         {
             if(++arg >= argc)
             {
-                std::cerr << "Missing argument for " << argv[arg - 1] << "\n";
-                return 1;
+                std::cerr << "Error: missing argument for " << argv[arg - 1] << "\n";
+                print_help(std::cerr);
+                return 2;
             }
             try
             {
@@ -168,8 +132,9 @@ int main(int argc, char **argv)
             }
             catch(const std::exception &)
             {
-                std::cerr << "Invalid number for " << argv[arg - 1] << ": " << argv[arg] << "\n";
-                return 1;
+                std::cerr << "Error: invalid number for " << argv[arg - 1] << ": " << argv[arg] << "\n";
+                print_help(std::cerr);
+                return 2;
             }
             continue;
         }
@@ -178,6 +143,9 @@ int main(int argc, char **argv)
             read_pgn_from_stdin = true;
             continue;
         }
+        std::cerr << "Error: unknown option: " << argv[arg] << "\n";
+        print_help(std::cerr);
+        return 2;
     }
     if(show_help)
     {
@@ -191,12 +159,22 @@ int main(int argc, char **argv)
         const std::string stdin_input = buffer.str();
         if(stdin_input.empty())
         {
-            std::cerr << "No PGN data provided on stdin\n";
-            return 1;
+            std::cerr << "Error: no PGN data provided on stdin\n";
+            return 2;
         }
         pgn = stdin_input;
     }
-    state s(*pgnparser(pgn).parse_game());
+    std::optional<state> parsed_state;
+    try
+    {
+        parsed_state.emplace(*pgnparser(pgn).parse_game());
+    }
+    catch(const std::exception &error)
+    {
+        std::cerr << "Error: " << error.what() << '\n';
+        return 1;
+    }
+    state &s = *parsed_state;
     if(csv_output)
     {
         std::cout << "simulation,outcome,actions,limit_reached,time_ms\n";
@@ -226,11 +204,11 @@ int main(int argc, char **argv)
         }
         actions_total += result.actions;
         actions_sq_total += static_cast<double>(result.actions) * result.actions;
-        if(result.outcome == INF)
+        if(result.outcome == std::numeric_limits<float>::infinity())
         {
             ++inf_count;
         }
-        else if(result.outcome == -INF)
+        else if(result.outcome == -std::numeric_limits<float>::infinity())
         {
             ++neg_inf_count;
         }
