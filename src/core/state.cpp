@@ -625,9 +625,10 @@ state::mate_type state::get_mate_type() const
         for(int n = w.new_axis; n <= max_axis; n++)
         {
             hc[n].erase_if([&w, n, old_t=present](int i){
-                if(std::holds_alternative<arriving_move>(w.axis_coords[n][i]))
+                semimove sm = w.get_semimove(n, i);
+                if(sm.is<arriving_move>())
                 {
-                    auto am = std::get<arriving_move>(w.axis_coords[n][i]);
+                    const auto &am = sm.get<arriving_move>();
                     int new_t = am.m.to.t();
                     return new_t < old_t;
                 }
@@ -673,6 +674,15 @@ std::pair<int, int> state::get_board_size() const
     return m->get_board_size();
 }
 
+std::string state::pretty_l(int l)
+{
+    return m->pretty_l(l);
+}
+
+std::string state::pretty_lt(vec4 p0) const
+{
+    return m->pretty_lt(p0);
+}
 
 turn_t state::get_present() const
 {

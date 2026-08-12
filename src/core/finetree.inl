@@ -157,8 +157,7 @@ inline std::string fine_node<T>::print_semimove() const
 {
     if(context)
     {
-        semimove &sm = context->hc_info.axis_coords[n][i];
-        return show_semimove(sm);
+        return context->hc_info.get_semimove(n, i).to_string(context->hc_info.s);
     }
     else
     {

@@ -11,7 +11,7 @@
 
 /*
  In this implementation, I use `full_move` instead of `move` to avoid confusion with `std::move`.
- (In contrast, the class `semimove` is defined in hypercuboid.h)
+ (In contrast, the class `semimove` is defined in semimove.h)
  */
 struct full_move
 {
