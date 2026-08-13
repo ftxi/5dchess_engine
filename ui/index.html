@@ -205,10 +205,7 @@
                         <input type="checkbox" id="exportShortNotation">
                         <span>Short Notation</span>
                     </label>
-                    <label style="display:flex;align-items:center;gap:6px;">
-                        <input type="checkbox" id="exportRelativeNotation">
-                        <span>Relative Notation</span>
-                    </label>
+                    <button class="popup-button export-more-options" id="exportMoreOptionsButton" type="button">More Options</button>
                 </div>
                 <div id="copiedLabel" class="copied-label">Copied!</div>
                 <div class="export-actions">
@@ -223,38 +220,63 @@
         </div>
     </div>
 
+    <div class="popup-window export-options-popup" id="popupExportOptions">
+        <div class="popup-title">More Options</div>
+        <div class="popup-content popup-form export-options-dialog-content">
+            <label class="popup-control">
+                <input type="checkbox" id="exportRelativeNotation">
+                <span>Relative Notation</span>
+            </label>
+            <label class="popup-control">
+                <input type="checkbox" id="exportOutcome">
+                <span>Outcome</span>
+            </label>
+            <div class="popup-fieldset export-scope-group" role="radiogroup" aria-labelledby="exportScopeLabel">
+                <div class="popup-fieldset-title" id="exportScopeLabel">Export scope</div>
+                <label class="popup-control">
+                    <input type="radio" name="exportScope" id="exportCompleteGameTree" value="complete">
+                    <span>Export complete game tree</span>
+                </label>
+                <label class="popup-control">
+                    <input type="radio" name="exportScope" id="exportGameHistory" value="history">
+                    <span>Export game history till now</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
     <div class="popup-window popup-standard" id="popupSettings">
         <div class="popup-title">Settings</div>
-        <div class="popup-content">
-            <fieldset>
-                <legend>Game</legend>
-                <label style="display:flex;align-items:center;gap:8px;">
+        <div class="popup-content popup-form">
+            <div class="popup-fieldset" role="group" aria-labelledby="settingsGameLabel">
+                <div class="popup-fieldset-title" id="settingsGameLabel">Game</div>
+                <label class="popup-control">
                     <input type="checkbox" id="allowSubmitWithChecks">
                     <span>Allow submit with checks</span>
                 </label>
-                <p style="margin-top:8px;font-size:0.9em;color:#666;">When checked, submitting legal moves will be allowed even if the current board has checks.</p>
-                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <p class="popup-control-description">When checked, submitting legal moves will be allowed even if the current board has checks.</p>
+                <label class="popup-control">
                     <input type="checkbox" id="showMovablePieces">
                     <span>Show movable pieces</span>
                 </label>
-            </fieldset>
-            <fieldset>
-                <legend>Interface</legend>
-                <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
-                <span>Color scheme</span>
-                <select id="colorSchemeSelect">
-                    <!-- Options are added in ui.js -->
-                </select>
+            </div>
+            <div class="popup-fieldset" role="group" aria-labelledby="settingsInterfaceLabel">
+                <div class="popup-fieldset-title" id="settingsInterfaceLabel">Interface</div>
+                <label class="popup-control popup-control-select">
+                    <span>Color scheme</span>
+                    <select id="colorSchemeSelect">
+                        <!-- Options are added in ui.js -->
+                    </select>
                 </label>
-                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <label class="popup-control">
                     <input type="checkbox" id="autoToggleComments" checked>
                     <span>Automatically toggle comments area</span>
                 </label>
-                <label style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <label class="popup-control">
                     <input type="checkbox" id="toggleDebugWindow">
                     <span>Show debug window</span>
                 </label>
-            </fieldset>
+            </div>
         </div>
     </div>
 

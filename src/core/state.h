@@ -146,6 +146,4 @@ public:
     parse_pgn_res parse_move(const std::string &move) const;
 };
 
-#include "actions.inl"
-
 #endif //STATE_H

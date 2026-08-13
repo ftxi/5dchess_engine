@@ -23,6 +23,8 @@ createModule().then((engine) => {
         exportMate: true,
         exportShortNotation: false,
         exportRelativeNotation: false,
+        exportOutcome: false,
+        exportCompleteGameTree: true,
     };
 
     // Get and post the engine version
@@ -323,7 +325,10 @@ createModule().then((engine) => {
             if (self.settings.exportRelativeNotation) {
                 flags |= engine.SHOW_RELATIVE;
             }
-            let pgn = self.game.show_pgn(flags);
+            if (self.settings.exportOutcome) {
+                flags |= engine.SHOW_OUTCOME;
+            }
+            let pgn = self.game.show_pgn_with_scope(flags, self.settings.exportCompleteGameTree !== false);
             self.postMessage({ type: 'update_pgn', pgn: pgn });
         } else if (data.type === 'update_comment') {
             let comments = data.comments || [];

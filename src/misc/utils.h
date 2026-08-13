@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <iterator>
 #include <optional>
+#include <type_traits>
 
 /*
 The append/concatenate functions.
@@ -166,6 +167,46 @@ std::ostream &operator<<(std::ostream& os, std::optional<T> opt)
         os << "nullopt";
     }
     return os;
+}
+
+/*
+    Bitmask operators for enum classes
+*/
+
+template <typename T>
+inline constexpr bool enable_bitmask_operators = false;
+
+template <typename T>
+concept BitmaskEnum = std::is_enum_v<T> && enable_bitmask_operators<T>;
+
+template <BitmaskEnum T>
+constexpr T operator |(T lhs, T rhs) noexcept {
+    using underlying = std::underlying_type_t<T>;
+    return static_cast<T>(static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
+}
+
+template <BitmaskEnum T>
+constexpr T operator &(T lhs, T rhs) noexcept {
+    using underlying = std::underlying_type_t<T>;
+    return static_cast<T>(static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
+}
+
+template <BitmaskEnum T>
+constexpr T operator ~(T val) noexcept {
+    using underlying = std::underlying_type_t<T>;
+    return static_cast<T>(~static_cast<underlying>(val));
+}
+
+template <BitmaskEnum T>
+constexpr T& operator |=(T& lhs, T rhs) noexcept {
+    lhs = lhs | rhs;
+    return lhs;
+}
+
+template <BitmaskEnum T>
+constexpr T& operator &=(T& lhs, T rhs) noexcept {
+    lhs = lhs & rhs;
+    return lhs;
 }
 
 #endif // UTILS_H

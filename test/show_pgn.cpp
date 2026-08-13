@@ -60,11 +60,28 @@ std::string str = R"(
 int main()
 {
     int return_code = 0;
+
+    game outcome_game = game::from_pgn(R"(
+[Board "Standard"]
+(1. e4 1-0)
+(1. d4 0-1)
+1. Nf3 1/2-1/2
+)");
+    std::string outcome_pgn = outcome_game.show_pgn(pgn_options::SHOW_OUTCOME);
+    assert(outcome_pgn.contains("1-0"));
+    assert(outcome_pgn.contains("0-1"));
+    assert(outcome_pgn.contains("1/2-1/2"));
+    std::string no_outcome_pgn = outcome_game.show_pgn(pgn_options::SHOW_NOTHING);
+    assert(!no_outcome_pgn.contains("1-0"));
+    assert(!no_outcome_pgn.contains("0-1"));
+    assert(!no_outcome_pgn.contains("1/2-1/2"));
+    game::from_pgn(outcome_pgn);
+
     game g = game::from_pgn(str);
     std::cout << "Final mate state: " << static_cast<int>(g.get_current_state().get_mate_type()) << "\n";
     std::string default_pgn = g.show_pgn();
     std::cout << default_pgn << "\n\n";
-    const std::vector<uint16_t> flags_to_test = {
+    const std::vector<pgn_options> flags_to_test = {
         pgn_options::SHOW_NOTHING,
         pgn_options::SHOW_RELATIVE,
         pgn_options::SHOW_PAWN,
@@ -73,39 +90,44 @@ int main()
 //        state::SHOW_MATE,
         pgn_options::SHOW_LCOMMENT,
         pgn_options::SHOW_SHORT,
+        pgn_options::SHOW_OUTCOME,
         pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE | pgn_options::SHOW_SHORT,
         pgn_options::SHOW_ALL
     };
-    for(uint16_t flags : flags_to_test)
+    for(pgn_options flags : flags_to_test)
     {
-        std::cout << "Flags: " << flags << " (";
-        if(flags & pgn_options::SHOW_RELATIVE)
+        std::cout << "Flags: " << static_cast<uint16_t>(flags) << " (";
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_RELATIVE))
         {
             std::cout << "SHOW_RELATIVE ";
         }
-        if(flags & pgn_options::SHOW_PAWN)
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_PAWN))
         {
             std::cout << "SHOW_PAWN ";
         }
-        if(flags & pgn_options::SHOW_CAPTURE)
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_CAPTURE))
         {
             std::cout << "SHOW_CAPTURE ";
         }
-        if(flags & pgn_options::SHOW_PROMOTION)
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_PROMOTION))
         {
             std::cout << "SHOW_PROMOTION ";
         }
-        if(flags & pgn_options::SHOW_MATE)
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_MATE))
         {
             std::cout << "SHOW_MATE ";
         }
-        if(flags & pgn_options::SHOW_LCOMMENT)
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_LCOMMENT))
         {
             std::cout << "SHOW_LCOMMENT ";
         }
-        if(flags & pgn_options::SHOW_SHORT)
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_SHORT))
         {
             std::cout << "SHOW_SHORT ";
+        }
+        if(static_cast<uint16_t>(flags) & static_cast<uint16_t>(pgn_options::SHOW_OUTCOME))
+        {
+            std::cout << "SHOW_OUTCOME ";
         }
         std::cout << ")\n";
         auto start = std::chrono::high_resolution_clock::now();

@@ -757,7 +757,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
     std::optional<full_move> fm;
     std::optional<piece_t> promotion;
     dprint("parse_move(",move,")");
-    constexpr static uint16_t FLAGS = pgn_options::SHOW_PAWN | pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION;
+    constexpr static pgn_options OPTIONS = pgn_options::SHOW_PAWN | pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION;
     if(std::holds_alternative<pgnparser_ast::physical_move>(move.data))
     {
         auto mv = std::get<pgnparser_ast::physical_move>(move.data);
@@ -772,7 +772,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                 full_move fm(p,q);
                 dprint("matching", fm);
                 // test if this physical move matches any of them
-                std::string full_notation = fm.pgn<FLAGS>(*this);
+                std::string full_notation = fm.pgn_impl(*this, QUEEN_W, OPTIONS, 0, false);
                 auto full = pgnparser(full_notation).parse_physical_move();
                 assert(full.has_value());
                 bool match = pgnparser::match_physical_move(mv, *full);
@@ -826,11 +826,12 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                     std::string full_notation;
                     if(is_relative)
                     {
-                        full_notation = fm.pgn<FLAGS | pgn_options::SHOW_RELATIVE>(*this);
+                        full_notation = fm.pgn_impl(*this, QUEEN_W,
+                            OPTIONS | pgn_options::SHOW_RELATIVE, 0, false);
                     }
                     else
                     {
-                        full_notation = fm.pgn<FLAGS>(*this);
+                        full_notation = fm.pgn_impl(*this, QUEEN_W, OPTIONS, 0, false);
                     }
                     auto full = pgnparser(full_notation).parse_superphysical_move();
                     assert(full.has_value());

@@ -67,7 +67,10 @@ public:
     */
     bool visit_child(action act, comments_t comments = {}, std::optional<state> newstate = std::nullopt);
     
-    std::string show_pgn(uint16_t show_flags = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE);
+    std::string show_pgn(
+        pgn_options show_flags = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE,
+        bool complete_game_tree = true
+    );
 };
 
 

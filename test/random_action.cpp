@@ -55,7 +55,7 @@ int main()
             if(!tmp.apply_move(fm))
             {
                 std::cerr << "apply_move failed for "
-                          << fm.pgn<pgn_options::SHOW_NOTHING>(tmp)
+                          << fm.pgn(tmp, QUEEN_W, pgn_options::SHOW_NOTHING)
                           << "\n";
                 ok = false;
                 break;

@@ -110,12 +110,10 @@ game game::from_pgn(std::string input)
                 dfs(child_node_ptr, *child_gt);
             }
         }
-        // else
-        // {
-        //     pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(gt_ast.variations_or_outcome);
-        //     (void)outcome;
-        //     // TODO: Handle game outcome token when converting PGN AST to game tree nodes.
-        // }
+        else
+        {
+            node->set_outcome(std::get<pgnparser_ast::token_t>(gt_ast.variations_or_outcome));
+        }
     };
     
     dfs(g.gametree.get(), gt_ast);
@@ -456,7 +454,7 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
     return false;
 }
 
-std::string game::show_pgn(uint16_t show_flags)
+std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
 {
     std::ostringstream oss;
     constexpr static std::array<std::string, 9> ordered_keys = {
@@ -492,7 +490,61 @@ std::string game::show_pgn(uint16_t show_flags)
         oss << "[" << key << " \"" << v << "\"]\n";
     }
     oss << gametree->get_state().show_fen();
-    oss << gametree->to_string(show_comments, show_flags);
+    if(complete_game_tree)
+    {
+        oss << gametree->to_string(show_comments, show_flags);
+    }
+    else
+    {
+        // Serialize only the root-to-current-node path, omitting sibling
+        // variations and descendants that have not been reached yet.
+        std::vector<gnode<comments_t>*> path;
+        for(auto *node = current_node; node != nullptr; node = node->get_parent())
+        {
+            path.push_back(node);
+        }
+        std::reverse(path.begin(), path.end());
+
+        auto append_outcome = [&](gnode<comments_t> *node) {
+            if(!(static_cast<uint16_t>(show_flags) & static_cast<uint16_t>(pgn_options::SHOW_OUTCOME))
+               || !node->get_outcome().has_value())
+            {
+                return;
+            }
+            switch(*node->get_outcome())
+            {
+                case pgnparser_ast::WHITE_WINS: oss << "1-0"; break;
+                case pgnparser_ast::BLACK_WINS: oss << "0-1"; break;
+                case pgnparser_ast::DRAW: oss << "1/2-1/2"; break;
+                default: break;
+            }
+        };
+
+        oss << show_comments(path.front()->get_info()) << "\n";
+        append_outcome(path.front());
+        turn_t start_turn = {1, false};
+        for(size_t i = 1; i < path.size(); ++i)
+        {
+            auto *node = path[i];
+            auto *parent = path[i - 1];
+            if(start_turn.second)
+            {
+                oss << "/ ";
+            }
+            else
+            {
+                oss << start_turn.first << ". ";
+            }
+            oss << node->get_action().pgn(parent->get_state(), show_flags) << " ";
+            oss << show_comments(node->get_info());
+            append_outcome(node);
+            start_turn = next_turn(start_turn);
+            if(!start_turn.second && i + 1 < path.size())
+            {
+                oss << '\n';
+            }
+        }
+    }
     oss << "\n";
     /* indent by 1 space * number of nested parentheses
     do not indent inside comments */

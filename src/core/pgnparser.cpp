@@ -125,12 +125,13 @@ void pgnparser::next_token()
             else
             {
                 buffer.current++;
-                if(*buffer.current != '0')
+                if(*buffer.current != '1')
                 {
                     throw parse_error("next_token(): expected '0-1' after '0-': got '0-" + std::to_string(*buffer.current) + "'");
                 }
                 buffer.current++;
                 buffer.token = BLACK_WINS;
+                break;
             }
             [[fallthrough]];
         case '1':
@@ -143,6 +144,7 @@ void pgnparser::next_token()
                 }
                 buffer.current++;
                 buffer.token = WHITE_WINS;
+                break;
             }
             else if(*(buffer.current+1) == '/' && *(buffer.current+2) == '2' && *(buffer.current+3) == '-')
             {
@@ -154,6 +156,7 @@ void pgnparser::next_token()
                 }
                 buffer.current += expected.size();
                 buffer.token = DRAW;
+                break;
             }
             [[fallthrough]];
         case '2':

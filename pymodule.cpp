@@ -178,17 +178,23 @@ PYBIND11_MODULE(engine, m) {
              },
              py::arg("action")
         )
-        .def("show_pgn", &game::show_pgn);
+        .def("show_pgn", [](game &g, uint16_t options) {
+            return g.show_pgn(static_cast<pgn_options>(options));
+        })
+        .def("show_pgn_with_scope", [](game &g, uint16_t options, bool complete_game_tree) {
+            return g.show_pgn(static_cast<pgn_options>(options), complete_game_tree);
+        });
 
-    m.attr("SHOW_NOTHING") = pgn_options::SHOW_NOTHING;
-    m.attr("SHOW_RELATIVE") = pgn_options::SHOW_RELATIVE;
-    m.attr("SHOW_PAWN") = pgn_options::SHOW_PAWN;
-    m.attr("SHOW_CAPTURE") = pgn_options::SHOW_CAPTURE;
-    m.attr("SHOW_PROMOTION") = pgn_options::SHOW_PROMOTION;
-    m.attr("SHOW_MATE") = pgn_options::SHOW_MATE;
-    m.attr("SHOW_LCOMMENT") = pgn_options::SHOW_LCOMMENT;
-    m.attr("SHOW_ALL") = pgn_options::SHOW_ALL;
-    m.attr("SHOW_SHORT") = pgn_options::SHOW_SHORT;
+    m.attr("SHOW_NOTHING") = static_cast<uint16_t>(pgn_options::SHOW_NOTHING);
+    m.attr("SHOW_RELATIVE") = static_cast<uint16_t>(pgn_options::SHOW_RELATIVE);
+    m.attr("SHOW_PAWN") = static_cast<uint16_t>(pgn_options::SHOW_PAWN);
+    m.attr("SHOW_CAPTURE") = static_cast<uint16_t>(pgn_options::SHOW_CAPTURE);
+    m.attr("SHOW_PROMOTION") = static_cast<uint16_t>(pgn_options::SHOW_PROMOTION);
+    m.attr("SHOW_MATE") = static_cast<uint16_t>(pgn_options::SHOW_MATE);
+    m.attr("SHOW_LCOMMENT") = static_cast<uint16_t>(pgn_options::SHOW_LCOMMENT);
+    m.attr("SHOW_ALL") = static_cast<uint16_t>(pgn_options::SHOW_ALL);
+    m.attr("SHOW_SHORT") = static_cast<uint16_t>(pgn_options::SHOW_SHORT);
+    m.attr("SHOW_OUTCOME") = static_cast<uint16_t>(pgn_options::SHOW_OUTCOME);
     
     // Add version information
     m.def("get_version", []() {

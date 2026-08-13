@@ -668,7 +668,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
     {
 #ifdef DEBUGMSG
         // !!do use flag SHOW_MATE (or expect explosion)!!
-        mvsstr += mv.pgn<pgn_options::SHOW_NOTHING>(s) + " ";
+        mvsstr += mv.lan(s) + " ";
 #endif
         [[maybe_unused]] bool flag = newstate.apply_move(mv);
         assert(flag && "failed to apply move here");

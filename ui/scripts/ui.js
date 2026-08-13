@@ -280,12 +280,17 @@ export const UI = (() => {
     // Callbacks for import/export
     let importCallback = null;
     let exportCallback = null;
+    const popupStack = [];
 
     function showPopup(button, popupName) {
-        // Close existing popup if any
-        if (activeButton) {
-            activeButton.classList.remove('active');
+        // Keep older panels open underneath newer panels. Avoid duplicate entries
+        // when a trigger is clicked repeatedly.
+        const existingIndex = popupStack.findIndex(entry => entry.popupName === popupName);
+        if (existingIndex !== -1) {
+            popupStack.splice(existingIndex, 1);
         }
+        if (activeButton) activeButton.classList.remove('active');
+        popupStack.push({ button, popupName });
         popupOverlay.classList.add('show');
         document.getElementById(popupName).classList.add('show');
         if (button) {
@@ -297,14 +302,23 @@ export const UI = (() => {
     }
 
     function closePopup() {
-        document.querySelectorAll('.popup-window').forEach(popup => {
-            popup.classList.remove('show');
-        });
-        popupOverlay.classList.remove('show');
-        if (activeButton) {
-            activeButton.classList.remove('active');
-            activeButton = null;
+        const entry = popupStack.pop();
+        if (!entry) return;
+        document.getElementById(entry.popupName).classList.remove('show');
+        if (entry.button) entry.button.classList.remove('active');
+        const previous = popupStack[popupStack.length - 1];
+        activeButton = previous ? previous.button : null;
+        if (activeButton) activeButton.classList.add('active');
+        if (popupStack.length === 0) popupOverlay.classList.remove('show');
+    }
+
+    function togglePopup(button, popupName) {
+        const topPopup = popupStack[popupStack.length - 1];
+        if (topPopup && topPopup.popupName === popupName) {
+            closePopup();
+            return;
         }
+        showPopup(button, popupName);
     }
 
     // Close popup when clicking overlay (but not the window)
@@ -313,6 +327,13 @@ export const UI = (() => {
             closePopup();
         }
     };
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && popupStack.length > 0) {
+            e.preventDefault();
+            closePopup();
+        }
+    });
 
     document.getElementById('btnInfo').onclick = (event) => {
         showPopup(event.currentTarget, 'popupInfo');
@@ -393,7 +414,12 @@ export const UI = (() => {
     };
 
     document.getElementById('btnExport').onclick = (event) => {
+        setExportControls(appliedExportSettings);
         showPopup(event.currentTarget, 'popupExport');
+        // Reapply the last saved settings before requesting the preview.
+        if (settingsChangeCallback) {
+            settingsChangeCallback(appliedExportSettings);
+        }
         // Call export callback to populate textarea
         if (exportCallback) {
             exportCallback();
@@ -402,6 +428,10 @@ export const UI = (() => {
         const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
         document.getElementById('exportFilename').value = `game_${timestamp}`;
         document.getElementById('exportExtension').value = '.5dpgn';
+    };
+
+    document.getElementById('exportMoreOptionsButton').onclick = (event) => {
+        togglePopup(event.currentTarget, 'popupExportOptions');
     };
 
     // Copy to Clipboard button
@@ -465,84 +495,77 @@ export const UI = (() => {
     const exportMateCheckbox = document.getElementById('exportMate');
     const exportShortNotationCheckbox = document.getElementById('exportShortNotation');
     const exportRelativeNotationCheckbox = document.getElementById('exportRelativeNotation');
+    const exportOutcomeCheckbox = document.getElementById('exportOutcome');
+    const exportCompleteGameTreeRadio = document.getElementById('exportCompleteGameTree');
+    const exportGameHistoryRadio = document.getElementById('exportGameHistory');
     const EXPORT_MATE_KEY = 'export-mate';
     const EXPORT_SHORT_NOTATION_KEY = 'export-short-notation';
     const EXPORT_RELATIVE_NOTATION_KEY = 'export-relative-notation';
+    const EXPORT_OUTCOME_KEY = 'export-outcome';
+    const EXPORT_COMPLETE_TREE_KEY = 'export-complete-game-tree';
+    let appliedExportSettings = null;
+
+    const getExportSettings = () => ({
+        exportMate: exportMateCheckbox.checked,
+        exportShortNotation: exportShortNotationCheckbox.checked,
+        exportRelativeNotation: exportRelativeNotationCheckbox.checked,
+        exportOutcome: exportOutcomeCheckbox.checked,
+        exportCompleteGameTree: exportCompleteGameTreeRadio.checked
+    });
+
+    const setExportControls = (settings) => {
+        exportMateCheckbox.checked = settings.exportMate;
+        exportShortNotationCheckbox.checked = settings.exportShortNotation;
+        exportRelativeNotationCheckbox.checked = settings.exportRelativeNotation;
+        exportOutcomeCheckbox.checked = settings.exportOutcome;
+        exportCompleteGameTreeRadio.checked = settings.exportCompleteGameTree;
+        exportGameHistoryRadio.checked = !settings.exportCompleteGameTree;
+    };
+
+    const saveExportSettings = () => {
+        const settings = getExportSettings();
+        try {
+            localStorage.setItem(EXPORT_MATE_KEY, settings.exportMate.toString());
+            localStorage.setItem(EXPORT_SHORT_NOTATION_KEY, settings.exportShortNotation.toString());
+            localStorage.setItem(EXPORT_RELATIVE_NOTATION_KEY, settings.exportRelativeNotation.toString());
+            localStorage.setItem(EXPORT_OUTCOME_KEY, settings.exportOutcome.toString());
+            localStorage.setItem(EXPORT_COMPLETE_TREE_KEY, settings.exportCompleteGameTree.toString());
+        } catch {
+            // Ignore storage errors
+        }
+        appliedExportSettings = settings;
+        if (settingsChangeCallback) settingsChangeCallback(settings);
+        if (exportCallback) exportCallback();
+    };
 
     // Initialize export options from localStorage
     try {
         const storedMate = localStorage.getItem(EXPORT_MATE_KEY);
         const storedShortNotation = localStorage.getItem(EXPORT_SHORT_NOTATION_KEY);
         const storedRelativeNotation = localStorage.getItem(EXPORT_RELATIVE_NOTATION_KEY);
+        const storedOutcome = localStorage.getItem(EXPORT_OUTCOME_KEY);
+        const storedCompleteTree = localStorage.getItem(EXPORT_COMPLETE_TREE_KEY);
         exportMateCheckbox.checked = storedMate !== null ? storedMate === 'true' : true;
         exportShortNotationCheckbox.checked = storedShortNotation !== null ? storedShortNotation === 'true' : false;
         exportRelativeNotationCheckbox.checked = storedRelativeNotation !== null ? storedRelativeNotation === 'true' : false;
+        exportOutcomeCheckbox.checked = storedOutcome !== null ? storedOutcome === 'true' : false;
+        exportCompleteGameTreeRadio.checked = storedCompleteTree !== 'false';
+        exportGameHistoryRadio.checked = storedCompleteTree === 'false';
     } catch {
         // Fallback to defaults if localStorage is not available (e.g., Safari private mode)
         exportMateCheckbox.checked = true;
         exportShortNotationCheckbox.checked = false;
         exportRelativeNotationCheckbox.checked = false;
+        exportOutcomeCheckbox.checked = false;
+        exportCompleteGameTreeRadio.checked = true;
+        exportGameHistoryRadio.checked = false;
     }
-
-    if (exportMateCheckbox) {
-        exportMateCheckbox.addEventListener('change', () => {
-            try {
-                localStorage.setItem(EXPORT_MATE_KEY, exportMateCheckbox.checked.toString());
-            } catch {
-                // Ignore storage errors
-            }
-            if (settingsChangeCallback) {
-                settingsChangeCallback({ 
-                    exportMate: exportMateCheckbox.checked,
-                    exportShortNotation: exportShortNotationCheckbox.checked,
-                    exportRelativeNotation: exportRelativeNotationCheckbox.checked
-                });
-            }
-        });
-    }
-
-    if (exportShortNotationCheckbox) {
-        exportShortNotationCheckbox.addEventListener('change', () => {
-            try {
-                localStorage.setItem(EXPORT_SHORT_NOTATION_KEY, exportShortNotationCheckbox.checked.toString());
-            } catch {
-                // Ignore storage errors
-            }
-            if (settingsChangeCallback) {
-                settingsChangeCallback({ 
-                    exportMate: exportMateCheckbox.checked,
-                    exportShortNotation: exportShortNotationCheckbox.checked,
-                    exportRelativeNotation: exportRelativeNotationCheckbox.checked
-                });
-            }
-        });
-    }
-
-    if (exportRelativeNotationCheckbox) {
-        exportRelativeNotationCheckbox.addEventListener('change', () => {
-            try {
-                localStorage.setItem(EXPORT_RELATIVE_NOTATION_KEY, exportRelativeNotationCheckbox.checked.toString());
-            } catch {
-                // Ignore storage errors
-            }
-            if (settingsChangeCallback) {
-                settingsChangeCallback({ 
-                    exportMate: exportMateCheckbox.checked,
-                    exportShortNotation: exportShortNotationCheckbox.checked,
-                    exportRelativeNotation: exportRelativeNotationCheckbox.checked
-                });
-            }
-        });
-    }
+    appliedExportSettings = getExportSettings();
 
     // Refresh button
     const refreshButton = document.getElementById('refreshButton');
     if (refreshButton) {
-        refreshButton.onclick = () => {
-            if (exportCallback) {
-                exportCallback();
-            }
-        };
+        refreshButton.onclick = saveExportSettings;
     }
 
     document.getElementById('btnSettings').onclick = (event) => {

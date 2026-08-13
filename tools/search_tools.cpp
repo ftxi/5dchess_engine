@@ -60,7 +60,7 @@ void count_balanced(state s, int count)
             state t = s;
             for(full_move m : x)
             {
-                std::cout << m.pgn<pgn_options::SHOW_CAPTURE>(t) << " ";
+                std::cout << m.pgn(t, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
                 t.apply_move(m);
             }
             std::cout << "\n";
@@ -84,7 +84,7 @@ void count_stable(state s, int count)
             state t = s;
             for(full_move m : x)
             {
-                std::cout << m.pgn<pgn_options::SHOW_CAPTURE>(t) << " ";
+                std::cout << m.pgn(t, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
                 t.apply_move(m);
             }
             std::cout << "\n";
@@ -108,7 +108,7 @@ void count_iterative(state s, int count)
             state t = s;
             for(full_move m : x)
             {
-                std::cout << m.pgn<pgn_options::SHOW_CAPTURE>(t) << " ";
+                std::cout << m.pgn(t, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
                 t.apply_move(m);
             }
             std::cout << "\n";
@@ -132,7 +132,7 @@ void count_mixed(state s, int count)
             state t = s;
             for(full_move m : x)
             {
-                std::cout << m.pgn<pgn_options::SHOW_CAPTURE>(t) << " ";
+                std::cout << m.pgn(t, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
                 t.apply_move(m);
             }
             std::cout << "\n";
@@ -155,7 +155,7 @@ void count_naive(state s, int count)
             state t = s;
             for(full_move m : x)
             {
-                std::cout << m.pgn<pgn_options::SHOW_CAPTURE>(t) << " ";
+                std::cout << m.pgn(t, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
                 t.apply_move(m);
             }
             std::cout << "\n";
@@ -197,7 +197,7 @@ void diff(state s)
     {
         for(full_move m : x)
         {
-            std::cout << m.pgn<pgn_options::SHOW_NOTHING>(s) << " ";
+            std::cout << m.pgn(s, QUEEN_W, pgn_options::SHOW_NOTHING) << " ";
         }
         std::cout << "\n";
     }
@@ -207,7 +207,7 @@ void diff(state s)
     {
         for(full_move m : x)
         {
-            std::cout << m.pgn<pgn_options::SHOW_CAPTURE>(s) << " ";
+            std::cout << m.pgn(s, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
         }
         std::cout << "\n";
     }

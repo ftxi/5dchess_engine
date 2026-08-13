@@ -8,22 +8,27 @@
 #include <vector>
 #include "vec4.h"
 #include "piece.h"
+#include "utils.h"
 
 class state;
 class action;
 
-namespace pgn_options {
-constexpr uint16_t SHOW_NOTHING   = 0;
-constexpr uint16_t SHOW_RELATIVE  = 1 << 0;
-constexpr uint16_t SHOW_PAWN      = 1 << 1;
-constexpr uint16_t SHOW_CAPTURE   = 1 << 2;
-constexpr uint16_t SHOW_PROMOTION = 1 << 3;
-constexpr uint16_t SHOW_MATE      = 1 << 4;
-constexpr uint16_t SHOW_LCOMMENT  = 1 << 5;
-constexpr uint16_t SHOW_SHORT     = 1 << 6;
-constexpr uint16_t SHOW_ALL = SHOW_RELATIVE | SHOW_PAWN | SHOW_CAPTURE | SHOW_PROMOTION |
-                              SHOW_MATE | SHOW_LCOMMENT | SHOW_SHORT;
-}
+enum class pgn_options : uint16_t
+{
+    SHOW_NOTHING   = 0,
+    SHOW_RELATIVE  = 1 << 0,
+    SHOW_PAWN      = 1 << 1,
+    SHOW_CAPTURE   = 1 << 2,
+    SHOW_PROMOTION = 1 << 3,
+    SHOW_MATE      = 1 << 4,
+    SHOW_LCOMMENT  = 1 << 5,
+    SHOW_SHORT     = 1 << 6,
+    SHOW_OUTCOME   = 1 << 7,
+    SHOW_ALL       = (1 << 8) - 1,
+};
+
+template <>
+inline constexpr bool enable_bitmask_operators<pgn_options> = true;
 
 /*
  In this implementation, I use `full_move` instead of `move` to avoid confusion with `std::move`.
@@ -36,14 +41,13 @@ struct full_move
     full_move(std::string);
     std::string to_string() const;
     std::string lan(const state &, piece_t promote_to=QUEEN_W) const;
-    template<uint16_t OPTIONS>
-    std::string pgn(const state &, piece_t promote_to=QUEEN_W) const;
     std::string pgn(const state &, piece_t promote_to=QUEEN_W,
-                    uint16_t options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
+                    pgn_options options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
 private:
-    template<uint16_t OPTIONS>
-    std::string pgn_impl(const state &, piece_t promote_to, char check_symbol, bool multimove) const;
+    std::string pgn_impl(const state &, piece_t promote_to, pgn_options options,
+                         char check_symbol, bool multimove) const;
     friend class action;
+    friend class state;
 public:
     bool operator<(const full_move &other) const;
     bool operator==(const full_move &other) const;
@@ -65,9 +69,7 @@ struct ext_move
     piece_t get_promote() const { return promote_to; }
     std::string to_string() const;
     std::string lan(const state &) const;
-    template<uint16_t OPTIONS>
-    std::string pgn(const state &) const;
-    std::string pgn(const state &, uint16_t options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
+    std::string pgn(const state &, pgn_options options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
     bool operator==(const ext_move&) const = default;
 };
 
@@ -99,9 +101,7 @@ public:
     int get_branching_index() const { return branching_index; }
     std::string to_string() const;
     std::string lan(const state &) const;
-    template<uint16_t OPTIONS>
-    std::string pgn(const state &) const;
-    std::string pgn(const state &, uint16_t options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
+    std::string pgn(const state &, pgn_options options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
     bool operator ==(const action &other) const = default;
     friend std::ostream &operator<<(std::ostream &os, const action &act);
 };

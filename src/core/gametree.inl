@@ -26,7 +26,7 @@ inline state gnode<T>::get_state()
 template<typename T>
 inline std::string gnode<T>::to_string(
     std::function<std::string(T)> show,
-    uint16_t show_flags,
+    pgn_options show_flags,
     turn_t start_turn,
     bool full_turn_display
 )
@@ -59,6 +59,24 @@ inline std::string gnode<T>::to_string(
     else
     {
         oss << show(info) << "\n";
+    }
+    if((static_cast<uint16_t>(show_flags) & static_cast<uint16_t>(pgn_options::SHOW_OUTCOME))
+       && outcome.has_value())
+    {
+        switch(*outcome)
+        {
+            case pgnparser_ast::WHITE_WINS:
+                oss << "1-0";
+                break;
+            case pgnparser_ast::BLACK_WINS:
+                oss << "0-1";
+                break;
+            case pgnparser_ast::DRAW:
+                oss << "1/2-1/2";
+                break;
+            default:
+                break;
+        }
     }
     if(num_children > 1)
     {

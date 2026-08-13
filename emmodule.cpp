@@ -370,16 +370,22 @@ EMSCRIPTEN_BINDINGS(engine) {
             action act = convert_js_to_action(js_action, g.get_unmoved_state());
             return g.visit_child(act);
         }))
-        .function("show_pgn", &game::show_pgn);
-    constant("SHOW_NOTHING", pgn_options::SHOW_NOTHING);
-    constant("SHOW_RELATIVE", pgn_options::SHOW_RELATIVE);
-    constant("SHOW_PAWN", pgn_options::SHOW_PAWN);
-    constant("SHOW_CAPTURE", pgn_options::SHOW_CAPTURE);
-    constant("SHOW_PROMOTION", pgn_options::SHOW_PROMOTION);
-    constant("SHOW_MATE", pgn_options::SHOW_MATE);
-    constant("SHOW_LCOMMENT", pgn_options::SHOW_LCOMMENT);
-    constant("SHOW_ALL", pgn_options::SHOW_ALL);
-    constant("SHOW_SHORT", pgn_options::SHOW_SHORT);
+        .function("show_pgn", optional_override([](game &g, uint16_t options) {
+            return g.show_pgn(static_cast<pgn_options>(options), true);
+        }))
+        .function("show_pgn_with_scope", optional_override([](game &g, uint16_t options, bool complete_game_tree) {
+            return g.show_pgn(static_cast<pgn_options>(options), complete_game_tree);
+        }));
+    constant("SHOW_NOTHING", static_cast<uint16_t>(pgn_options::SHOW_NOTHING));
+    constant("SHOW_RELATIVE", static_cast<uint16_t>(pgn_options::SHOW_RELATIVE));
+    constant("SHOW_PAWN", static_cast<uint16_t>(pgn_options::SHOW_PAWN));
+    constant("SHOW_CAPTURE", static_cast<uint16_t>(pgn_options::SHOW_CAPTURE));
+    constant("SHOW_PROMOTION", static_cast<uint16_t>(pgn_options::SHOW_PROMOTION));
+    constant("SHOW_MATE", static_cast<uint16_t>(pgn_options::SHOW_MATE));
+    constant("SHOW_LCOMMENT", static_cast<uint16_t>(pgn_options::SHOW_LCOMMENT));
+    constant("SHOW_ALL", static_cast<uint16_t>(pgn_options::SHOW_ALL));
+    constant("SHOW_SHORT", static_cast<uint16_t>(pgn_options::SHOW_SHORT));
+    constant("SHOW_OUTCOME", static_cast<uint16_t>(pgn_options::SHOW_OUTCOME));
     
     // Export version information
     function("get_version", optional_override([]() {
