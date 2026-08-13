@@ -407,7 +407,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
 #ifdef DEBUGMSG
         for(const auto &[l,i] : hc_info.line_to_axis) {
             dprint("  axis", i, "coord", pt[i], "type",
-                   hc_info.get_semimove(i, pt[i]).to_string(get_current_state()));
+                   hc_info.get_semimove(i, pt[i]).lan(get_current_state()));
         }
 #endif
         std::vector<ext_move> best_ext_moves;

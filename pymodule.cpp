@@ -180,15 +180,15 @@ PYBIND11_MODULE(engine, m) {
         )
         .def("show_pgn", &game::show_pgn);
 
-    m.attr("SHOW_NOTHING") = state::SHOW_NOTHING;
-    m.attr("SHOW_RELATIVE") = state::SHOW_RELATIVE;
-    m.attr("SHOW_PAWN") = state::SHOW_PAWN;
-    m.attr("SHOW_CAPTURE") = state::SHOW_CAPTURE;
-    m.attr("SHOW_PROMOTION") = state::SHOW_PROMOTION;
-    m.attr("SHOW_MATE") = state::SHOW_MATE;
-    m.attr("SHOW_LCOMMENT") = state::SHOW_LCOMMENT;
-    m.attr("SHOW_ALL") = state::SHOW_ALL;
-    m.attr("SHOW_SHORT") = state::SHOW_SHORT;
+    m.attr("SHOW_NOTHING") = pgn_options::SHOW_NOTHING;
+    m.attr("SHOW_RELATIVE") = pgn_options::SHOW_RELATIVE;
+    m.attr("SHOW_PAWN") = pgn_options::SHOW_PAWN;
+    m.attr("SHOW_CAPTURE") = pgn_options::SHOW_CAPTURE;
+    m.attr("SHOW_PROMOTION") = pgn_options::SHOW_PROMOTION;
+    m.attr("SHOW_MATE") = pgn_options::SHOW_MATE;
+    m.attr("SHOW_LCOMMENT") = pgn_options::SHOW_LCOMMENT;
+    m.attr("SHOW_ALL") = pgn_options::SHOW_ALL;
+    m.attr("SHOW_SHORT") = pgn_options::SHOW_SHORT;
     
     // Add version information
     m.def("get_version", []() {

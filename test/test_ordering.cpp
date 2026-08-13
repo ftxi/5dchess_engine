@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <cassert>
 #include <random>
 #include <vector>

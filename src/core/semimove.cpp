@@ -6,7 +6,17 @@
 #include <stdexcept>
 
 
-std::string semimove::to_string(const state &s) const
+std::string semimove::to_string() const
+{
+    return visit(overloads {
+        [](const physical_move &move) { return move.m.to_string(); },
+        [](const arriving_move &move) { return move.m.to_string(); },
+        [](const departing_move &move) { return std::string("departing ") + move.from.to_string(); },
+        [](const null_move &) { return std::string("@"); }
+    });
+}
+
+std::string semimove::lan(const state &s) const
 {
     auto show_square = [&s](vec4 p) -> std::string
     {

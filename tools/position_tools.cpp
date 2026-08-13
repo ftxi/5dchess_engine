@@ -183,7 +183,7 @@ int run_checkmate(int argc, const char *argv[])
             std::cout << "Not checkmate: ";
             for(const full_move &move : *moves)
             {
-                std::cout << s.pretty_move<state::SHOW_CAPTURE>(move) << ' ';
+                std::cout << move.pgn<pgn_options::SHOW_CAPTURE>(s) << ' ';
                 s.apply_move(move);
             }
         }

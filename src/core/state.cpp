@@ -410,18 +410,6 @@ bool state::submit()
     return true;
 }
 
-std::string state::lan_move(full_move fm, piece_t promote_to) const
-{
-    std::string lan = fm.to_string();
-    const piece_t pic = to_white(piece_name(get_piece(fm.from, player)));
-    if((pic == PAWN_W || pic == BRAWN_W)
-        && fm.to.y() == (player ? 0 : (m->get_board_size().second - 1)))
-    {
-        lan += static_cast<char>(promote_to);
-    }
-    return lan;
-}
-
 state state::phantom() const
 {
     const auto [l_min, l_max] = get_lines_range();
@@ -674,7 +662,7 @@ std::pair<int, int> state::get_board_size() const
     return m->get_board_size();
 }
 
-std::string state::pretty_l(int l)
+std::string state::pretty_l(int l) const
 {
     return m->pretty_l(l);
 }
@@ -769,7 +757,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
     std::optional<full_move> fm;
     std::optional<piece_t> promotion;
     dprint("parse_move(",move,")");
-    constexpr static uint16_t FLAGS = SHOW_PAWN | SHOW_CAPTURE | SHOW_PROMOTION;
+    constexpr static uint16_t FLAGS = pgn_options::SHOW_PAWN | pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION;
     if(std::holds_alternative<pgnparser_ast::physical_move>(move.data))
     {
         auto mv = std::get<pgnparser_ast::physical_move>(move.data);
@@ -784,7 +772,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                 full_move fm(p,q);
                 dprint("matching", fm);
                 // test if this physical move matches any of them
-                std::string full_notation = pretty_move<FLAGS>(fm);
+                std::string full_notation = fm.pgn<FLAGS>(*this);
                 auto full = pgnparser(full_notation).parse_physical_move();
                 assert(full.has_value());
                 bool match = pgnparser::match_physical_move(mv, *full);
@@ -838,11 +826,11 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                     std::string full_notation;
                     if(is_relative)
                     {
-                        full_notation = pretty_move<FLAGS | SHOW_RELATIVE>(fm);
+                        full_notation = fm.pgn<FLAGS | pgn_options::SHOW_RELATIVE>(*this);
                     }
                     else
                     {
-                        full_notation = pretty_move<FLAGS>(fm);
+                        full_notation = fm.pgn<FLAGS>(*this);
                     }
                     auto full = pgnparser(full_notation).parse_superphysical_move();
                     assert(full.has_value());

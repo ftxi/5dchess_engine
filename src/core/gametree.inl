@@ -48,7 +48,7 @@ inline std::string gnode<T>::to_string(
         {
             oss << t << ". ";
         }
-        oss << parent->get_state().pretty_action(act, show_flags) << " ";
+        oss << act.pgn(parent->get_state(), show_flags) << " ";
         oss << show(info);
         start_turn = next_turn(start_turn);
         if(c && num_children > 0)

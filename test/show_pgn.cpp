@@ -65,45 +65,45 @@ int main()
     std::string default_pgn = g.show_pgn();
     std::cout << default_pgn << "\n\n";
     const std::vector<uint16_t> flags_to_test = {
-        state::SHOW_NOTHING,
-        state::SHOW_RELATIVE,
-        state::SHOW_PAWN,
-        state::SHOW_CAPTURE,
-        state::SHOW_PROMOTION,
+        pgn_options::SHOW_NOTHING,
+        pgn_options::SHOW_RELATIVE,
+        pgn_options::SHOW_PAWN,
+        pgn_options::SHOW_CAPTURE,
+        pgn_options::SHOW_PROMOTION,
 //        state::SHOW_MATE,
-        state::SHOW_LCOMMENT,
-        state::SHOW_SHORT,
-        state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE | state::SHOW_SHORT,
-        state::SHOW_ALL
+        pgn_options::SHOW_LCOMMENT,
+        pgn_options::SHOW_SHORT,
+        pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE | pgn_options::SHOW_SHORT,
+        pgn_options::SHOW_ALL
     };
     for(uint16_t flags : flags_to_test)
     {
         std::cout << "Flags: " << flags << " (";
-        if(flags & state::SHOW_RELATIVE)
+        if(flags & pgn_options::SHOW_RELATIVE)
         {
             std::cout << "SHOW_RELATIVE ";
         }
-        if(flags & state::SHOW_PAWN)
+        if(flags & pgn_options::SHOW_PAWN)
         {
             std::cout << "SHOW_PAWN ";
         }
-        if(flags & state::SHOW_CAPTURE)
+        if(flags & pgn_options::SHOW_CAPTURE)
         {
             std::cout << "SHOW_CAPTURE ";
         }
-        if(flags & state::SHOW_PROMOTION)
+        if(flags & pgn_options::SHOW_PROMOTION)
         {
             std::cout << "SHOW_PROMOTION ";
         }
-        if(flags & state::SHOW_MATE)
+        if(flags & pgn_options::SHOW_MATE)
         {
             std::cout << "SHOW_MATE ";
         }
-        if(flags & state::SHOW_LCOMMENT)
+        if(flags & pgn_options::SHOW_LCOMMENT)
         {
             std::cout << "SHOW_LCOMMENT ";
         }
-        if(flags & state::SHOW_SHORT)
+        if(flags & pgn_options::SHOW_SHORT)
         {
             std::cout << "SHOW_SHORT ";
         }

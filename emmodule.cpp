@@ -371,15 +371,15 @@ EMSCRIPTEN_BINDINGS(engine) {
             return g.visit_child(act);
         }))
         .function("show_pgn", &game::show_pgn);
-    constant("SHOW_NOTHING", state::SHOW_NOTHING);
-    constant("SHOW_RELATIVE", state::SHOW_RELATIVE);
-    constant("SHOW_PAWN", state::SHOW_PAWN);
-    constant("SHOW_CAPTURE", state::SHOW_CAPTURE);
-    constant("SHOW_PROMOTION", state::SHOW_PROMOTION);
-    constant("SHOW_MATE", state::SHOW_MATE);
-    constant("SHOW_LCOMMENT", state::SHOW_LCOMMENT);
-    constant("SHOW_ALL", state::SHOW_ALL);
-    constant("SHOW_SHORT", state::SHOW_SHORT);
+    constant("SHOW_NOTHING", pgn_options::SHOW_NOTHING);
+    constant("SHOW_RELATIVE", pgn_options::SHOW_RELATIVE);
+    constant("SHOW_PAWN", pgn_options::SHOW_PAWN);
+    constant("SHOW_CAPTURE", pgn_options::SHOW_CAPTURE);
+    constant("SHOW_PROMOTION", pgn_options::SHOW_PROMOTION);
+    constant("SHOW_MATE", pgn_options::SHOW_MATE);
+    constant("SHOW_LCOMMENT", pgn_options::SHOW_LCOMMENT);
+    constant("SHOW_ALL", pgn_options::SHOW_ALL);
+    constant("SHOW_SHORT", pgn_options::SHOW_SHORT);
     
     // Export version information
     function("get_version", optional_override([]() {

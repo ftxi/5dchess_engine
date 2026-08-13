@@ -410,7 +410,7 @@ std::vector<std::tuple<action, std::string>> game::get_child_actions() const
     for(const auto &child : children)
     {
         const action &act = child->get_action();
-        std::string txt = s.pretty_action(act);
+        std::string txt = act.pgn(s);
         result.push_back({act, txt});
     }
     return result;
@@ -426,7 +426,7 @@ std::vector<std::tuple<action, std::string>> game::get_historical_actions() cons
     {
         const action& act = node->get_action();
         // Pretty print using parent's state (state before the action was applied)
-        std::string txt = node->get_parent()->get_state().pretty_action(act);
+        std::string txt = act.pgn(node->get_parent()->get_state());
         result.push_back({act, txt});
         node = node->get_parent();
     }

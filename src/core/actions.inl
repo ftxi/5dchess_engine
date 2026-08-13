@@ -1,45 +1,48 @@
+#ifndef ACTIONS_INL
+#define ACTIONS_INL
 
-template<uint16_t FLAGS>
-std::string state::pretty_move(full_move fm, piece_t pt) const
+template<uint16_t OPTIONS>
+std::string full_move::pgn(const state &s, piece_t pt) const
 {
     char check_symbol = 0;
-    if constexpr(FLAGS & SHOW_MATE)
+    if constexpr(OPTIONS & pgn_options::SHOW_MATE)
     {
-        state::move_info mi = get_move_info(fm, pt);
+        state::move_info mi = s.get_move_info(*this, pt);
         if(mi.checking_opponent)
         {
             check_symbol = '+';
         }
     }
-    return pretty_move_impl<FLAGS>(fm, pt, check_symbol, false);
+    return pgn_impl<OPTIONS>(s, pt, check_symbol, false);
 }
 
-template<uint16_t FLAGS>
-std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol, bool multimove) const
+template<uint16_t OPTIONS>
+std::string full_move::pgn_impl(const state &s, piece_t pt, char check_symbol, bool multimove) const
 {
-    static_assert((FLAGS & ~SHOW_ALL) == 0, "Invalid FLAGS for pretty_move");
+    static_assert((OPTIONS & ~pgn_options::SHOW_ALL) == 0, "Invalid options for full_move::pgn");
     std::ostringstream oss;
-    vec4 p = fm.from, q = fm.to;
-    piece_t pic = to_white(piece_name(get_piece(p, player)));
+    vec4 p = from, q = to;
+    bool player = s.get_present().second;
+    piece_t pic = to_white(piece_name(s.get_piece(p, player)));
     auto display_from_tl = [&](bool from_tl) -> std::string {
         std::ostringstream oss;
         if(from_tl)
         {
-            oss << m->pretty_lt(p.tl());
+            oss << s.pretty_lt(p.tl());
         }
         else if (multimove)
         {
-            oss << "(L" << m->pretty_l(p.l()) << ")";
+            oss << "(L" << s.pretty_l(p.l()) << ")";
         }
         else
         {
-            auto [mandatory_timelines, optional_timelines, unplayable_timelines] = get_timeline_status();
+            auto [mandatory_timelines, optional_timelines, unplayable_timelines] = s.get_timeline_status();
             auto it = std::find(mandatory_timelines.begin(), mandatory_timelines.end(), p.l());
             /* if this timeline is the only mandatory timeline, omit it; 
             otherwise display it to avoid ambiguity */
             if(mandatory_timelines.size() > 1 || it == mandatory_timelines.end())
             {
-                oss << "(L" << m->pretty_l(p.l()) << ")";
+                oss << "(L" << s.pretty_l(p.l()) << ")";
             }
         }
         return oss.str();
@@ -47,7 +50,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
 
     auto display_rest = [&](bool from_file, bool from_rank, bool to_tl) -> std::string {
         std::ostringstream oss;
-        if constexpr(FLAGS & SHOW_PAWN)
+        if constexpr(OPTIONS & pgn_options::SHOW_PAWN)
         {
             oss << pic;
         }
@@ -62,13 +65,13 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
         {
             oss << static_cast<char>(p.x() + 'a');
         }
-        else if constexpr(!(FLAGS & SHOW_PAWN))
+        else if constexpr(!(OPTIONS & pgn_options::SHOW_PAWN))
         {
             if (pic==PAWN_W)
             {
                 /* pawn captures include the file letter of the originating square
                 of the capturing pawn immediately prior to the "x" character. */
-                if((FLAGS & SHOW_CAPTURE) && get_piece(q, player) != NO_PIECE)
+                if((OPTIONS & pgn_options::SHOW_CAPTURE) && s.get_piece(q, player) != NO_PIECE)
                 {
                     oss << static_cast<char>(p.x() + 'a');
                 }
@@ -86,7 +89,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
         if(p.tl() != q.tl())
         {
             //        std::cout << "p=" << p << "\t q=" << q << "\t";        // superphysical move
-            if(std::pair{q.t(), player} < get_timeline_end(q.l()))
+            if(std::pair{q.t(), player} < s.get_timeline_end(q.l()))
             {
                 oss << ">>";
             }
@@ -94,16 +97,16 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
             {
                 oss << ">";
             }
-            if constexpr(FLAGS & SHOW_CAPTURE)
+            if constexpr(OPTIONS & pgn_options::SHOW_CAPTURE)
             {
-                if(get_piece(q, player) != NO_PIECE)
+                if(s.get_piece(q, player) != NO_PIECE)
                 {
                     oss << "x";
                 }
             }
             if(to_tl)
             {
-                if constexpr(FLAGS & SHOW_RELATIVE)
+                if constexpr(OPTIONS & pgn_options::SHOW_RELATIVE)
                 {
                     vec4 d = q - p;
                     auto show_diff = [&oss](int w){
@@ -122,16 +125,16 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
                 }
                 else
                 {
-                    oss << m->pretty_lt(q.tl());
+                    oss << s.pretty_lt(q.tl());
                 }
             }
         }
         else
         {
             //physical move
-            if constexpr(FLAGS & SHOW_CAPTURE)
+            if constexpr(OPTIONS & pgn_options::SHOW_CAPTURE)
             {
-                if(get_piece(q, player) != NO_PIECE)
+                if(s.get_piece(q, player) != NO_PIECE)
                 {
                     oss << "x";
                 }
@@ -140,7 +143,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
         oss << static_cast<char>(q.x() + 'a') << static_cast<char>(q.y() + '1');
         return oss.str();
     };
-    if constexpr(FLAGS & SHOW_SHORT)
+    if constexpr(OPTIONS & pgn_options::SHOW_SHORT)
     {
         bool success = false;
         /* policy: try hide everything first, if not successful,
@@ -167,7 +170,7 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
             std::string rest_part = display_rest(from_file, from_rank, to_tl);
             std::string mv_str = tl_part + rest_part;
             //check this move has no ambiguity
-            auto res = parse_move(mv_str);
+            auto res = s.parse_move(mv_str);
             auto mv_opt = std::get<0>(res);
             if(mv_opt.has_value())
             {
@@ -201,17 +204,17 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
     {
         oss << display_from_tl(true) << display_rest(true, true, true);
     }
-    if constexpr(FLAGS & SHOW_PROMOTION)
+    if constexpr(OPTIONS & pgn_options::SHOW_PROMOTION)
     {
-        if((pic == PAWN_W || pic == BRAWN_W) && (q.y() == (player ? 0 : (m->get_board_size().second - 1))))
+        if((pic == PAWN_W || pic == BRAWN_W) && (q.y() == (player ? 0 : (s.get_board_size().second - 1))))
         {
             oss << "=" << pt;
         }
     }
-    if constexpr(FLAGS & SHOW_MATE)
+    if constexpr(OPTIONS & pgn_options::SHOW_MATE)
     {
         /* display all checks here */
-        /* if this is not a check, pretty_move/pretty_action will set the
+        /* if this is not a check, full_move::pgn/action::pgn will set the
         check symbol to 0 */ 
         if(check_symbol)
         {
@@ -221,14 +224,20 @@ std::string state::pretty_move_impl(full_move fm, piece_t pt, char check_symbol,
     return oss.str();
 }
 
-template<uint16_t FLAGS>
-std::string state::pretty_action(action act) const
+template<uint16_t OPTIONS>
+std::string ext_move::pgn(const state &s) const
 {
-    state t = *this;
-    std::vector<ext_move> mvs = act.get_moves();
+    return fm.pgn<OPTIONS>(s, promote_to);
+}
+
+template<uint16_t OPTIONS>
+std::string action::pgn(const state &initial_state) const
+{
+    state t = initial_state;
+    std::vector<ext_move> mvs = get_moves();
     std::vector<char> check_symbols(mvs.size(), 0);
-    mate_type mt = mate_type::NONE;
-    if constexpr (FLAGS & SHOW_MATE)
+    state::mate_type mt = state::mate_type::NONE;
+    if constexpr (OPTIONS & pgn_options::SHOW_MATE)
     {
         for(size_t i = 0; i < mvs.size(); i++)
         {
@@ -249,13 +258,13 @@ std::string state::pretty_action(action act) const
         mt = t.get_mate_type();
         switch (mt)
         {
-            case mate_type::NONE:
+            case state::mate_type::NONE:
                 mate_symbol = '+';
                 break;
-            case mate_type::SOFTMATE:
+            case state::mate_type::SOFTMATE:
                 mate_symbol = '*';
                 break;
-            case mate_type::CHECKMATE:
+            case state::mate_type::CHECKMATE:
                 mate_symbol = '#';
                 break;
             default:
@@ -268,13 +277,13 @@ std::string state::pretty_action(action act) const
             *it = mate_symbol;
         }
     }
-    state s = *this;
+    state s = initial_state;
     std::string pgn = "";
     bool multimove = mvs.size() > 1;
     for(size_t i = 0; i < mvs.size(); i++)
     {
         auto [m, pt] = mvs[i];
-        pgn += s.pretty_move_impl<FLAGS>(m, pt, check_symbols[i], multimove) + " ";
+        pgn += m.pgn_impl<OPTIONS>(s, pt, check_symbols[i], multimove) + " ";
         s.apply_move<true>(m, pt);
     }
     if(!pgn.empty())
@@ -284,74 +293,81 @@ std::string state::pretty_action(action act) const
     return pgn;
 }
 
-struct state::detail {
-    using pretty_move_dispatch_fn = std::string (state::*)(full_move, piece_t) const;
-    using pretty_action_dispatch_fn = std::string (state::*)(action) const;
-    static constexpr std::size_t PRETTY_MOVE_TABLE_SIZE = static_cast<std::size_t>(SHOW_ALL) + 1;
+struct pgn_detail {
+    using pgn_move_dispatch_fn = std::string (full_move::*)(const state &, piece_t) const;
+    using pgn_action_dispatch_fn = std::string (action::*)(const state &) const;
+    static constexpr std::size_t PGN_TABLE_SIZE = static_cast<std::size_t>(pgn_options::SHOW_ALL) + 1;
 
-    template<std::size_t Flags>
-    static constexpr pretty_move_dispatch_fn pretty_move_dispatch_entry() noexcept;
+    template<std::size_t Options>
+    static constexpr pgn_move_dispatch_fn pgn_move_dispatch_entry() noexcept;
 
-    template<std::size_t Flags>
-    static constexpr pretty_action_dispatch_fn pretty_action_dispatch_entry() noexcept;
+    template<std::size_t Options>
+    static constexpr pgn_action_dispatch_fn pgn_action_dispatch_entry() noexcept;
 
-    template<std::size_t... Flags>
-    static constexpr std::array<pretty_move_dispatch_fn, PRETTY_MOVE_TABLE_SIZE>
-    make_pretty_move_dispatch_table(std::index_sequence<Flags...>) noexcept;
+    template<std::size_t... Options>
+    static constexpr std::array<pgn_move_dispatch_fn, PGN_TABLE_SIZE>
+    make_pgn_move_dispatch_table(std::index_sequence<Options...>) noexcept;
 
-    template<std::size_t... Flags>
-    static constexpr std::array<pretty_action_dispatch_fn, PRETTY_MOVE_TABLE_SIZE>
-    make_pretty_action_dispatch_table(std::index_sequence<Flags...>) noexcept;
+    template<std::size_t... Options>
+    static constexpr std::array<pgn_action_dispatch_fn, PGN_TABLE_SIZE>
+    make_pgn_action_dispatch_table(std::index_sequence<Options...>) noexcept;
 
-    static const std::array<pretty_move_dispatch_fn, PRETTY_MOVE_TABLE_SIZE>
-    pretty_move_dispatch_table;
+    static const std::array<pgn_move_dispatch_fn, PGN_TABLE_SIZE>
+    pgn_move_dispatch_table;
 
-    static const std::array<pretty_action_dispatch_fn, PRETTY_MOVE_TABLE_SIZE>
-    pretty_action_dispatch_table;
+    static const std::array<pgn_action_dispatch_fn, PGN_TABLE_SIZE>
+    pgn_action_dispatch_table;
 };
 
-inline std::string state::pretty_move(full_move fm, piece_t pt, uint16_t flags) const
+inline std::string full_move::pgn(const state &s, piece_t pt, uint16_t options) const
 {
-    const uint16_t normalized_flags = flags & SHOW_ALL;
-    auto dispatcher = detail::pretty_move_dispatch_table[static_cast<std::size_t>(normalized_flags)];
-    return (this->*dispatcher)(fm, pt);
+    const uint16_t normalized_options = options & pgn_options::SHOW_ALL;
+    auto dispatcher = pgn_detail::pgn_move_dispatch_table[static_cast<std::size_t>(normalized_options)];
+    return (this->*dispatcher)(s, pt);
 }
 
-inline std::string state::pretty_action(action act, uint16_t flags) const
+inline std::string ext_move::pgn(const state &s, uint16_t options) const
 {
-    const uint16_t normalized_flags = flags & SHOW_ALL;
-    auto dispatcher = detail::pretty_action_dispatch_table[static_cast<std::size_t>(normalized_flags)];
-    return (this->*dispatcher)(act);
+    return fm.pgn(s, promote_to, options);
 }
 
-template<std::size_t Flags>
-constexpr state::detail::pretty_move_dispatch_fn state::detail::pretty_move_dispatch_entry() noexcept
+inline std::string action::pgn(const state &s, uint16_t options) const
 {
-    return &state::pretty_move<static_cast<uint16_t>(Flags)>;
+    const uint16_t normalized_options = options & pgn_options::SHOW_ALL;
+    auto dispatcher = pgn_detail::pgn_action_dispatch_table[static_cast<std::size_t>(normalized_options)];
+    return (this->*dispatcher)(s);
 }
 
-template<std::size_t Flags>
-constexpr state::detail::pretty_action_dispatch_fn state::detail::pretty_action_dispatch_entry() noexcept
+template<std::size_t Options>
+constexpr pgn_detail::pgn_move_dispatch_fn pgn_detail::pgn_move_dispatch_entry() noexcept
 {
-    return &state::pretty_action<static_cast<uint16_t>(Flags)>;
+    return &full_move::pgn<static_cast<uint16_t>(Options)>;
 }
 
-template<std::size_t... Flags>
-constexpr std::array<state::detail::pretty_move_dispatch_fn, state::detail::PRETTY_MOVE_TABLE_SIZE>
-state::detail::make_pretty_move_dispatch_table(std::index_sequence<Flags...>) noexcept
+template<std::size_t Options>
+constexpr pgn_detail::pgn_action_dispatch_fn pgn_detail::pgn_action_dispatch_entry() noexcept
 {
-    return { pretty_move_dispatch_entry<Flags>()... };
+    return &action::pgn<static_cast<uint16_t>(Options)>;
 }
 
-template<std::size_t... Flags>
-constexpr std::array<state::detail::pretty_action_dispatch_fn, state::detail::PRETTY_MOVE_TABLE_SIZE>
-state::detail::make_pretty_action_dispatch_table(std::index_sequence<Flags...>) noexcept
+template<std::size_t... Options>
+constexpr std::array<pgn_detail::pgn_move_dispatch_fn, pgn_detail::PGN_TABLE_SIZE>
+pgn_detail::make_pgn_move_dispatch_table(std::index_sequence<Options...>) noexcept
 {
-    return { pretty_action_dispatch_entry<Flags>()... };
+    return { pgn_move_dispatch_entry<Options>()... };
 }
 
-inline const std::array<state::detail::pretty_move_dispatch_fn, state::detail::PRETTY_MOVE_TABLE_SIZE>
-state::detail::pretty_move_dispatch_table = make_pretty_move_dispatch_table(std::make_index_sequence<state::detail::PRETTY_MOVE_TABLE_SIZE>{});
+template<std::size_t... Options>
+constexpr std::array<pgn_detail::pgn_action_dispatch_fn, pgn_detail::PGN_TABLE_SIZE>
+pgn_detail::make_pgn_action_dispatch_table(std::index_sequence<Options...>) noexcept
+{
+    return { pgn_action_dispatch_entry<Options>()... };
+}
 
-inline const std::array<state::detail::pretty_action_dispatch_fn, state::detail::PRETTY_MOVE_TABLE_SIZE>
-state::detail::pretty_action_dispatch_table = make_pretty_action_dispatch_table(std::make_index_sequence<state::detail::PRETTY_MOVE_TABLE_SIZE>{});
+inline const std::array<pgn_detail::pgn_move_dispatch_fn, pgn_detail::PGN_TABLE_SIZE>
+pgn_detail::pgn_move_dispatch_table = make_pgn_move_dispatch_table(std::make_index_sequence<pgn_detail::PGN_TABLE_SIZE>{});
+
+inline const std::array<pgn_detail::pgn_action_dispatch_fn, pgn_detail::PGN_TABLE_SIZE>
+pgn_detail::pgn_action_dispatch_table = make_pgn_action_dispatch_table(std::make_index_sequence<pgn_detail::PGN_TABLE_SIZE>{});
+
+#endif // ACTIONS_INL

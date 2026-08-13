@@ -30,7 +30,7 @@ struct null_move {};
  An arriving_move retains the complete `full_move`, including both where the
  piece came from and where it arrives. This is to comply with the hypercuboid algorithm. A departing_move stores only its source coordinate; its corresponding arrival and destination are not part of the departing semimove.
 
- `to_string(s)` uses `s` to obtain the moving piece and variant-specific
+ `lan(s)` uses `s` to obtain the moving piece and variant-specific
  timeline notation. Its output has the following forms:
 
      physical:  (0T1)g1@Nf3
@@ -87,7 +87,8 @@ public:
         return std::visit(std::forward<Visitor>(visitor), data);
     }
 
-    std::string to_string(const state &s) const;
+    std::string to_string() const;
+    std::string lan(const state &s) const;
     vec4 hotspot() const;
 };
 

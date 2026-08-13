@@ -42,7 +42,7 @@ int main()
             emvs.emplace_back(fm);
         }
         action act = action::from_vector(emvs, s);
-        std::cout << s.pretty_action(act) << '\n';
+        std::cout << act.pgn(s) << '\n';
         if(++printed >= 1000)
         {
             break;
@@ -55,7 +55,7 @@ int main()
             if(!tmp.apply_move(fm))
             {
                 std::cerr << "apply_move failed for "
-                          << tmp.pretty_move<state::SHOW_NOTHING>(fm)
+                          << fm.pgn<pgn_options::SHOW_NOTHING>(tmp)
                           << "\n";
                 ok = false;
                 break;

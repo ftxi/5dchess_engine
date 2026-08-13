@@ -57,6 +57,23 @@ std::string full_move::to_string() const
     return os.str();
 }
 
+std::string full_move::lan(const state &s, piece_t promote_to) const
+{
+    auto [present, player] = s.get_present();
+    piece_t pic = to_white(piece_name(s.get_piece(from, player)));
+    std::ostringstream os;
+    os << s.pretty_lt(from.tl()) << pic
+       << static_cast<char>(from.x() + 'a') << static_cast<char>(from.y() + '1')
+       << s.pretty_lt(to.tl())
+       << static_cast<char>(to.x() + 'a') << static_cast<char>(to.y() + '1');
+    if((pic == PAWN_W || pic == BRAWN_W)
+        && to.y() == (player ? 0 : (s.get_board_size().second - 1)))
+    {
+        os << promote_to;
+    }
+    return os.str();
+}
+
 bool full_move::operator<(const full_move &other) const
 {
     return std::tie(from, to) < std::tie(other.from, other.to); 
@@ -86,6 +103,11 @@ ext_move::ext_move(std::string s)
 std::string ext_move::to_string() const
 {
     return fm.to_string() + static_cast<char>(promote_to);
+}
+
+std::string ext_move::lan(const state &s) const
+{
+    return fm.lan(s, promote_to);
 }
 
 /*********************************/
@@ -131,11 +153,34 @@ action action::from_vector(const std::vector<ext_move> &mvs, const state &s)
     return a;
 }
 
-std::ostream& operator<<(std::ostream &os, const action &act)
+std::string action::to_string() const
 {
-    for(const auto &mv : act.mvs)
+    std::ostringstream os;
+    for(const auto &mv : mvs)
     {
         os << mv.to_string() << " ";
     }
+    return os.str();
+}
+
+std::string action::lan(const state &initial_state) const
+{
+    state s = initial_state;
+    std::string result;
+    for(const auto &mv : mvs)
+    {
+        result += mv.lan(s) + " ";
+        s.apply_move<true>(mv.fm, mv.promote_to);
+    }
+    if(!result.empty())
+    {
+        result.pop_back();
+    }
+    return result;
+}
+
+std::ostream& operator<<(std::ostream &os, const action &act)
+{
+    os << act.to_string();
     return os;
 }

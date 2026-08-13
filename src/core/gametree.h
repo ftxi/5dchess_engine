@@ -72,7 +72,7 @@ public:
     
     std::string to_string(
         std::function<std::string(T)> show = [](T){return "";},
-        uint16_t show_flags = state::SHOW_CAPTURE | state::SHOW_PROMOTION | state::SHOW_MATE,
+        uint16_t show_flags = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE,
         turn_t start_turn = {1,false},
         bool full_turn_display=true
     );

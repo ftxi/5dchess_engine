@@ -116,4 +116,4 @@ Parsing and Printing
 =========
 The program supports parsing from branched 5dpgn format, whose specification can be found [here](hhttps://github.com/user-attachments/files/26370968/branched.pdf). The syntax tree is declared in `core/ast.h` and the parsing algorithm is implemented in `core/pgnparser.h`.
 
-Recall that a full_move in this program only stores the coordinates where it comes from and goes to. Printing it directly produces the long algebraic notation. To print in standard algebraic notation, the program needs to the game state for extra information. The printing algorithm is implemented in `core/state.inl`.
+Recall that a full_move in this program only stores the coordinates where it comes from and goes to. Its `to_string()` output is context-free. `lan(state)` and `pgn(state, options)` use the game state for piece and timeline information; the notation implementation lives in `core/actions.cpp` and `core/actions.inl`.

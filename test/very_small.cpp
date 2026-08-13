@@ -52,7 +52,7 @@ int main()
 //    for(auto & [act, txt] : g.get_child_actions())
 //    {
 //        std::cout << txt << " i.e. ";
-//        std::cout << g.get_current_state().pretty_action(act) << "\n";
+//        std::cout << act.pgn(g.get_current_state()) << "\n";
 //    }
     std::cout << g.show_pgn() << "\n";
     return 0;

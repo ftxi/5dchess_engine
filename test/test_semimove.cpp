@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <cassert>
 #include <stdexcept>
 #include <string>
@@ -14,25 +15,25 @@ int main()
 )").parse_game());
 
     const semimove physical = physical_move{full_move("(0T1)g1f3")};
-    assert(physical.to_string(s) == "(0T1)g1@Nf3");
+    assert(physical.lan(s) == "(0T1)g1@Nf3");
     assert(physical.is<physical_move>());
     assert(physical.get_if<physical_move>() != nullptr);
     assert(physical.get<physical_move>().m == full_move("(0T1)g1f3"));
     assert(physical.hotspot() == vec4(6, 0, 1, 0));
 
     const semimove pawn = physical_move{full_move("(0T1)e2e4")};
-    assert(pawn.to_string(s) == "(0T1)e2@Pe4");
+    assert(pawn.lan(s) == "(0T1)e2@Pe4");
 
     const semimove arriving = arriving_move{full_move("(0T1)e1(-1T1)e3")};
-    assert(arriving.to_string(s) == "(0T1)e1@K>(-1T1)e3");
+    assert(arriving.lan(s) == "(0T1)e1@K>(-1T1)e3");
     assert(arriving.hotspot() == vec4(4, 2, 1, -1));
 
     const semimove departing = departing_move{vec4(4, 0, 1, 0)};
-    assert(departing.to_string(s) == "(0T1)e1>@K");
+    assert(departing.lan(s) == "(0T1)e1>@K");
     assert(departing.hotspot() == vec4(4, 0, 1, 0));
 
     const semimove null = null_move{};
-    assert(null.to_string(s) == "@");
+    assert(null.lan(s) == "@");
     bool threw = false;
     try
     {

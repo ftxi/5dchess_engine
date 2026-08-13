@@ -668,7 +668,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
     {
 #ifdef DEBUGMSG
         // !!do use flag SHOW_MATE (or expect explosion)!!
-        mvsstr += s.pretty_move<state::SHOW_NOTHING>(mv) + " ";
+        mvsstr += mv.pgn<pgn_options::SHOW_NOTHING>(s) + " ";
 #endif
         [[maybe_unused]] bool flag = newstate.apply_move(mv);
         assert(flag && "failed to apply move here");
@@ -731,7 +731,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     }
                     if(pmask(check.from.xy()) & bb)
                     {
-                        dprint(n1, i, sliding_type, to_semimove(loc).to_string(s));
+                        dprint(n1, i, sliding_type, to_semimove(loc).lan(s));
                         dprint("axis", n1, "not taking (sliding)", i);
                         not_taking.insert(i);
                     }
@@ -739,7 +739,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                 else if(newboard->get_piece(check.from.xy()) == newstate.get_piece(check.from, !c))
                 {
                     // non sliding pieces remains in same position
-                    dprint(n1, i, sliding_type, to_semimove(loc).to_string(s));
+                    dprint(n1, i, sliding_type, to_semimove(loc).lan(s));
                     dprint("axis", n1, "not taking (untouched)", i);
                     not_taking.insert(i);
                 }
@@ -780,7 +780,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     bool is_royal = pmask(check.to.xy()) & newboard->royal() & friendly;
                     if(is_royal)
                     {
-                        dprint(to_semimove(loc).to_string(s));
+                        dprint(to_semimove(loc).lan(s));
                         dprint("axis", n2, "expose royal", i);
                         expose_royal.insert(i);
                     }
@@ -820,7 +820,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         /* if the very place is empty, then it is clearly not blocking*/
                         if(!(z & newboard->occupied()))
                         {
-                            dprint(n, i, sliding_type, to_semimove(loc).to_string(s));
+                            dprint(n, i, sliding_type, to_semimove(loc).lan(s));
                             dprint("axis", n, "not blocking (empty)", i);
                             not_blocking.insert(i);
                             continue;
@@ -850,7 +850,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                             }
                             if(z & bb)
                             {
-                                dprint(n, i, sliding_type, to_semimove(loc).to_string(s));
+                                dprint(n, i, sliding_type, to_semimove(loc).lan(s));
                                 dprint("axis", n, "not blocking (sliding)", i);
                                 not_blocking.insert(i);
                                 continue;
@@ -862,7 +862,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         bitboard_t friendly = c ? newboard->black() : newboard->white();
                         if(z & newboard->royal() & friendly)
                         {
-                            dprint(n, i, sliding_type, to_semimove(loc).to_string(s));
+                            dprint(n, i, sliding_type, to_semimove(loc).lan(s));
                             dprint("axis", n, "not blocking (expose royal)", i);
                             not_blocking.insert(i);
                             continue;

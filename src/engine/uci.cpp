@@ -188,7 +188,7 @@ void engine::mainloop()
                         for(const auto &ext_mv : best_move->get_moves())
                         {
                             best_move_str += ' ';
-                            best_move_str += output_state.lan_move(ext_mv.fm, ext_mv.promote_to);
+                            best_move_str += ext_mv.lan(output_state);
                             output_state.apply_move(ext_mv.fm, ext_mv.promote_to);
                         }
                         write_line(best_move_str);

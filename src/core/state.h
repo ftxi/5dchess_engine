@@ -114,43 +114,6 @@ public:
     std::vector<vec4> get_movable_pieces(const std::vector<int> &lines) const;
     
     
-    /*
-    pretty_move<FLAGS>(fm, c):
-    Return a pretty string representation of the move `fm` from the perspective of player with color `c`.
-    (This is the inverse of parse_move())
-    FLAGS is a bitmask that controls what information to show.
-
-    If SHOW_MATE is set, display a '+' if this move is a check.
-    */
-    constexpr static uint16_t SHOW_NOTHING = 0;
-    constexpr static uint16_t SHOW_RELATIVE = 1 << 0;
-    constexpr static uint16_t SHOW_PAWN = 1 << 1;
-    constexpr static uint16_t SHOW_CAPTURE = 1 << 2;
-    constexpr static uint16_t SHOW_PROMOTION = 1 << 3;
-    constexpr static uint16_t SHOW_MATE = 1 << 4;
-    constexpr static uint16_t SHOW_LCOMMENT = 1 << 5;
-    constexpr static uint16_t SHOW_SHORT = 1 << 6;
-    constexpr static uint16_t SHOW_ALL = SHOW_RELATIVE | SHOW_PAWN | SHOW_CAPTURE | SHOW_PROMOTION | SHOW_MATE | SHOW_LCOMMENT | SHOW_SHORT;
-    template<uint16_t FLAGS>
-    std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W) const;
-    std::string pretty_move(full_move fm, piece_t promote_to=QUEEN_W, uint16_t flags=SHOW_CAPTURE | SHOW_PROMOTION) const;
-    std::string lan_move(full_move fm, piece_t promote_to=QUEEN_W) const;
-private:
-    struct detail;
-    template<uint16_t FLAGS>
-    std::string pretty_move_impl(full_move fm, piece_t promote_to, char check_symbol, bool multimove) const;
-public:
-    /*
-    pretty_action<FLAGS>(action act)
-
-    Display all moves in the actions.
-
-    If SHOW_MATE is set and the action is softmate or checkmate, the last check symbol will be replaced to * or # respectively
-    */
-    template<uint16_t FLAGS>
-    std::string pretty_action(action act) const;
-    std::string pretty_action(action act, uint16_t flags=SHOW_CAPTURE | SHOW_PROMOTION) const;
-    
     enum class mate_type {NONE, CHECKMATE, SOFTMATE, STALEMATE};
     mate_type get_mate_type() const;
 
@@ -170,7 +133,7 @@ public:
     generator<vec4> gen_piece_move(vec4 p, bool c) const;
     std::string to_string() const;
     std::string show_fen() const;
-    std::string pretty_l(int l);
+    std::string pretty_l(int l) const;
     std::string pretty_lt(vec4 p0) const;
     
     /*
@@ -183,6 +146,6 @@ public:
     parse_pgn_res parse_move(const std::string &move) const;
 };
 
-#include "state.inl"
+#include "actions.inl"
 
 #endif //STATE_H
