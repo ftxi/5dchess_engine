@@ -111,12 +111,14 @@ worker.onmessage = (e) => {
             UI.setHudLight(true);
             if (showPhantom) {
                 addHighlight(data, '--highlight-phantom-board', 'boards', data.phantom.map((b) => ({l: b.l, t: b.t, c: !presentC})));
-                data.boards = data.boards.concat(data.phantom);
+                data.boards = data.boards.concat(data.phantom.map((board) => ({
+                    ...board,
+                    isPhantom: true
+                })));
                 addHighlight(data, '--highlight-check', 'arrows', data.phantomChecks.map((c) => ({
                     from: {...c.from, c: !presentC},
                     to: {...c.to, c: !presentC}
                 })));
-                data.fade = 0.5;
             }
         } else {
             UI.setHudLight(false);

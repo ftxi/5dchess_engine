@@ -10,6 +10,7 @@
 
     --board-margin-black: #555555;
     --board-margin-white: #dfdfdf;
+    --phantom-board-opacity: 0.5;
 
     --square-black: #7f7f7f;
     --square-white: #cccccc;
@@ -36,6 +37,7 @@
 
     --board-margin-black: #555555;
     --board-margin-white: #dfdfdf;
+    --phantom-board-opacity: 0.5;
 
     --square-black: #7f7f7f;
     --square-white: #cccccc;
@@ -59,6 +61,7 @@
 
     --board-margin-black: #555555;
     --board-margin-white: #dfdfdf;
+    --phantom-board-opacity: 0.5;
 
     --square-black: hsl(45, 61%, 51%);
     --square-white: hsl(45, 61%, 86%);
@@ -98,6 +101,7 @@
 
     --board-margin-black: hsl(25, 20%, 28%);
     --board-margin-white: hsl(24, 54%, 48%);
+    --phantom-board-opacity: 0.3;
 
     --square-white: hsl(43, 73%, 80%);
     --square-black: hsl(33, 74%, 65%);
@@ -122,6 +126,7 @@
     --present: rgba(219,172,52,0.18);
     --board-margin-black: #222222;
     --board-margin-white: #1a1a1a;
+    --phantom-board-opacity: 0.5;
     --square-black: #4a4a4a;
     --square-white: #2b2b2b;
     --square-fuzzy: #3a3a3a;

@@ -59,12 +59,17 @@ function applyFadeToColorString(colorStr, fade) {
 
 function loadColors() {
     const s = getComputedStyle(document.documentElement);
+    const rawPhantomBoardOpacity = parseFloat(s.getPropertyValue('--phantom-board-opacity'));
+    const phantomBoardOpacity = Number.isFinite(rawPhantomBoardOpacity)
+        ? Math.max(0, Math.min(1, rawPhantomBoardOpacity))
+        : 0.5;
     const colors = {
         spGridWhite: s.getPropertyValue('--sp-grid-white').trim() || '#ffffff',
         spGridBlack: s.getPropertyValue('--sp-grid-black').trim() || '#f5f5f5',
         present: s.getPropertyValue('--present').trim() || 'rgba(219,172,52,0.4)',
         boardMarginBlack: s.getPropertyValue('--board-margin-black').trim() || '#555555',
         boardMarginWhite: s.getPropertyValue('--board-margin-white').trim() || '#dfdfdf',
+        phantomBoardOpacity,
         squareBlack: s.getPropertyValue('--square-black').trim() || '#7f7f7f',
         squareWhite: s.getPropertyValue('--square-white').trim() || '#cccccc',
         squareFuzzy: s.getPropertyValue('--square-fuzzy').trim() || '#a6a6a6',
@@ -78,6 +83,10 @@ function applyFadeToColors(colors, fade) {
     const out = Object.assign({}, colors);
     for (const k of Object.keys(colors)) {
         const val = colors[k];
+        if (typeof val !== 'string') {
+            out[k] = val;
+            continue;
+        }
         const parsed = _parseColorToHsla(val);
         if (parsed) {
             out[k] = applyFadeToColorString(val, fade);

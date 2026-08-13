@@ -411,7 +411,11 @@ export default class ChessBoardCanvas
             let l = this._displayL(board.l), v = board.t << 1 | board.c;
             const shiftX = v * this.boardSkipX;
             const shiftY = l * this.boardSkipY;
-            
+
+            ctx.save();
+            if (board.isPhantom) {
+                ctx.globalAlpha *= this.colors.phantomBoardOpacity;
+            }
             ctx.fillStyle = (board.c == 1) ? this.colors.boardMarginBlack : this.colors.boardMarginWhite;
             ctx.fillRect(
                 shiftX - this.boardMargin,
@@ -419,6 +423,7 @@ export default class ChessBoardCanvas
                 this.boardLengthX * this.squareSize + 2 * this.boardMargin,
                 this.boardLengthY * this.squareSize + 2 * this.boardMargin
             );
+            ctx.restore();
         }
         
         // Board highlights
@@ -444,7 +449,11 @@ export default class ChessBoardCanvas
                 let l = this._displayL(board.l), v = board.t << 1 | board.c;
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
-                
+
+                ctx.save();
+                if (board.isPhantom) {
+                    ctx.globalAlpha *= this.colors.phantomBoardOpacity;
+                }
                 ctx.fillStyle = this.colors.squareBlack;
                 ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
                 
@@ -462,15 +471,21 @@ export default class ChessBoardCanvas
                         }
                     }
                 }
+                ctx.restore();
             }
         } else {
             for (const board of cache.filteredBoards) {
                 let l = this._displayL(board.l), v = board.t << 1 | board.c;
                 const shiftX = v * this.boardSkipX;
                 const shiftY = l * this.boardSkipY;
-                
+
+                ctx.save();
+                if (board.isPhantom) {
+                    ctx.globalAlpha *= this.colors.phantomBoardOpacity;
+                }
                 ctx.fillStyle = this.colors.squareFuzzy;
                 ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
+                ctx.restore();
             }
         }
         
