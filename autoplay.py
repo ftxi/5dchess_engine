@@ -42,7 +42,9 @@ class EngineProcess:
         self.protocol_log = deque(maxlen=24)
         self.stderr_log = deque(maxlen=24)
         self.stderr_task: asyncio.Task | None = None
-        self.last_mcts_stats: dict[str, str] = {}
+        self.last_engine_stats: dict[str, str] = {}
+        self.last_engine_score: str = ""
+        self.last_engine_scores: str = ""
         self.last_go_seconds: float | None = None
 
     def _record(self, direction: str, line: str) -> None:
@@ -114,12 +116,20 @@ class EngineProcess:
                     raise ProtocolError(f"{self.name}: exited with {code}; {self.diagnostic()}")
                 line = raw.decode(errors="replace").strip()
                 self._record("<", line)
-                if line.startswith("info mcts_stats "):
-                    self.last_mcts_stats = dict(
+                if line.startswith("info mcts_stats ") or line.startswith("info flat_uct_stats "):
+                    self.last_engine_stats = dict(
                         token.split("=", 1)
                         for token in line.split()[2:]
                         if "=" in token
                     )
+                elif line.startswith("info mcts_score "):
+                    stats = dict(token.split("=", 1) for token in line.split()[2:] if "=" in token)
+                    self.last_engine_score = stats.get("average", "")
+                    self.last_engine_scores = stats.get("detailed", "")
+                elif line.startswith("info flat_uct_score "):
+                    stats = dict(token.split("=", 1) for token in line.split()[2:] if "=" in token)
+                    self.last_engine_score = stats.get("score", "")
+                    self.last_engine_scores = ""
                 if any(line == item or line.startswith(item + " ") for item in choices):
                     return line
                 if not line.startswith("info "):
@@ -148,7 +158,9 @@ class EngineProcess:
         if history:
             request += " moves " + " ".join(history)
         await self.send(request)
-        self.last_mcts_stats = {}
+        self.last_engine_stats = {}
+        self.last_engine_score = ""
+        self.last_engine_scores = ""
         self.last_go_seconds = None
         go_started = time.perf_counter()
         await self.send(f"go movetime {movetime_ms}")
@@ -237,10 +249,11 @@ METRICS_FIELDS = (
     "engine_command",
     "requested_movetime_ms",
     "wall_time_seconds",
-    "nodes_visited",
-    "nodes_per_wall_second",
+    "iterations",
+    "ips",
     "engine_search_seconds",
-    "engine_nodes_per_second",
+    "engine_score",
+    "engine_scores",
     "conclusive_rollouts",
     "inconclusive_rollouts",
     "terminal_tree_evaluations",
@@ -270,11 +283,8 @@ def record_go_metrics(
 ) -> None:
     """Append one completed or failed `go` command, flushing it immediately."""
 
-    nodes_text = player.last_mcts_stats.get("nodes_visited", "")
+    iterations_text = player.last_engine_stats.get("iterations", "")
     wall_seconds = player.last_go_seconds
-    nodes_per_wall_second = ""
-    if nodes_text and wall_seconds and wall_seconds > 0.0:
-        nodes_per_wall_second = float(nodes_text) / wall_seconds
     row = {
         "game": game_number,
         "action": action_number,
@@ -286,13 +296,14 @@ def record_go_metrics(
         "engine_command": player.command,
         "requested_movetime_ms": movetime_ms,
         "wall_time_seconds": wall_seconds if wall_seconds is not None else "",
-        "nodes_visited": nodes_text,
-        "nodes_per_wall_second": nodes_per_wall_second,
-        "engine_search_seconds": player.last_mcts_stats.get("elapsed_seconds", ""),
-        "engine_nodes_per_second": player.last_mcts_stats.get("nodes_per_second", ""),
-        "conclusive_rollouts": player.last_mcts_stats.get("conclusive_rollouts", ""),
-        "inconclusive_rollouts": player.last_mcts_stats.get("inconclusive_rollouts", ""),
-        "terminal_tree_evaluations": player.last_mcts_stats.get("terminal_tree_evaluations", ""),
+        "iterations": iterations_text,
+        "ips": player.last_engine_stats.get("ips", ""),
+        "engine_search_seconds": player.last_engine_stats.get("elapsed_seconds", ""),
+        "engine_score": player.last_engine_score,
+        "engine_scores": player.last_engine_scores,
+        "conclusive_rollouts": player.last_engine_stats.get("conclusive_rollouts", ""),
+        "inconclusive_rollouts": player.last_engine_stats.get("inconclusive_rollouts", ""),
+        "terminal_tree_evaluations": player.last_engine_stats.get("terminal_tree_evaluations", ""),
         "status": status,
     }
     with path.open("a", newline="") as output:

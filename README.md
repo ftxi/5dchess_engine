@@ -61,12 +61,17 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are two existing engines: `5dchess mcts` and `5dchess monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). Either engine accepts an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess mcts --seed 1234`. The MCTS engine also accepts `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess mcts --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw; setting the limit to zero disables rollout entirely. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are three engines: `5dchess mcts`, `5dchess flat-uct`, and `5dchess monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `flat-uct` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCT rule, without expanding a search tree. Either search engine accepts an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-uct --seed 1234`. MCTS and flat-UCT also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess flat-uct --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw; setting the limit to zero disables rollout entirely. The shared UCT implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
 python autoplay.py --white "./build/5dchess mcts" --black "./build/5dchess monkey"
 ```
+For a compact 10-game flat-UCT/MCTS protocol smoke test, use:
+```sh
+python autoplay.py --white "./build/5dchess flat-uct --seed 11 --rollout-max-actions 2" --black "./build/5dchess mcts --seed 29 --rollout-max-actions 2" --movetime 20 --max-actions 2 --games 10
+```
+Autoplay metrics include `engine_score`: flat-UCT's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
 Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
 
 #### Coding with IDE

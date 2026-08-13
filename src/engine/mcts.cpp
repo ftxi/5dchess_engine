@@ -15,7 +15,7 @@
 //#define DEBUGMSG
 #include "debug.h"
 
-constexpr float WINNING_SCORE = 100000.0f;
+constexpr float WINNING_SCORE = 1.0f;
 constexpr int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
 constexpr std::string_view ROLLOUT_MAX_ACTIONS_OPTION = "rollout-max-actions";
 
@@ -197,29 +197,8 @@ float terminal_outcome(const state &s)
 }
 
 
-} // anonymous namespace
+} /* anonymous namespace */
 
-
-float uct(
-    float sum_reward,
-    std::size_t visits,
-    std::size_t parent_visits,
-    bool maximizing_player)
-{
-    if(visits == 0)
-    {
-        return maximizing_player
-            ? std::numeric_limits<float>::infinity()
-            : -std::numeric_limits<float>::infinity();
-    }
-
-    const float average_reward = sum_reward / static_cast<float>(visits);
-    const float logParent = std::log(static_cast<float>(parent_visits) + 1.0f);
-    const float exploration = exploration_constant * std::sqrt(logParent / static_cast<float>(visits));
-    return maximizing_player
-        ? average_reward + exploration
-        : average_reward - exploration;
-}
 
 void mcts_engine::initialize()
 {
@@ -351,8 +330,8 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         std::ostringstream info;
         info << std::setprecision(17)
              << "mcts_stats elapsed_seconds=" << seconds
-             << " nodes_visited=" << visits
-             << " nodes_per_second=" << visits_per_second
+             << " iterations=" << visits
+             << " ips=" << visits_per_second
              << " conclusive_rollouts=" << conclusive_rollouts
              << " inconclusive_rollouts=" << inconclusive_rollouts
              << " terminal_tree_evaluations=" << terminal_tree_evaluations;
@@ -360,12 +339,17 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     };
     node_t *current_node = root.get();
     node_t *previous_node = nullptr;
+    std::vector<float> selected_scores;
     while(current_node && !current_node->is_ceiling())
     {
         previous_node = current_node;
         current_node = most_visited_child(current_node);
         if(current_node)
         {
+            const auto &info = current_node->get_info();
+            selected_scores.push_back(info.visits != 0
+                ? info.sum_reward / static_cast<float>(info.visits)
+                : 0.0f);
             dprint("find_best_move: descend to", current_node->print_semimove(),
                    "visits=", current_node->get_info().visits);
         }
@@ -416,6 +400,27 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
             best_ext_moves.emplace_back(fm);
         }
         report_search_metrics();
+        double score_average = 0.0;
+        for(float score : selected_scores)
+        {
+            score_average += score;
+        }
+        if(!selected_scores.empty())
+        {
+            score_average /= static_cast<double>(selected_scores.size());
+        }
+        std::ostringstream score_info;
+        score_info << std::setprecision(9)
+                   << "mcts_score average=" << score_average << " detailed=";
+        for(std::size_t i = 0; i < selected_scores.size(); ++i)
+        {
+            if(i != 0)
+            {
+                score_info << ':';
+            }
+            score_info << selected_scores[i];
+        }
+        send_info(score_info.str());
         return action::from_vector(best_ext_moves, get_current_state().value());
     }
     else
