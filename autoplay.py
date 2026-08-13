@@ -32,11 +32,11 @@ class ProtocolError(RuntimeError):
 class EngineProcess:
     """One 5DUCI engine subprocess and its request/response lifecycle."""
 
-    def __init__(self, name: str, command: str, timeout: float):
+    def __init__(self, name: str, command: str, timeout_ms: int):
         self.name = name
         self.command = command
         self.argv = shlex.split(command)
-        self.timeout = timeout
+        self.timeout_seconds = timeout_ms / 1000
         self.process: asyncio.subprocess.Process | None = None
         self.phase = "created"
         self.protocol_log = deque(maxlen=24)
@@ -85,10 +85,10 @@ class EngineProcess:
         self.stderr_task = asyncio.create_task(self._drain_stderr())
         self.phase = "initializing"
         await self.send("5duci")
-        await self.wait_for("5duciok", self.timeout)
+        await self.wait_for("5duciok", self.timeout_seconds)
         self.phase = "readying"
         await self.send("isready")
-        await self.wait_for("readyok", self.timeout)
+        await self.wait_for("readyok", self.timeout_seconds)
         self.phase = "idle"
 
     async def send(self, line: str) -> None:
@@ -137,7 +137,7 @@ class EngineProcess:
         self.phase = "new_game"
         await self.send("5ducinewgame")
         await self.send("isready")
-        await self.wait_for("readyok", self.timeout)
+        await self.wait_for("readyok", self.timeout_seconds)
         self.phase = "idle"
 
     async def choose(
@@ -157,7 +157,9 @@ class EngineProcess:
         # this orchestration in Python makes Ctrl+C responsive even while the
         # engine is busy in native search code.
         response = asyncio.create_task(
-            self.wait_for(("bestmove", "nobestmove"), movetime_ms / 1000 + self.timeout)
+            self.wait_for(
+                ("bestmove", "nobestmove"), movetime_ms / 1000 + self.timeout_seconds
+            )
         )
         command = None
         stop_deadline = None
@@ -174,7 +176,8 @@ class EngineProcess:
                 if stop_deadline and stop_deadline in done:
                     command.cancel()
                     raise ProtocolError(
-                        f"{self.name}: did not respond to stop within {self.timeout:g}s; "
+                        f"{self.name}: did not respond to stop within "
+                        f"{self.timeout_seconds * 1000:g}ms; "
                         f"{self.diagnostic()}"
                     )
                 if command.result().strip().lower() == "stop":
@@ -183,7 +186,7 @@ class EngineProcess:
                     if stop_deadline is None:
                         # An engine that ignores the protocol's stop command
                         # must not be allowed to hang the match indefinitely.
-                        stop_deadline = asyncio.create_task(asyncio.sleep(self.timeout))
+                        stop_deadline = asyncio.create_task(asyncio.sleep(self.timeout_seconds))
                 else:
                     print("Type 'stop' to force the thinking engine to move.", file=sys.stderr)
             line = await response
@@ -227,6 +230,8 @@ METRICS_FIELDS = (
     "game",
     "action",
     "move_number",
+    "timeline_count",
+    "board_count",
     "color",
     "engine_name",
     "engine_command",
@@ -236,6 +241,9 @@ METRICS_FIELDS = (
     "nodes_per_wall_second",
     "engine_search_seconds",
     "engine_nodes_per_second",
+    "conclusive_rollouts",
+    "inconclusive_rollouts",
+    "terminal_tree_evaluations",
     "status",
 )
 
@@ -254,6 +262,8 @@ def record_go_metrics(
     game_number: int,
     action_number: int,
     move_number: int,
+    timeline_count: int,
+    board_count: int,
     color: str,
     movetime_ms: int,
     status: str,
@@ -269,6 +279,8 @@ def record_go_metrics(
         "game": game_number,
         "action": action_number,
         "move_number": move_number,
+        "timeline_count": timeline_count,
+        "board_count": board_count,
         "color": color,
         "engine_name": player.name,
         "engine_command": player.command,
@@ -278,6 +290,9 @@ def record_go_metrics(
         "nodes_per_wall_second": nodes_per_wall_second,
         "engine_search_seconds": player.last_mcts_stats.get("elapsed_seconds", ""),
         "engine_nodes_per_second": player.last_mcts_stats.get("nodes_per_second", ""),
+        "conclusive_rollouts": player.last_mcts_stats.get("conclusive_rollouts", ""),
+        "inconclusive_rollouts": player.last_mcts_stats.get("inconclusive_rollouts", ""),
+        "terminal_tree_evaluations": player.last_mcts_stats.get("terminal_tree_evaluations", ""),
         "status": status,
     }
     with path.open("a", newline="") as output:
@@ -553,6 +568,9 @@ async def play(args, rules, game_number: int = 1) -> str:
 
         for turn in range(1, args.max_actions + 1):
             move_number, black_to_move = game.get_current_present()
+            boards = game.get_current_boards()
+            timeline_count = len({board[0] for board in boards})
+            board_count = len(boards)
             index = int(black_to_move)
             player = players[index]
             try:
@@ -560,6 +578,7 @@ async def play(args, rules, game_number: int = 1) -> str:
             except ProtocolError as exc:
                 record_go_metrics(
                     args.metrics_csv, player, game_number, turn, move_number,
+                    timeline_count, board_count,
                     "black" if index else "white", args.movetime, "protocol_error")
                 outcome = "protocol"
                 result = f"protocol failure from {player_label(index)}: {exc}"
@@ -569,6 +588,7 @@ async def play(args, rules, game_number: int = 1) -> str:
                 break
             record_go_metrics(
                 args.metrics_csv, player, game_number, turn, move_number,
+                timeline_count, board_count,
                 "black" if index else "white", args.movetime,
                 "bestmove" if moves else "nobestmove")
             if not moves:
@@ -688,9 +708,9 @@ def main() -> int:
     parser.add_argument("--movetime", type=int, default=1000, help="milliseconds per action")
     parser.add_argument(
         "--timeout",
-        type=float,
-        default=2.0,
-        help="protocol grace period in seconds",
+        type=int,
+        default=2000,
+        help="protocol grace period in milliseconds",
     )
     parser.add_argument("--max-actions", type=int, default=500)
     parser.add_argument("-n", "--games", type=int, help="number of games to play")

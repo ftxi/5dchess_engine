@@ -1,6 +1,7 @@
 #ifndef FINETREE_H
 #define FINETREE_H
 
+#include <concepts>
 #include <memory>
 #include <deque>
 #include <optional>
@@ -15,6 +16,7 @@
 #include "generator.h"
 
 template<typename T = std::monostate>
+    requires std::default_initializable<T>
 class fine_node;
 
 template<typename T = std::monostate>
@@ -51,9 +53,15 @@ struct nodal_pocession;
 Additional tools:
     1. `get_nearby_ceiling` returns the nearest ceiling node in the ancestor chain. If the current node is ceiling, it returns itself.
     2. `is_terminal` checks if the node is terminal. It may add children to the node if it is not terminal but has no children yet. Note: if the node is ceiling but not ignited, `is_terminal` will always return false.
+
+Associated information:
+    The optional template parameter T allows adding additional information 
+    to each node in stack. T needs to be default-constructible: expand(),
+    search(), etc. adds unspecific amount of new nodes to the tree.
  */
 
 template<typename T>
+    requires std::default_initializable<T>
 class fine_node
 {
     fine_node<T> *parent;
@@ -69,7 +77,7 @@ class fine_node
 
     // -- internal tree-building helpers -- //
     fine_cell<T> *add_cell(fine_cell<T> &&cell);
-    fine_node<T> *add_child(index_t n, index_t i, T info = T{});
+    fine_node<T> *add_child(index_t n, index_t i);
     fine_node<T> *expand();
     std::optional<std::tuple<point, fine_cell<T>*, HC*>> explore();
     void remove_problem(const slice&, fine_cell<T>* origin_cell);
@@ -88,7 +96,8 @@ public:
 
     // -- constructors (prefer not to use directly) -- //
     fine_node(fine_node *parent, state s, T info = T{});
-    fine_node(fine_node *parent, index_t n, index_t i, T info = T{});
+    fine_node(fine_node *parent, index_t n, index_t i);
+    fine_node(fine_node *parent, index_t n, index_t i, T info);
     static std::unique_ptr<fine_node<T>> make_temproary(fine_node *parent, index_t n, index_t i, T info = T{});
 
     // -- factory -- //
@@ -101,6 +110,7 @@ public:
     const T &get_info() const { return info; }
     void set_info(const T &new_info) { info = new_info; }
     void set_info(T &&new_info) { info = std::move(new_info); }
+    bool get_player() const;
     fine_node<T> *get_child(index_t i) const;
     fine_node<T> *get_parent() const { return parent; }
     const std::vector<fine_node<T>*> get_children() const { return children; };

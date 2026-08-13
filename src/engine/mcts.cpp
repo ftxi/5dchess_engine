@@ -7,6 +7,7 @@
 #include <stop_token>
 #include <random>
 #include <sstream>
+#include <string_view>
 #include "hypercuboid.h"
 #include "scope.h"
 #include "utils.h"
@@ -15,8 +16,8 @@
 #include "debug.h"
 
 constexpr float WINNING_SCORE = 100000.0f;
-constexpr int ROLLOUT_MAX_ACTIONS = 200;
 constexpr int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
+constexpr std::string_view ROLLOUT_MAX_ACTIONS_OPTION = "rollout-max-actions";
 
 namespace
 {
@@ -42,6 +43,7 @@ node_t *expand(node_t *node, std::stop_token stop_token)
             dprint("expand: checking child", child->print_semimove(), "included=", child->get_info().is_included, "visits=", child->get_info().visits);
             if(!child->get_info().is_included)
             {
+                child->set_info(mcts_node_info{});
                 child->get_info().is_included = true;
                 dprint("expand: returning existing unincluded child", child->print_semimove(), "visits=", child->get_info().visits);
                 return child;
@@ -60,8 +62,6 @@ node_t *expand(node_t *node, std::stop_token stop_token)
     {
         dprint("expand: igniting ceiling node");
         node->ignite();
-        // after ignition, the player flips to the opponent for deeper expansion
-        node->get_info().player = node->get_context()->hc_info.s.get_present().second;
     }
     // search out another branch
     dprint("expand: calling search()");
@@ -69,9 +69,8 @@ node_t *expand(node_t *node, std::stop_token stop_token)
     {
         node_t *child = node->get_child(*i_opt);
         assert(child != nullptr);
-        // Reset child info to defaults so it doesn't inherit the parent's accumulated
-        // sum_reward, visits, and tracking flags (all_children_included, is_included, etc.)
         child->set_info(mcts_node_info{});
+        child->get_info().is_included = true;
         dprint("expand: search() found child", child->print_semimove(), "visits=", child->get_info().visits);
         return child;
     }
@@ -84,7 +83,7 @@ node_t *best_child(node_t *node)
 {
     dprint("best_child()", node->print_semimove(), "visits=", node->get_info().visits);
     node_t *best_child = nullptr;
-    bool max_player = !node->get_info().player; // white=max, black=min
+    bool max_player = !node->get_player(); // white=max, black=min
     float best_val = max_player ? -std::numeric_limits<float>::infinity() : std::numeric_limits<float>::infinity();
     for(node_t *child : node->get_children())
     {
@@ -93,7 +92,11 @@ node_t *best_child(node_t *node)
         {
             continue;
         }
-        float uct_score = uct(info.sum_reward, info.visits, node->get_info().visits);
+        float uct_score = uct(
+            info.sum_reward,
+            info.visits,
+            node->get_info().visits,
+            max_player);
         bool better = max_player ? (uct_score > best_val) : (uct_score < best_val);
         if(better)
         {
@@ -166,26 +169,74 @@ void backpropagate(node_t *node, float outcome)
     }
 }
 
+node_t *most_visited_child(node_t *node)
+{
+    node_t *best = nullptr;
+    for(node_t *child : node->get_children())
+    {
+        if(child->get_info().visits == 0)
+        {
+            continue;
+        }
+        if(best == nullptr
+           || child->get_info().visits > best->get_info().visits)
+        {
+            best = child;
+        }
+    }
+    return best;
+}
+
+float terminal_outcome(const state &s)
+{
+    const auto [present, player] = s.get_present();
+    (void)present;
+    return s.get_mate_type() == state::mate_type::STALEMATE
+        ? 0.0f
+        : (player ? WINNING_SCORE : -WINNING_SCORE);
+}
+
 
 } // anonymous namespace
 
 
-float uct(float sum_reward, std::size_t visits, std::size_t parent_visits)
+float uct(
+    float sum_reward,
+    std::size_t visits,
+    std::size_t parent_visits,
+    bool maximizing_player)
 {
     if(visits == 0)
     {
-        return std::numeric_limits<float>::infinity();
+        return maximizing_player
+            ? std::numeric_limits<float>::infinity()
+            : -std::numeric_limits<float>::infinity();
     }
 
     const float average_reward = sum_reward / static_cast<float>(visits);
     const float logParent = std::log(static_cast<float>(parent_visits) + 1.0f);
     const float exploration = exploration_constant * std::sqrt(logParent / static_cast<float>(visits));
-    return average_reward + exploration;
+    return maximizing_player
+        ? average_reward + exploration
+        : average_reward - exploration;
 }
 
 void mcts_engine::initialize()
 {
     root = nullptr;
+}
+
+void mcts_engine::on_option_changed(const std::string &key, const option_value_t &value)
+{
+    if(key == ROLLOUT_MAX_ACTIONS_OPTION)
+    {
+        if(const auto *max_actions = std::get_if<int>(&value))
+        {
+            rollout_max_actions.store(*max_actions);
+        }
+        return;
+    }
+    engine::on_option_changed(key, value);
 }
 
 std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token)
@@ -195,7 +246,6 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
            "depth_limit=", (depth_limit.has_value() ? std::to_string(*depth_limit) : "none"),
            "time_limit_ms=", (time_limit_ms.has_value() ? std::to_string(*time_limit_ms) : "none"));
     root = fine_node<mcts_node_info>::make_root(*get_current_state());
-    root->get_info().player = get_current_state()->get_present().second;
     // if(root->is_terminal())
     // {
     //     dprint("find_best_move: root is terminal, returning nullopt");
@@ -217,6 +267,9 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     }
 
     std::size_t iteration_count = 0;
+    std::size_t conclusive_rollouts = 0;
+    std::size_t inconclusive_rollouts = 0;
+    std::size_t terminal_tree_evaluations = 0;
     std::optional<std::mt19937> rollout_rng;
     if(rollout_seed.has_value())
     {
@@ -242,18 +295,44 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
                    "root_children=", root->get_children().size());
             break;
         }
-        simulation_result result = default_policy(
-            rollout_state(node),
-            ROLLOUT_MAX_ACTIONS,
-            stop_token,
-            rollout_rng.has_value() ? &*rollout_rng : nullptr,
-            WINNING_SCORE);
+        const bool terminal_leaf = node->is_terminal();
+        simulation_result result;
+        if(terminal_leaf)
+        {
+            result = {
+                terminal_outcome(node->get_context()->hc_info.s),
+                0,
+                false,
+                false
+            };
+            ++terminal_tree_evaluations;
+        }
+        else
+        {
+            result = default_policy(
+                rollout_state(node),
+                rollout_max_actions.load(),
+                stop_token,
+                rollout_rng.has_value() ? &*rollout_rng : nullptr,
+                WINNING_SCORE);
+        }
         if(result.aborted)
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count,
                    "actions=", result.actions,
                    "limit_reached=", result.limit_reached);
             break;
+        }
+        if(!terminal_leaf)
+        {
+            if(result.limit_reached)
+            {
+                ++inconclusive_rollouts;
+            }
+            else
+            {
+                ++conclusive_rollouts;
+            }
         }
         backpropagate(node, result.outcome);
         iteration_count++;
@@ -273,7 +352,10 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         info << std::setprecision(17)
              << "mcts_stats elapsed_seconds=" << seconds
              << " nodes_visited=" << visits
-             << " nodes_per_second=" << visits_per_second;
+             << " nodes_per_second=" << visits_per_second
+             << " conclusive_rollouts=" << conclusive_rollouts
+             << " inconclusive_rollouts=" << inconclusive_rollouts
+             << " terminal_tree_evaluations=" << terminal_tree_evaluations;
         send_info(info.str());
     };
     node_t *current_node = root.get();
@@ -281,7 +363,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     while(current_node && !current_node->is_ceiling())
     {
         previous_node = current_node;
-        current_node = best_child(current_node);
+        current_node = most_visited_child(current_node);
         if(current_node)
         {
             dprint("find_best_move: descend to", current_node->print_semimove(),

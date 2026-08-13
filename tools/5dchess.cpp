@@ -14,33 +14,75 @@
 
 namespace
 {
+struct command_line_options
+{
+    std::optional<std::uint32_t> seed;
+    int rollout_max_actions = default_mcts_rollout_max_actions;
+};
+
 void print_usage(std::ostream &out)
 {
-    out << "Usage: 5dchess <mcts|monkey> [--seed|-s] <seed>\n"
-        << "       5dchess <mcts|monkey>\n"
-        << "  -s, --seed <seed>  optional unsigned 32-bit random seed\n"
-        << "  -h, --help         display this help text and exit\n";
+    out << "Usage: 5dchess <mcts|monkey> [options]\n"
+        << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
+        << "  -r, --rollout-max-actions <n>   MCTS rollout action limit (default "
+        << default_mcts_rollout_max_actions << ")\n"
+        << "  -h, --help                      display this help text and exit\n";
 }
 
-std::optional<std::uint32_t> parse_seed(int argc, const char *argv[])
+unsigned long long parse_unsigned(const std::string &value)
 {
-    if(argc == 2)
-    {
-        return std::nullopt;
-    }
-    if(argc != 4 || (std::string(argv[2]) != "--seed" && std::string(argv[2]) != "-s"))
-    {
-        throw std::invalid_argument("invalid arguments");
-    }
-
     std::size_t consumed = 0;
-    const std::string value = argv[3];
     const unsigned long long parsed = std::stoull(value, &consumed);
-    if(consumed != value.size() || parsed > std::numeric_limits<std::uint32_t>::max())
+    if(consumed != value.size())
     {
-        throw std::out_of_range("seed");
+        throw std::invalid_argument("trailing characters");
     }
-    return static_cast<std::uint32_t>(parsed);
+    return parsed;
+}
+
+command_line_options parse_options(
+    int argc, const char *argv[], const std::string &engine_name)
+{
+    command_line_options options;
+    bool seed_seen = false;
+    bool rollout_limit_seen = false;
+    for(int i = 2; i < argc; ++i)
+    {
+        const std::string option = argv[i];
+        if(option == "-s" || option == "--seed")
+        {
+            if(seed_seen || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid seed option");
+            }
+            const auto parsed = parse_unsigned(argv[i]);
+            if(parsed > std::numeric_limits<std::uint32_t>::max())
+            {
+                throw std::out_of_range("seed");
+            }
+            options.seed = static_cast<std::uint32_t>(parsed);
+            seed_seen = true;
+        }
+        else if(option == "-r" || option == "--rollout-max-actions")
+        {
+            if(engine_name != "mcts" || rollout_limit_seen || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid rollout limit option");
+            }
+            const auto parsed = parse_unsigned(argv[i]);
+            if(parsed > static_cast<unsigned long long>(std::numeric_limits<int>::max()))
+            {
+                throw std::out_of_range("rollout limit");
+            }
+            options.rollout_max_actions = static_cast<int>(parsed);
+            rollout_limit_seen = true;
+        }
+        else
+        {
+            throw std::invalid_argument("unknown option");
+        }
+    }
+    return options;
 }
 }
 
@@ -67,14 +109,14 @@ int main(int argc, const char *argv[])
         return 2;
     }
 
-    std::optional<std::uint32_t> seed;
+    command_line_options options;
     try
     {
-        seed = parse_seed(argc, argv);
+        options = parse_options(argc, argv, engine_name);
     }
     catch(const std::exception &)
     {
-        std::cerr << "Error: invalid seed arguments (expected an unsigned 32-bit integer)\n";
+        std::cerr << "Error: invalid options\n";
         print_usage(std::cerr);
         return 2;
     }
@@ -83,12 +125,13 @@ int main(int argc, const char *argv[])
     if(engine_name == "mcts")
     {
         selected_engine = std::make_unique<mcts_engine>(
-            std::make_unique<stdio_handler>(), seed);
+            std::make_unique<stdio_handler>(), options.seed,
+            options.rollout_max_actions);
     }
     else if(engine_name == "monkey")
     {
         selected_engine = std::make_unique<monkey_engine>(
-            std::make_unique<stdio_handler>(), seed);
+            std::make_unique<stdio_handler>(), options.seed);
     }
 
     selected_engine->mainloop();

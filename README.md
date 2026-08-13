@@ -61,7 +61,7 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are two existing engines: `5dchess mcts` and `5dchess monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). Either engine accepts an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess mcts --seed 1234`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are two existing engines: `5dchess mcts` and `5dchess monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). Either engine accepts an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess mcts --seed 1234`. The MCTS engine also accepts `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess mcts --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw; setting the limit to zero disables rollout entirely. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
@@ -147,5 +147,5 @@ For more details on the structure of this repository, please read [this page](do
     + In fact, I can consider a randomized version of HC_info class
 - [x] Figure out the reason for unexpected nobestmove.
 - [x] Implement new search policy to only remove good non-necessary problem slices
-- [ ] Try shortened rollout for MCTS default policy. Make it a parameter in `5dchess mcts`.
+- [x] Try shortened rollout for MCTS default policy. Make it a parameter in `5dchess mcts`.
 - [x] Separate command-line programs and diagnostics into `tools/`.

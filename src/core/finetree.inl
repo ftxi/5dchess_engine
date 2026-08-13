@@ -5,6 +5,7 @@
 #include "finetree.h"
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T>::fine_node(
     fine_node *parent,
     state s,
@@ -30,10 +31,17 @@ inline fine_node<T>::fine_node(
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i, T info_value)
 : parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, next_cell_index{0}, info{std::move(info_value)} {}
 
 template<typename T>
+    requires std::default_initializable<T>
+inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i)
+: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, next_cell_index{0}, info{} {}
+
+template<typename T>
+    requires std::default_initializable<T>
 inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(
     state s,
     T info)
@@ -43,12 +51,14 @@ inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline std::unique_ptr<fine_node<T>> fine_node<T>::make_temproary(fine_node *parent, index_t n, index_t i, T info)
 {
     return std::unique_ptr<fine_node<T>>(new fine_node(parent, n, i, std::move(info)));
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_cell<T> *fine_node<T>::add_cell(fine_cell<T> &&cell)
 {
     auto ctx = get_context();
@@ -60,16 +70,18 @@ inline fine_cell<T> *fine_node<T>::add_cell(fine_cell<T> &&cell)
 
 // TODO: insert elements while keep the increasing order of i
 template<typename T>
-inline fine_node<T> *fine_node<T>::add_child(index_t n, index_t i, T info)
+    requires std::default_initializable<T>
+inline fine_node<T> *fine_node<T>::add_child(index_t n, index_t i)
 {
     auto ctx = get_context();
-    ctx->node_pool.emplace_back(this, n, i, std::move(info));
+    ctx->node_pool.emplace_back(this, n, i);
     fine_node<T> *child = &ctx->node_pool.back();
     children.push_back(child);
     return child;
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline bool fine_node<T>::is_ceiling() const
 {
     if(!context)
@@ -82,6 +94,7 @@ inline bool fine_node<T>::is_ceiling() const
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::get_nearby_ceiling()
 {
     fine_node<T> *current = this;
@@ -99,7 +112,8 @@ inline fine_node<T> *fine_node<T>::get_nearby_ceiling()
     return current;
 }
 
-template <typename T>
+template<typename T>
+    requires std::default_initializable<T>
 inline bool fine_node<T>::is_terminal()
 {
     if(!is_nodal())
@@ -126,7 +140,8 @@ inline bool fine_node<T>::is_terminal()
     return true;
 }
 
-template <typename T>
+template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::get_child(index_t i) const
 {
     for(fine_node<T> *next_node : children)
@@ -140,6 +155,7 @@ inline fine_node<T> *fine_node<T>::get_child(index_t i) const
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline nodal_pocession<T> *fine_node<T>::get_context() const
 {
     if(pocessed_context)
@@ -152,7 +168,15 @@ inline nodal_pocession<T> *fine_node<T>::get_context() const
     }
 }
 
-template <typename T>
+template<typename T>
+    requires std::default_initializable<T>
+inline bool fine_node<T>::get_player() const
+{
+    return get_context()->hc_info.s.get_present().second;
+}
+
+template<typename T>
+    requires std::default_initializable<T>
 inline std::string fine_node<T>::print_semimove() const
 {
     if(context)
@@ -166,6 +190,7 @@ inline std::string fine_node<T>::print_semimove() const
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline generator<index_t> fine_node<T>::search()
 {
     fine_node<T> *next_node = expand();
@@ -176,7 +201,8 @@ inline generator<index_t> fine_node<T>::search()
     }
 }
 
-template <typename T>
+template<typename T>
+    requires std::default_initializable<T>
 inline bool fine_node<T>::gen_all_children()
 {
     if(is_ceiling() && !is_nodal())
@@ -200,6 +226,7 @@ inline bool fine_node<T>::gen_all_children()
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::expand()
 {
     auto ans = explore();
@@ -214,6 +241,7 @@ inline fine_node<T> *fine_node<T>::expand()
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
 {
     HC_info &hc_info = get_context()->hc_info;
@@ -257,6 +285,7 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline void fine_node<T>::remove_from_cell(
     const slice &s,
     fine_cell<T> *cell,
@@ -269,6 +298,7 @@ inline void fine_node<T>::remove_from_cell(
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline void fine_node<T>::remove_from_node(
     const slice &s,
     fine_node<T> *node,
@@ -286,6 +316,7 @@ inline void fine_node<T>::remove_from_node(
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline void fine_node<T>::remove_problem(
     const slice &s,
     fine_cell<T> *origin_cell)
@@ -331,6 +362,7 @@ inline void fine_node<T>::remove_problem(
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, HC *target_hc)
 {
     assert(target_cell->space.contains(p));
@@ -342,7 +374,7 @@ inline fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, H
     while(next_n < get_context()->hc_info.dimension)
     {
         index_t next_i = p[next_n];
-        fine_node<T> *next_node = current_node->add_child(next_n, next_i, current_node->get_info());
+        fine_node<T> *next_node = current_node->add_child(next_n, next_i);
         const auto &[with_i, without_i] = current_hc->split(next_n, next_i);
         fine_cell<T> *next_cell = next_node->add_cell(fine_cell<T>{
             .parent = current_cell,
@@ -362,6 +394,7 @@ inline fine_node<T> *fine_node<T>::isolate(point p, fine_cell<T> *target_cell, H
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell, fine_node<T> *final_node)
 {
     std::vector<fine_node<T>*> nodes(get_context()->hc_info.dimension+1, nullptr);
@@ -412,6 +445,7 @@ inline fine_node<T> *fine_node<T>::normalize(point p, fine_cell<T> *target_cell,
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline void fine_node<T>::ignite()
 {
     state s = context->hc_info.s;
@@ -443,6 +477,7 @@ inline void fine_node<T>::ignite()
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline moveseq fine_node<T>::to_action()
 {
     assert(is_ceiling());
@@ -464,6 +499,7 @@ inline moveseq fine_node<T>::to_action()
 }
 
 template<typename T>
+    requires std::default_initializable<T>
 inline std::string fine_node<T>::to_string() const
 {
     std::ostringstream oss;
