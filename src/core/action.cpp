@@ -231,7 +231,7 @@ std::string full_move::pgn(const state &s, piece_t pt, pgn_options options) cons
 {
     options &= pgn_options::SHOW_ALL;
     char check_symbol = 0;
-    if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_MATE))
+    if(static_cast<bool>(options & pgn_options::SHOW_MATE))
     {
         state::move_info mi = s.get_move_info(*this, pt);
         if(mi.checking_opponent)
@@ -275,7 +275,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
 
     auto display_rest = [&](bool from_file, bool from_rank, bool to_tl) -> std::string {
         std::ostringstream oss;
-        if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_PAWN))
+        if(static_cast<bool>(options & pgn_options::SHOW_PAWN))
         {
             oss << pic;
         }
@@ -290,13 +290,13 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
         {
             oss << static_cast<char>(p.x() + 'a');
         }
-        else if(!(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_PAWN)))
+        else if(!static_cast<bool>(options & pgn_options::SHOW_PAWN))
         {
             if (pic==PAWN_W)
             {
                 /* pawn captures include the file letter of the originating square
                 of the capturing pawn immediately prior to the "x" character. */
-                if((static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_CAPTURE)) && s.get_piece(q, player) != NO_PIECE)
+                if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE) && s.get_piece(q, player) != NO_PIECE)
                 {
                     oss << static_cast<char>(p.x() + 'a');
                 }
@@ -322,7 +322,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
             {
                 oss << ">";
             }
-            if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_CAPTURE))
+            if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE))
             {
                 if(s.get_piece(q, player) != NO_PIECE)
                 {
@@ -331,7 +331,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
             }
             if(to_tl)
             {
-                if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_RELATIVE))
+                if(static_cast<bool>(options & pgn_options::SHOW_RELATIVE))
                 {
                     vec4 d = q - p;
                     auto show_diff = [&oss](int w){
@@ -357,7 +357,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
         else
         {
             //physical move
-            if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_CAPTURE))
+            if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE))
             {
                 if(s.get_piece(q, player) != NO_PIECE)
                 {
@@ -368,7 +368,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
         oss << static_cast<char>(q.x() + 'a') << static_cast<char>(q.y() + '1');
         return oss.str();
     };
-    if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_SHORT))
+    if(static_cast<bool>(options & pgn_options::SHOW_SHORT))
     {
         bool success = false;
         /* policy: try hide everything first, if not successful,
@@ -429,14 +429,14 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
     {
         oss << display_from_tl(true) << display_rest(true, true, true);
     }
-    if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_PROMOTION))
+    if(static_cast<bool>(options & pgn_options::SHOW_PROMOTION))
     {
         if((pic == PAWN_W || pic == BRAWN_W) && (q.y() == (player ? 0 : (s.get_board_size().second - 1))))
         {
             oss << "=" << pt;
         }
     }
-    if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_MATE))
+    if(static_cast<bool>(options & pgn_options::SHOW_MATE))
     {
         /* display all checks here */
         /* if this is not a check, full_move::pgn/action::pgn will set the
@@ -461,7 +461,7 @@ std::string action::pgn(const state &initial_state, pgn_options options) const
     std::vector<ext_move> mvs = get_moves();
     std::vector<char> check_symbols(mvs.size(), 0);
     state::mate_type mt = state::mate_type::NONE;
-    if(static_cast<uint16_t>(options) & static_cast<uint16_t>(pgn_options::SHOW_MATE))
+    if(static_cast<bool>(options & pgn_options::SHOW_MATE))
     {
         for(size_t i = 0; i < mvs.size(); i++)
         {

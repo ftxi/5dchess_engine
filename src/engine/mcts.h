@@ -7,6 +7,7 @@
 #include <atomic>
 #include <stop_token>
 #include <memory>
+#include <random>
 #include <cstdint>
 #include "uci.h"
 #include "finetree.h"
@@ -40,17 +41,28 @@ class mcts_engine : public engine
     std::atomic<int> rollout_max_actions;
 protected:
     void on_option_changed(const std::string &key, const option_value_t &value) override;
+    virtual float default_policy(state position, std::stop_token stop_token, std::mt19937 *rng);
 public:
     mcts_engine(
         std::unique_ptr<io_handler> io_handler,
         std::optional<std::uint32_t> seed = std::nullopt,
-        int max_rollout_actions = default_mcts_rollout_max_actions)
-    : engine(std::move(io_handler)),
+        int max_rollout_actions = default_mcts_rollout_max_actions
+    ) : engine(std::move(io_handler)),
       root(nullptr),
       rollout_seed(seed),
       rollout_max_actions(max_rollout_actions) {}
     void initialize() override;
     std::optional<action> find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token) override;
+};
+
+class zero_engine : public mcts_engine
+{
+public:
+    using mcts_engine::mcts_engine;
+    float default_policy(state, std::stop_token, std::mt19937 *) override
+    {
+        return 0.0f;
+    }
 };
 
 #endif /* MCTS_H */

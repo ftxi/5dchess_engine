@@ -43,19 +43,17 @@ generator<moveseq> iterative_search(
 
 } /* anonymous namespace */
 
-simulation_result default_policy(
+std::optional<bool> rollout(
     state s,
     int max_actions,
     std::stop_token stop_token,
-    std::mt19937 *rng,
-    float winning_score)
+    std::mt19937 *rng)
 {
-    int num_actions;
-    for(num_actions = 0; num_actions < max_actions; ++num_actions)
+    for(int num_actions = 0; num_actions < max_actions; ++num_actions)
     {
         if(stop_token.stop_requested())
         {
-            return {0.0f, num_actions, true, true};
+            return std::nullopt;
         }
 
         const auto [present, player] = s.get_present();
@@ -80,13 +78,12 @@ simulation_result default_policy(
 
         if(stop_token.stop_requested())
         {
-            return {0.0f, num_actions, true, true};
+            return std::nullopt;
         }
 
-        const float outcome = s.get_mate_type() == state::mate_type::STALEMATE
-            ? 0.0f
-            : (player ? winning_score : -winning_score);
-        return {outcome, num_actions, false, false};
+        return s.get_mate_type() == state::mate_type::STALEMATE
+            ? std::nullopt
+            : std::optional<bool>{!player};
     }
-    return {0.0f, num_actions, true, false};
+    return std::nullopt;
 }

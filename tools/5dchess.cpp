@@ -23,7 +23,7 @@ struct command_line_options
 
 void print_usage(std::ostream &out)
 {
-    out << "Usage: 5dchess <mcts|flat-uct|monkey> [options]\n"
+    out << "Usage: 5dchess <mcts|zero|flat-uct|monkey> [options]\n"
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
         << "  -r, --rollout-max-actions <n>   MCTS/flat-UCT rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
@@ -66,7 +66,8 @@ command_line_options parse_options(
         }
         else if(option == "-r" || option == "--rollout-max-actions")
         {
-            if((engine_name != "mcts" && engine_name != "flat-uct") || rollout_limit_seen || ++i >= argc)
+            if((engine_name != "mcts" && engine_name != "flat-uct")
+               || rollout_limit_seen || ++i >= argc)
             {
                 throw std::invalid_argument("invalid rollout limit option");
             }
@@ -103,7 +104,8 @@ int main(int argc, const char *argv[])
     }
 
     const std::string engine_name = argv[1];
-    if(engine_name != "mcts" && engine_name != "flat-uct" && engine_name != "monkey")
+    if(engine_name != "mcts" && engine_name != "zero"
+       && engine_name != "flat-uct" && engine_name != "monkey")
     {
         std::cerr << "Unknown engine: " << engine_name << "\n";
         print_usage(std::cerr);
@@ -128,6 +130,11 @@ int main(int argc, const char *argv[])
         selected_engine = std::make_unique<mcts_engine>(
             std::make_unique<stdio_handler>(), options.seed,
             options.rollout_max_actions);
+    }
+    else if(engine_name == "zero")
+    {
+        selected_engine = std::make_unique<zero_engine>(
+            std::make_unique<stdio_handler>(), options.seed);
     }
     else if(engine_name == "flat-uct")
     {

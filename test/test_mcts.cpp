@@ -12,6 +12,7 @@ int main()
     // MCTS adopts them; search statistics must never be copied.
     static_assert(!std::is_copy_constructible_v<mcts_node_info>);
     static_assert(!std::is_copy_assignable_v<mcts_node_info>);
+    static_assert(std::has_virtual_destructor_v<zero_engine>);
     mcts_node_info parent;
     parent.is_included = true;
     parent.all_children_included = true;

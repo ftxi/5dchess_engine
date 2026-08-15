@@ -102,17 +102,21 @@ std::optional<action> flat_ucb_engine::find_best_move(
                 best_score = score;
             }
         }
-        simulation_result result = default_policy(
+        const std::optional<bool> winner = rollout(
             children[selected].position,
             rollout_max_actions.load(),
             stop_token,
-            rollout_rng.has_value() ? &*rollout_rng : nullptr,
-            winning_score);
-        if(result.aborted)
+            rollout_rng.has_value() ? &*rollout_rng : nullptr);
+        if(stop_token.stop_requested())
         {
             break;
         }
-        children[selected].sum_reward += result.outcome;
+        if(winner.has_value())
+        {
+            children[selected].sum_reward += *winner
+                ? -winning_score
+                : winning_score;
+        }
         ++children[selected].visits;
         ++total_visits;
     }

@@ -2,13 +2,11 @@
 #include "pgnparser.h"
 #include "rollout.h"
 #include "run_rollout.h"
-#include <limits>
 #include <optional>
 #include <string>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <cmath>
 #include <cstring>
 #include <sstream>
 #include <stdexcept>
@@ -54,12 +52,9 @@ int run_rollout(int argc, const char *argv[])
     std::string pgn = default_pgn;
     int max_actions = MAX_ACTIONS;
     int simulation_num = SIMULATION_NUM;
-    int inf_count = 0;
-    int neg_inf_count = 0;
-    int zero_count = 0;
-    int limit_reached_count = 0;
-    long long actions_total = 0;
-    double actions_sq_total = 0.0;
+    int white_wins = 0;
+    int black_wins = 0;
+    int no_winner = 0;
     using clock = std::chrono::steady_clock;
     clock::duration total_simulation_duration{};
     bool csv_output = false;
@@ -70,7 +65,7 @@ int run_rollout(int argc, const char *argv[])
                   << "  -m, --max-actions <n>  limit exploration depth per simulation (default " << MAX_ACTIONS << ")\n"
                   << "  -s, --simulations <n>  number of simulations to run (default " << SIMULATION_NUM << ")\n"
                   << "  -i                     read PGN from stdin until EOF (overrides default position)\n"
-                  << "  -csv                   emit CSV with columns simulation,outcome,actions,limit_reached,time_ms\n"
+                  << "  -csv                   emit CSV with columns simulation,winner,time_ms\n"
                   << "                         (time_ms is the duration of each simulation in milliseconds)\n"
                   << "  -h, --help             display this help text and exit\n";
     };
@@ -177,22 +172,20 @@ int run_rollout(int argc, const char *argv[])
     state &s = *parsed_state;
     if(csv_output)
     {
-        std::cout << "simulation,outcome,actions,limit_reached,time_ms\n";
+        std::cout << "simulation,winner,time_ms\n";
     }
     std::cout << std::fixed << std::setprecision(2);
     for(int i = 0; i < simulation_num; i++)
     {
         auto start = clock::now();
-        auto result = default_policy(s, max_actions);
+        const std::optional<bool> winner = rollout(s, max_actions);
         auto duration = clock::now() - start;
         total_simulation_duration += duration;
         double duration_ms = std::chrono::duration<double, std::milli>(duration).count();
         if(csv_output)
         {
             std::cout << (i + 1) << ','
-                      << result.outcome << ','
-                      << result.actions << ','
-                      << (result.limit_reached ? 1 : 0) << ','
+                      << (winner.has_value() ? (*winner ? "black" : "white") : "none") << ','
                       << duration_ms << '\n';
         }
         else
@@ -202,23 +195,17 @@ int run_rollout(int argc, const char *argv[])
                       << " ms)   ";
             std::cout.flush();
         }
-        actions_total += result.actions;
-        actions_sq_total += static_cast<double>(result.actions) * result.actions;
-        if(result.outcome == std::numeric_limits<float>::infinity())
+        if(!winner.has_value())
         {
-            ++inf_count;
+            ++no_winner;
         }
-        else if(result.outcome == -std::numeric_limits<float>::infinity())
+        else if(*winner)
         {
-            ++neg_inf_count;
+            ++black_wins;
         }
         else
         {
-            ++zero_count;
-        }
-        if(result.limit_reached)
-        {
-            ++limit_reached_count;
+            ++white_wins;
         }
     }
     if(csv_output)
@@ -232,27 +219,12 @@ int run_rollout(int argc, const char *argv[])
         return (count * 100.0) / total;
     };
     std::cout << std::setprecision(1);
-    std::cout << "Outcome summary: INF=" << percent(inf_count)
-              << "%, -INF=" << percent(neg_inf_count)
-              << "%, 0=" << percent(zero_count) << "%\n";
-    std::cout << "Limit reached in " << percent(limit_reached_count)
-              << "% of simulations\n";
+    std::cout << "Outcome summary: white=" << percent(white_wins)
+              << "%, black=" << percent(black_wins)
+              << "%, none=" << percent(no_winner) << "%\n";
     double total_simulation_ms = std::chrono::duration<double, std::milli>(total_simulation_duration).count();
     double avg_simulation_ms = total_simulation_ms / simulation_num;
-    double avg_action_ms = actions_total ? (total_simulation_ms / actions_total) : 0.0;
-    double mean_actions = actions_total / static_cast<double>(simulation_num);
-    double variance = (actions_sq_total / simulation_num) - (mean_actions * mean_actions);
-    if(variance < 0.0)
-    {
-        variance = 0.0;
-    }
-    double stddev_actions = std::sqrt(variance);
-    std::cout << "Mean terminate actions: "
-              << mean_actions << "\n";
-    std::cout << "Terminate actions stddev: "
-              << stddev_actions << "\n";
     std::cout << std::setprecision(2);
     std::cout << "Average simulation time: " << avg_simulation_ms << " ms\n";
-    std::cout << "Average time per action: " << avg_action_ms << " ms\n";
     return 0;
 }

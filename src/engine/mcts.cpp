@@ -205,6 +205,20 @@ void mcts_engine::initialize()
     root = nullptr;
 }
 
+float mcts_engine::default_policy(state position, std::stop_token stop_token, std::mt19937 *rng)
+{
+    const std::optional<bool> winner = rollout(
+        std::move(position),
+        rollout_max_actions.load(),
+        stop_token,
+        rng);
+    if(!winner.has_value())
+    {
+        return 0.0f;
+    }
+    return *winner ? -WINNING_SCORE : WINNING_SCORE;
+}
+
 void mcts_engine::on_option_changed(const std::string &key, const option_value_t &value)
 {
     if(key == ROLLOUT_MAX_ACTIONS_OPTION)
@@ -275,36 +289,27 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
             break;
         }
         const bool terminal_leaf = node->is_terminal();
-        simulation_result result;
+        float outcome;
         if(terminal_leaf)
         {
-            result = {
-                terminal_outcome(node->get_context()->hc_info.s),
-                0,
-                false,
-                false
-            };
+            outcome = terminal_outcome(node->get_context()->hc_info.s);
             ++terminal_tree_evaluations;
         }
         else
         {
-            result = default_policy(
+            outcome = default_policy(
                 rollout_state(node),
-                rollout_max_actions.load(),
                 stop_token,
-                rollout_rng.has_value() ? &*rollout_rng : nullptr,
-                WINNING_SCORE);
+                rollout_rng.has_value() ? &*rollout_rng : nullptr);
         }
-        if(result.aborted)
+        if(stop_token.stop_requested())
         {
-            dprint("find_best_move: simulation aborted at iteration", iteration_count,
-                   "actions=", result.actions,
-                   "limit_reached=", result.limit_reached);
+            dprint("find_best_move: simulation aborted at iteration", iteration_count);
             break;
         }
         if(!terminal_leaf)
         {
-            if(result.limit_reached)
+            if(outcome == 0.0f)
             {
                 ++inconclusive_rollouts;
             }
@@ -313,7 +318,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
                 ++conclusive_rollouts;
             }
         }
-        backpropagate(node, result.outcome);
+        backpropagate(node, outcome);
         iteration_count++;
     }
     dprint("find_best_move: post-loop, iterations=", iteration_count,
