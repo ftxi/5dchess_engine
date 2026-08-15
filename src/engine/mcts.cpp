@@ -15,7 +15,6 @@
 //#define DEBUGMSG
 #include "debug.h"
 
-constexpr float WINNING_SCORE = 1.0f;
 constexpr int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
 constexpr std::string_view ROLLOUT_MAX_ACTIONS_OPTION = "rollout-max-actions";
 

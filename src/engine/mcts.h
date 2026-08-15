@@ -15,6 +15,8 @@
 
 constexpr int default_mcts_rollout_max_actions = 200;
 
+constexpr float WINNING_SCORE = 1.0f;
+
 struct mcts_node_info
 {
     bool is_included; // is this node inside the mcts tree?
@@ -36,10 +38,10 @@ struct mcts_node_info
 
 class mcts_engine : public engine
 {
+protected:
     std::unique_ptr<fine_node<mcts_node_info>> root;
     std::optional<std::uint32_t> rollout_seed;
     std::atomic<int> rollout_max_actions;
-protected:
     void on_option_changed(const std::string &key, const option_value_t &value) override;
     virtual float default_policy(state position, std::stop_token stop_token, std::mt19937 *rng);
 public:

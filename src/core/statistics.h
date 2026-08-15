@@ -47,6 +47,7 @@ struct timeline_data
 
     int friendly_active_created;
     int hostile_active_created;
+    constexpr static int COUNT = 13;
 };
 
 enum class timelines_status {

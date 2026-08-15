@@ -164,7 +164,13 @@ int run_perftest(int argc, const char *argv[])
                     {
                         pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(last_gt->variations_or_outcome);
                         (void)outcome;
-                        // TODO: Handle game outcome token when checking continuation state.
+                        bool flag = current_state.submit();
+                        if(!flag)
+                        {
+                            std::ostringstream oss;
+                            oss << "state(): Cannot submit after parsing these moves: " << act;
+                            throw std::runtime_error(oss.str());
+                        }
                     }
                     gt = last_gt.get();
                 }
@@ -177,7 +183,7 @@ int run_perftest(int argc, const char *argv[])
             {
                 pgnparser_ast::token_t outcome = std::get<pgnparser_ast::token_t>(gt->variations_or_outcome);
                 (void)outcome;
-                // TODO: Handle game outcome token in perftest traversal.
+                break;
             }
         }
         else
