@@ -1,41 +1,72 @@
 #include "action.h"
-#include <regex>
+#include <cstdio>
 #include <sstream>
 #include "utils.h"
 #include "state.h"
 
 full_move::full_move(std::string str): from{0,0,0,0}, to{0,0,0,0}
 {
-    std::regex pattern1(R"(\((-?\d+)T(-?\d+)\)[A-Z]?([a-h])([1-8])([a-h])([1-8]))");
-    std::regex pattern3(R"(\((-?\d+)T(-?\d+)\)[A-Z]?([a-h])([1-8])>?>?\((-?\d+)T(-?\d+)\)([a-h])([1-8]))");
-    std::smatch match;
-    int l1, t1, x1, y1;
-    int l2, t2, x2, y2;
-    
-    if(std::regex_match(str, match, pattern1))
+    // LAN may include a piece letter after the first timeline coordinate.
+    const auto first_close = str.find(')');
+    if(first_close != std::string::npos && first_close + 1 < str.size()
+       && str[first_close + 1] >= 'A' && str[first_close + 1] <= 'Z')
     {
-        l1 = l2 = std::stoi(match[1]);
-        t1 = t2 = std::stoi(match[2]);
-        x1 = static_cast<int>(match[3].str()[0] - 'a');
-        y1 = static_cast<int>(match[4].str()[0] - '1');
-        x2 = static_cast<int>(match[5].str()[0] - 'a');
-        y2 = static_cast<int>(match[6].str()[0] - '1');
+        str.erase(first_close + 1, 1);
     }
-    else if(std::regex_match(str, match, pattern3))
+
+    // Normalize the optional timeline separator ("", ">", or ">>").
+    const auto second_open = str.find('(', first_close == std::string::npos ? 0 : first_close + 1);
+    if(second_open != std::string::npos)
     {
-        l1 = std::stoi(match[1]);
-        t1 = std::stoi(match[2]);
-        x1 = static_cast<int>(match[3].str()[0] - 'a');
-        y1 = static_cast<int>(match[4].str()[0] - '1');
-        l2 = std::stoi(match[5]);
-        t2 = std::stoi(match[6]);
-        x2 = static_cast<int>(match[7].str()[0] - 'a');
-        y2 = static_cast<int>(match[8].str()[0] - '1');
+        auto separator_begin = second_open;
+        while(separator_begin > 0 && str[separator_begin - 1] == '>')
+        {
+            --separator_begin;
+        }
+        str.erase(separator_begin, second_open - separator_begin);
+    }
+
+    int l1 = 0, t1 = 0, x1 = 0, y1 = 0;
+    int l2 = 0, t2 = 0, x2 = 0, y2 = 0;
+    char from_x, from_y, to_x, to_y;
+    int consumed = -1;
+    const auto valid_square = [](char file, char rank) {
+        return file >= 'a' && file <= 'h' && rank >= '1' && rank <= '8';
+    };
+
+    const bool physical = std::sscanf(
+        str.c_str(), "(%dT%d)%c%c%c%c%n",
+        &l1, &t1, &from_x, &from_y, &to_x, &to_y, &consumed) == 6
+        && consumed == static_cast<int>(str.size())
+        && valid_square(from_x, from_y) && valid_square(to_x, to_y);
+
+    if(physical)
+    {
+        l2 = l1;
+        t2 = t1;
+        x1 = static_cast<int>(from_x - 'a');
+        y1 = static_cast<int>(from_y - '1');
+        x2 = static_cast<int>(to_x - 'a');
+        y2 = static_cast<int>(to_y - '1');
     }
     else
     {
-        throw std::runtime_error("Cannot match this move in any known pattern: " + str);
+        consumed = -1;
+        if(std::sscanf(
+               str.c_str(), "(%dT%d)%c%c(%dT%d)%c%c%n",
+               &l1, &t1, &from_x, &from_y, &l2, &t2, &to_x, &to_y,
+               &consumed) != 8
+           || consumed != static_cast<int>(str.size())
+           || !valid_square(from_x, from_y) || !valid_square(to_x, to_y))
+        {
+            throw std::runtime_error("Cannot match this move in any known pattern: " + str);
+        }
+        x1 = static_cast<int>(from_x - 'a');
+        y1 = static_cast<int>(from_y - '1');
+        x2 = static_cast<int>(to_x - 'a');
+        y2 = static_cast<int>(to_y - '1');
     }
+
     from = vec4(x1, y1, t1, l1);
     to = vec4(x2, y2, t2, l2);
 }
