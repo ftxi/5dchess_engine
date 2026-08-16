@@ -43,8 +43,8 @@ generator<moveseq> iterative_search(
 
 } /* anonymous namespace */
 
-std::optional<bool> rollout(
-    state s,
+std::optional<bool> rollout_inplace(
+    state &s,
     int max_actions,
     std::stop_token stop_token,
     std::mt19937 *rng)
@@ -86,4 +86,13 @@ std::optional<bool> rollout(
             : std::optional<bool>{!player};
     }
     return std::nullopt;
+}
+
+std::optional<bool> rollout(
+    state s,
+    int max_actions,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
+{
+    return rollout_inplace(s, max_actions, stop_token, rng);
 }

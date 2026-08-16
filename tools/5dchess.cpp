@@ -10,6 +10,7 @@
 #include <string_view>
 
 #include "mcts.h"
+#include "linear.h"
 #include "monkey.h"
 #include "flat_ucb.h"
 
@@ -23,9 +24,9 @@ struct command_line_options
 
 void print_usage(std::ostream &out)
 {
-    out << "Usage: 5dchess <mcts|zero|flat-uct|monkey> [options]\n"
+    out << "Usage: 5dchess <mcts|zero|linear|flat-uct|monkey> [options]\n"
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
-        << "  -r, --rollout-max-actions <n>   MCTS/flat-UCT rollout action limit (default "
+        << "  -r, --rollout-max-actions <n>   MCTS/linear/flat-UCT rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
         << "  -h, --help                      display this help text and exit\n";
 }
@@ -66,7 +67,8 @@ command_line_options parse_options(
         }
         else if(option == "-r" || option == "--rollout-max-actions")
         {
-            if((engine_name != "mcts" && engine_name != "flat-uct")
+            if((engine_name != "mcts" && engine_name != "linear"
+                && engine_name != "flat-uct")
                || rollout_limit_seen || ++i >= argc)
             {
                 throw std::invalid_argument("invalid rollout limit option");
@@ -104,7 +106,7 @@ int main(int argc, const char *argv[])
     }
 
     const std::string engine_name = argv[1];
-    if(engine_name != "mcts" && engine_name != "zero"
+    if(engine_name != "mcts" && engine_name != "zero" && engine_name != "linear"
        && engine_name != "flat-uct" && engine_name != "monkey")
     {
         std::cerr << "Unknown engine: " << engine_name << "\n";
@@ -135,6 +137,12 @@ int main(int argc, const char *argv[])
     {
         selected_engine = std::make_unique<zero_engine>(
             std::make_unique<stdio_handler>(), options.seed);
+    }
+    else if(engine_name == "linear")
+    {
+        selected_engine = std::make_unique<linear_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.rollout_max_actions);
     }
     else if(engine_name == "flat-uct")
     {
