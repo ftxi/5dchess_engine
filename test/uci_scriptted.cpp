@@ -198,6 +198,31 @@ int main()
         "(0T1)a3a4N");
     assert(promotion_eng.get_current_state()->get_piece(vec4(0, 3, 1, 0), true) == KNIGHT_W);
 
+    // Invalid position histories report an error without terminating the
+    // main loop. A later valid position command must still be accepted.
+    auto recovery_io = std::make_unique<scripted_io_handler>(
+        std::vector<scripted_io_handler::scripted_line>{
+            {"position startpos moves (0T1)h2h5", 0},
+            {"position startpos moves submit", 1},
+            {"position startpos moves malformed", 2},
+            {"position startpos moves (0T1)h2h4 submit", 3},
+            {"print", 3},
+            {"quit", 4}
+        });
+    auto *recovery_io_ptr = recovery_io.get();
+    dummy_engine recovery_eng(std::move(recovery_io));
+    recovery_eng.mainloop();
+
+    assert(recovery_io_ptr->output_lines.size() == 5);
+    assert(recovery_io_ptr->output_lines[0]
+           == "info position error: cannot apply move (0T1)h2h5");
+    assert(recovery_io_ptr->output_lines[1]
+           == "info position error: cannot submit move history");
+    assert(recovery_io_ptr->output_lines[2].starts_with(
+        "info position error: cannot parse move malformed:"));
+    assert(recovery_io_ptr->output_lines[3].find("7P") != std::string::npos);
+    assert(recovery_io_ptr->output_lines[4] == "bye");
+
     std::cout << "All setoption tests passed!\n";
     return 0;
 }

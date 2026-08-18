@@ -23,6 +23,6 @@ int main()
 [nbrk/3p*/P*3/KRBN:0:1:w]
 )").parse_game();
     const state s(*game);
-    assert(full_move("(0T1)a2a4").lan(s, KNIGHT_W) == "(0T1)Pa2(0T1)a4N");
-    assert(full_move("(0T1)b1b2").lan(s, ROOK_W) == "(0T1)Rb1(0T1)b2");
+    assert(full_move("(0T1)a2a4").lan(s, KNIGHT_W) == "(0T1)a2a4N");
+    assert(full_move("(0T1)b1b2").lan(s, ROOK_W) == "(0T1)b1b2");
 }

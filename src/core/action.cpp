@@ -89,19 +89,15 @@ std::string full_move::to_string() const
 
 std::string full_move::lan(const state &s, piece_t promote_to) const
 {
-    auto [present, player] = s.get_present();
-    piece_t pic = to_white(piece_name(s.get_piece(from, player)));
-    std::ostringstream os;
-    os << s.pretty_lt(from.tl()) << pic
-       << static_cast<char>(from.x() + 'a') << static_cast<char>(from.y() + '1')
-       << s.pretty_lt(to.tl())
-       << static_cast<char>(to.x() + 'a') << static_cast<char>(to.y() + '1');
+    const bool player = s.get_present().second;
+    const piece_t pic = to_white(piece_name(s.get_piece(from, player)));
+    std::string result = to_string();
     if((pic == PAWN_W || pic == BRAWN_W)
         && to.y() == (player ? 0 : (s.get_board_size().second - 1)))
     {
-        os << promote_to;
+        result += static_cast<char>(promote_to);
     }
-    return os.str();
+    return result;
 }
 
 bool full_move::operator<(const full_move &other) const

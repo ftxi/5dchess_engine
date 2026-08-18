@@ -322,10 +322,11 @@ void engine::mainloop()
 
 void engine::set_position(const std::string &position, const std::string &moves)
 {
+    std::optional<state> candidate;
 
 	if(position == "startpos")
 	{
-		s = get_startpos();
+		candidate = get_startpos();
 	}
     else
     {
@@ -417,7 +418,7 @@ void engine::set_position(const std::string &position, const std::string &moves)
         vs.is_even_timelines = is_even;
 
         auto mv = create_multiverse_from_variant_setup(vs);
-        s = state(*mv);
+        candidate.emplace(*mv);
     }
 
     // apply moves if any
@@ -427,14 +428,33 @@ void engine::set_position(const std::string &position, const std::string &moves)
     {
         if(move_str == "submit")
         {
-            s->submit();
+            if(!candidate->submit())
+            {
+                send_info("position error: cannot submit move history");
+                return;
+            }
         }
         else
         {
-            const ext_move move{move_str};
-            s->apply_move(move.fm, move.promote_to);
+            try
+            {
+                const ext_move move{move_str};
+                if(!candidate->apply_move(move.fm, move.promote_to))
+                {
+                    send_info("position error: cannot apply move " + move_str);
+                    return;
+                }
+            }
+            catch(const std::exception &error)
+            {
+                send_info(
+                    "position error: cannot parse move " + move_str
+                    + ": " + error.what());
+                return;
+            }
         }
     }
+    s = std::move(candidate);
 }
 
 engine::option_value_t engine::get_option(const std::string &key) const
