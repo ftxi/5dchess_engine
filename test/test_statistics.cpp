@@ -7,6 +7,9 @@
 #include "core/statistics.h"
 
 constexpr const char *empty_board = "8/8/8/8/8/8/8/8";
+constexpr const char *black_king_a1 = "8/8/8/8/8/8/8/k7";
+constexpr const char *black_kings_a1_b1 = "8/8/8/8/8/8/8/kk6";
+constexpr const char *white_rooks_a1_b1 = "8/8/8/8/8/8/8/RR6";
 
 void test_standard_material()
 {
@@ -131,6 +134,93 @@ void test_black_to_move_with_timeline_advantage()
     assert(data.hostile_active_created == 2);
 }
 
+void test_t_exposure_and_blocker()
+{
+    multiverse_odd open_multiverse({
+        {0, 1, false, black_king_a1},
+        {0, 1, true,  empty_board},
+        {0, 2, false, "8/8/8/8/8/8/8/1k6"},
+    });
+    const royal_safety_data open = count_royal_safety(state(open_multiverse));
+    assert(open.friendly_exposure[royal_safety_data::T_PLUS] == 2);
+    assert(open.friendly_exposure[royal_safety_data::T_PLUS_HISTORICAL] == 1);
+
+    multiverse_odd blocked_multiverse({
+        {0, 1, false, black_king_a1},
+        {0, 1, true,  empty_board},
+        {0, 2, false, "8/8/8/8/8/8/8/Pk6"},
+    });
+    const royal_safety_data blocked = count_royal_safety(state(blocked_multiverse));
+    assert(blocked.friendly_exposure[royal_safety_data::T_PLUS] == 1);
+    assert(blocked.friendly_exposure[royal_safety_data::T_PLUS_HISTORICAL] == 0);
+}
+
+void test_l_exposure_is_directional_and_uses_all_boards()
+{
+    multiverse_odd multiverse({
+        {0, 1, false, black_king_a1},
+        {1, 1, false, empty_board},
+    });
+    const royal_safety_data data = count_royal_safety(state(multiverse));
+    assert(data.friendly_exposure[royal_safety_data::L_PLUS] == 2);
+    assert(data.friendly_exposure[royal_safety_data::L_MINUS] == 1);
+}
+
+void test_diagonal_exposure_and_player_perspective()
+{
+    multiverse_odd diagonal_multiverse({
+        {0, 1, false, black_king_a1},
+        {1, 2, false, empty_board},
+    });
+    const royal_safety_data diagonal
+        = count_royal_safety(state(diagonal_multiverse));
+    assert(diagonal.friendly_exposure[royal_safety_data::L_PLUS_T_PLUS] == 2);
+    assert(diagonal.friendly_exposure[royal_safety_data::L_MINUS_T_MINUS] == 1);
+
+    multiverse_odd black_to_move_multiverse({
+        {0, 1, true, "8/8/8/8/8/8/8/K7"},
+    });
+    const royal_safety_data black_to_move
+        = count_royal_safety(state(black_to_move_multiverse));
+    assert(black_to_move.friendly_exposure[royal_safety_data::T_PLUS] == 1);
+    assert(black_to_move.hostile_exposure[royal_safety_data::T_PLUS] == 0);
+}
+
+void test_established_and_provisional_vacuum()
+{
+    multiverse_odd established_multiverse({
+        {0, 1, false, black_king_a1},
+        {1, 2, false, empty_board},
+        {2, 1, false, empty_board},
+    });
+    const royal_safety_data established
+        = count_royal_safety(state(established_multiverse));
+    assert(established.friendly_exposure[royal_safety_data::L_PLUS] == 1);
+
+    multiverse_odd provisional_multiverse({
+        {0, 1, false, black_king_a1},
+        {1, 0, false, empty_board},
+        {2, 1, false, empty_board},
+    });
+    const royal_safety_data provisional
+        = count_royal_safety(state(provisional_multiverse));
+    assert(provisional.friendly_exposure[royal_safety_data::L_PLUS] == 2);
+}
+
+void test_strong_check_uses_distinct_pieces_on_source_board()
+{
+    multiverse_odd multiverse({
+        {0, 1, false, black_kings_a1_b1},
+        {0, 1, true,  empty_board},
+        {0, 2, false, white_rooks_a1_b1},
+    });
+    const royal_safety_data data = count_royal_safety(state(multiverse));
+    assert(data.friendly_checks == 2);
+    assert(data.friendly_strong_checks == 1);
+    assert(data.hostile_checks == 0);
+    assert(data.hostile_strong_checks == 0);
+}
+
 int main()
 {
     test_standard_material();
@@ -138,4 +228,9 @@ int main()
     test_initial_odd_multiverse();
     test_white_to_move_with_inactive_timeline();
     test_black_to_move_with_timeline_advantage();
+    test_t_exposure_and_blocker();
+    test_l_exposure_is_directional_and_uses_all_boards();
+    test_diagonal_exposure_and_player_perspective();
+    test_established_and_provisional_vacuum();
+    test_strong_check_uses_distinct_pieces_on_source_board();
 }

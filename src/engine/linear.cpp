@@ -68,6 +68,26 @@ linear_engine::feature_vector_t linear_engine::extract_features(
         timeline_features.begin(),
         timeline_features.end(),
         features.begin() + timeline_offset);
+
+    const royal_safety_data royal_safety = count_royal_safety(position);
+    for(std::size_t i = 0; i < royal_safety_data::EXPOSURE_COUNT; ++i)
+    {
+        const float friendly = static_cast<float>(royal_safety.friendly_exposure[i]);
+        const float hostile = static_cast<float>(royal_safety.hostile_exposure[i]);
+        features[royal_safety_offset + 2 * i] = std::log1p(friendly + hostile);
+        features[royal_safety_offset + 2 * i + 1]
+            = std::log1p(friendly) - std::log1p(hostile);
+    }
+    features[checks_sum_offset]
+        = static_cast<float>(royal_safety.friendly_checks + royal_safety.hostile_checks);
+    features[checks_diff_offset]
+        = static_cast<float>(royal_safety.friendly_checks - royal_safety.hostile_checks);
+    features[strong_checks_sum_offset]
+        = static_cast<float>(royal_safety.friendly_strong_checks
+                           + royal_safety.hostile_strong_checks);
+    features[strong_checks_diff_offset]
+        = static_cast<float>(royal_safety.friendly_strong_checks
+                           - royal_safety.hostile_strong_checks);
     return features;
 }
 

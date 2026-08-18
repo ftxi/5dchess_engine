@@ -19,6 +19,11 @@ public:
         = material_data<int>::COUNT;
     static constexpr std::size_t timeline_feature_count
         = timeline_data::COUNT;
+    static constexpr std::size_t royal_exposure_feature_count
+        = royal_safety_data::EXPOSURE_COUNT * 2;
+    static constexpr std::size_t check_feature_count = 4;
+    static constexpr std::size_t royal_safety_feature_count
+        = royal_exposure_feature_count + check_feature_count;
 
     static constexpr std::size_t bias_offset = 0;
     static constexpr std::size_t mandatory_material_sum_offset = 1;
@@ -34,8 +39,15 @@ public:
         = unplayable_material_sum_offset + material_feature_count;
     static constexpr std::size_t timeline_offset
         = unplayable_material_diff_offset + material_feature_count;
-    static constexpr std::size_t features_count
+    static constexpr std::size_t royal_safety_offset
         = timeline_offset + timeline_feature_count;
+    static constexpr std::size_t checks_sum_offset
+        = royal_safety_offset + royal_exposure_feature_count;
+    static constexpr std::size_t checks_diff_offset = checks_sum_offset + 1;
+    static constexpr std::size_t strong_checks_sum_offset = checks_diff_offset + 1;
+    static constexpr std::size_t strong_checks_diff_offset = strong_checks_sum_offset + 1;
+    static constexpr std::size_t features_count
+        = royal_safety_offset + royal_safety_feature_count;
 
     using feature_vector_t = std::array<float, features_count>;
     using weight_vector_t = feature_vector_t;

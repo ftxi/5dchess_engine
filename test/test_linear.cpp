@@ -8,6 +8,7 @@
 #include <string>
 
 #include "linear.h"
+#include "multiverse_variants.h"
 #include "pgnparser.h"
 #include "rollout.h"
 
@@ -42,7 +43,7 @@ state standard_position()
 
 void test_feature_layout()
 {
-    static_assert(linear_engine::features_count == 62);
+    static_assert(linear_engine::features_count == 82);
     const auto features = linear_engine::extract_features(standard_position());
 
     assert(features[linear_engine::bias_offset] == 1.0f);
@@ -97,6 +98,24 @@ void test_weights_and_perspective()
     assert(std::abs(engine.evaluate(black_to_move) + std::tanh(1.0f)) < 1e-6f);
 }
 
+void test_royal_exposure_log_features()
+{
+    multiverse_odd multiverse({
+        {0, 1, false, "8/8/8/8/8/8/8/k7"},
+        {0, 1, true,  "8/8/8/8/8/8/8/8"},
+        {0, 2, false, "8/8/8/8/8/8/8/1k6"},
+    });
+    const auto features = linear_engine::extract_features(state(multiverse));
+    const std::size_t t_plus = linear_engine::royal_safety_offset
+                             + 2 * royal_safety_data::T_PLUS;
+    const std::size_t t_history = linear_engine::royal_safety_offset
+                                + 2 * royal_safety_data::T_PLUS_HISTORICAL;
+    assert(std::abs(features[t_plus] - std::log1p(2.0f)) < 1e-6f);
+    assert(std::abs(features[t_plus + 1] - std::log1p(2.0f)) < 1e-6f);
+    assert(std::abs(features[t_history] - std::log1p(1.0f)) < 1e-6f);
+    assert(std::abs(features[t_history + 1] - std::log1p(1.0f)) < 1e-6f);
+}
+
 void test_rollout_value_and_inplace_semantics()
 {
     state original = standard_position();
@@ -131,6 +150,7 @@ int main()
 {
     test_feature_layout();
     test_weights_and_perspective();
+    test_royal_exposure_log_features();
     test_rollout_value_and_inplace_semantics();
     test_policy_evaluates_final_rollout_state();
     return 0;

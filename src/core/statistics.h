@@ -68,4 +68,37 @@ material_data<int> count_material_diff(const state &s);
 
 timeline_data count_timelines(const state &s);
 
+/* Royal safety, from the perspective of the player to move.
+
+   An exposure belongs to the player whose piece could use the ray to attack an
+   opposing royal piece.  T_PLUS is accumulated at timeline ends.  The six
+   L-related directions are accumulated at every stored board because a board
+   in history can become relevant as neighboring timelines advance.
+ */
+struct royal_safety_data
+{
+    enum exposure_direction
+    {
+        T_PLUS,
+        T_PLUS_HISTORICAL,
+        L_PLUS,
+        L_MINUS,
+        L_PLUS_T_PLUS,
+        L_PLUS_T_MINUS,
+        L_MINUS_T_PLUS,
+        L_MINUS_T_MINUS,
+        EXPOSURE_COUNT
+    };
+
+    std::array<int, EXPOSURE_COUNT> friendly_exposure{};
+    std::array<int, EXPOSURE_COUNT> hostile_exposure{};
+
+    int friendly_checks = 0;
+    int hostile_checks = 0;
+    int friendly_strong_checks = 0;
+    int hostile_strong_checks = 0;
+};
+
+royal_safety_data count_royal_safety(const state &s);
+
 #endif /* STATISTICS_H */
