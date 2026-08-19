@@ -144,13 +144,8 @@ All resources inside this project are either open source online or created by my
 For more details on the structure of this repository, please read [this page](docs/index.md).
 
 ### TODOs
-- [x] Write standard of and implement 5duci for communication.
-- [x] Split `src/` folder into client-specific and engine-specific folders.
-- [x] Modify cmake file to support building core only/build engine.
-- [x] Create a basic 5d chess bot.
-- [x] Write take_random_point() for hypercuboid algorithm and use it for rollout in MCTS default policy. In rollout, picking which fine cell to continue might be tricky to be made uniform.
-    + In fact, I can consider a randomized version of HC_info class
-- [x] Figure out the reason for unexpected nobestmove.
-- [x] Implement new search policy to only remove good non-necessary problem slices
-- [x] Try shortened rollout for MCTS default policy. Make it a parameter in `5dchess mcts`.
-- [x] Separate command-line programs and diagnostics into `tools/`.
+- [ ] Move weighting for default policy
+- [ ] Move ordering for tree policy
+- [ ] Progressive widening
+- [ ] Learned weights for the linear engine
+- [ ] UCT/PUCT switch
