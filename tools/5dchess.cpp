@@ -1,6 +1,7 @@
 // Accessing the 5dchess engines
 
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -11,6 +12,7 @@
 
 #include "mcts.h"
 #include "linear.h"
+#include "linear_training.h"
 #include "monkey.h"
 #include "flat_ucb.h"
 
@@ -19,6 +21,7 @@ namespace
 struct command_line_options
 {
     std::optional<std::uint32_t> seed;
+    std::optional<std::string> weights_file;
     int rollout_max_actions = default_mcts_rollout_max_actions;
 };
 
@@ -28,6 +31,7 @@ void print_usage(std::ostream &out)
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
         << "  -r, --rollout-max-actions <n>   MCTS/linear/flat-UCT rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
+        << "  -w, --weights <file>            linear-engine weight checkpoint\n"
         << "  -h, --help                      display this help text and exit\n";
 }
 
@@ -48,6 +52,7 @@ command_line_options parse_options(
     command_line_options options;
     bool seed_seen = false;
     bool rollout_limit_seen = false;
+    bool weights_seen = false;
     for(int i = 2; i < argc; ++i)
     {
         const std::string option = argv[i];
@@ -80,6 +85,15 @@ command_line_options parse_options(
             }
             options.rollout_max_actions = static_cast<int>(parsed);
             rollout_limit_seen = true;
+        }
+        else if(option == "-w" || option == "--weights")
+        {
+            if(engine_name != "linear" || weights_seen || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid weights option");
+            }
+            options.weights_file = argv[i];
+            weights_seen = true;
         }
         else
         {
@@ -140,9 +154,29 @@ int main(int argc, const char *argv[])
     }
     else if(engine_name == "linear")
     {
+        linear_engine::weight_vector_t weights = linear_engine::default_weights();
+        if(options.weights_file)
+        {
+            std::ifstream input(*options.weights_file);
+            if(!input)
+            {
+                std::cerr << "Error: cannot open weights file: "
+                          << *options.weights_file << '\n';
+                return 2;
+            }
+            try
+            {
+                weights = read_linear_weights(input);
+            }
+            catch(const std::exception &error)
+            {
+                std::cerr << "Error: invalid weights file: " << error.what() << '\n';
+                return 2;
+            }
+        }
         selected_engine = std::make_unique<linear_engine>(
             std::make_unique<stdio_handler>(), options.seed,
-            options.rollout_max_actions);
+            options.rollout_max_actions, weights);
     }
     else if(engine_name == "flat-uct")
     {

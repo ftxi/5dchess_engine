@@ -1,6 +1,16 @@
 Structure of the code
 ========
 
+Engine-specific references:
+
+- [Search metrics](metrics.md) defines the MCTS metric hierarchy, timing and
+  workload counters, and complete-action root distribution fields.
+- [Linear evaluation features](linear-features.md) defines the 84-feature
+  layout, player perspective, and built-in heuristic weights.
+- [Training the linear evaluation](linear-training.md) defines target
+  perspective, optimization, checkpoint formats, and the training CLI.
+- [5DUCI](5duci.md) defines the engine protocol.
+
 The following image roughly captures the structure of the code:
 ```
   ┌──────────────┐                                             

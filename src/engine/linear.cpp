@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <numeric>
 #include <utility>
@@ -25,6 +26,56 @@ void append_material_features(
 }
 
 } /* anonymous namespace */
+
+linear_engine::weight_vector_t linear_engine::default_weights()
+{
+    weight_vector_t weights{};
+
+    // Hand-written priors for features whose direction is unambiguous.  Values
+    // are deliberately small because the final score is passed through tanh.
+    // Material on a timeline the player must advance is more immediately
+    // useful than material on an optional or currently unplayable timeline.
+    // Sliding pieces occupy one or more movement-component bitboards, so their
+    // effective values are additive.  For example, Princess is LROOK+LBISHOP
+    // (0.40), while Queen receives all four sliding components plus its bonus.
+    constexpr std::array<float, material_feature_count> material_weights{
+        0.05f, // pawn / brawn
+        0.15f, // knight
+        0.25f, // rook movement component
+        0.15f, // bishop movement component
+        0.08f, // unicorn movement component
+        0.05f, // dragon movement component
+        0.45f, // non-royal queen bonus
+        0.30f  // royal piece
+    };
+    for(std::size_t piece = 0; piece < material_weights.size(); ++piece)
+    {
+        weights[mandatory_material_diff_offset + piece] = material_weights[piece];
+        weights[optional_material_diff_offset + piece] = 0.5f * material_weights[piece];
+        weights[unplayable_material_diff_offset + piece] = 0.15f * material_weights[piece];
+    }
+
+    // Positive timeline_advantage means the opponent created more timelines,
+    // giving the player to move a larger active-timeline allowance.
+    weights[timeline_advantage_offset] = 0.25f;
+
+    // Move-space features are logarithmic, so small coefficients reward
+    // flexibility without overwhelming material and timeline advantages.
+    weights[log_universe_volume_offset] = 0.04f;
+    weights[log_non_new_volume_offset] = 0.04f;
+
+    // Each difference is friendly minus hostile.  Rewarding it values attacks
+    // on the opposing royal while penalizing equivalent danger to our own.
+    for(std::size_t direction = 0;
+        direction < royal_safety_data::EXPOSURE_COUNT;
+        ++direction)
+    {
+        weights[royal_safety_offset + 2 * direction + 1] = 0.08f;
+    }
+    weights[checks_diff_offset] = 0.25f;
+    weights[strong_checks_diff_offset] = 0.40f;
+    return weights;
+}
 
 linear_engine::feature_vector_t linear_engine::extract_features(
     const state &position)
@@ -69,6 +120,10 @@ linear_engine::feature_vector_t linear_engine::extract_features(
         timeline_features.end(),
         features.begin() + timeline_offset);
 
+    const move_count_data move_counts = count_move_space(position);
+    features[log_universe_volume_offset] = move_counts.log_universe_volume;
+    features[log_non_new_volume_offset] = move_counts.log_non_new_volume;
+
     const royal_safety_data royal_safety = count_royal_safety(position);
     for(std::size_t i = 0; i < royal_safety_data::EXPOSURE_COUNT; ++i)
     {
@@ -94,32 +149,80 @@ linear_engine::feature_vector_t linear_engine::extract_features(
 float linear_engine::evaluate(const state &position) const
 {
     const feature_vector_t features = extract_features(position);
-    const float linear_score = std::inner_product(
-        features.begin(),
-        features.end(),
-        weight_vector.begin(),
-        0.0f);
-    const float player_score = WINNING_SCORE * std::tanh(linear_score);
-    return position.get_present().second ? -player_score : player_score;
+    const double player_score = WINNING_SCORE * predict_player_score(
+        features, weight_vector);
+    return static_cast<float>(
+        position.get_present().second ? -player_score : player_score);
 }
 
-float linear_engine::default_policy(
+double linear_engine::predict_player_score(
+    const feature_vector_t &features,
+    const weight_vector_t &weights)
+{
+    const double linear_score = std::inner_product(
+        features.begin(),
+        features.end(),
+        weights.begin(),
+        0.0);
+    return std::tanh(linear_score);
+}
+
+default_policy_result linear_engine::default_policy(
     state position,
     std::stop_token stop_token,
     std::mt19937 *rng)
 {
-    const std::optional<bool> winner = rollout_inplace(
+    const auto rollout_started = std::chrono::steady_clock::now();
+    const rollout_result result = rollout_inplace_detailed(
         position,
         rollout_max_actions.load(),
         stop_token,
         rng);
+    const double rollout_seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - rollout_started).count();
     if(stop_token.stop_requested())
     {
-        return 0.0f;
+        return {
+            0.0f,
+            rollout_termination::STOPPED,
+            std::nullopt,
+            result.actions,
+            rollout_seconds,
+            0.0
+        };
     }
-    if(winner.has_value())
+    if(result.winner.has_value())
     {
-        return *winner ? -WINNING_SCORE : WINNING_SCORE;
+        return {
+            *result.winner ? -WINNING_SCORE : WINNING_SCORE,
+            result.termination,
+            result.winner,
+            result.actions,
+            rollout_seconds,
+            0.0
+        };
     }
-    return evaluate(position);
+    if(result.termination == rollout_termination::STALEMATE)
+    {
+        return {
+            0.0f,
+            result.termination,
+            result.winner,
+            result.actions,
+            rollout_seconds,
+            0.0
+        };
+    }
+    const auto evaluation_started = std::chrono::steady_clock::now();
+    const float score = evaluate(position);
+    const double evaluation_seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - evaluation_started).count();
+    return {
+        score,
+        result.termination,
+        result.winner,
+        result.actions,
+        rollout_seconds,
+        evaluation_seconds
+    };
 }

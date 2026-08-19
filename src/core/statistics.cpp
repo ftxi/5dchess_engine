@@ -1,11 +1,14 @@
 #include "statistics.h"
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <set>
 #include <tuple>
 #include <vector>
+
+#include "hypercuboid.h"
 
 namespace
 {
@@ -44,6 +47,27 @@ struct exposure_board
     board_coordinate coordinate;
     std::shared_ptr<board> value;
 };
+
+royal_safety_data::exposure_direction orient_l_direction(
+    royal_safety_data::exposure_direction feature,
+    bool player)
+{
+    using direction_t = royal_safety_data::exposure_direction;
+    if(!player)
+    {
+        return feature;
+    }
+    switch(feature)
+    {
+        case direction_t::L_PLUS: return direction_t::L_MINUS;
+        case direction_t::L_MINUS: return direction_t::L_PLUS;
+        case direction_t::L_PLUS_T_PLUS: return direction_t::L_MINUS_T_PLUS;
+        case direction_t::L_PLUS_T_MINUS: return direction_t::L_MINUS_T_MINUS;
+        case direction_t::L_MINUS_T_PLUS: return direction_t::L_PLUS_T_PLUS;
+        case direction_t::L_MINUS_T_MINUS: return direction_t::L_PLUS_T_MINUS;
+        default: return feature;
+    }
+}
 
 bitboard_t hostile_royals(const board &b, bool attacker)
 {
@@ -99,6 +123,32 @@ timeline_data count_timelines(const state &s)
         active_timeline_allowance,
         friendly_active_created,
         hostile_active_created
+    };
+}
+
+move_count_data count_move_space(const state &s)
+{
+    auto [info, search_space] = HC_info::build_HC(s);
+    (void)search_space;
+
+    double log_universe_volume = 0.0;
+    double log_non_new_volume = 0.0;
+    for(index_t axis = 0; axis < info.dimension; ++axis)
+    {
+        // Every universe axis contains at least its null coordinate.  Summing
+        // logarithms avoids overflowing HC::volume() for large multiverses.
+        const double log_axis_size = std::log(
+            static_cast<double>(info.universe[axis].size()));
+        log_universe_volume += log_axis_size;
+        if(axis < info.new_axis)
+        {
+            log_non_new_volume += log_axis_size;
+        }
+    }
+
+    return move_count_data{
+        static_cast<float>(log_universe_volume),
+        static_cast<float>(log_non_new_volume)
     };
 }
 
@@ -244,7 +294,8 @@ exposure_pair_t count_l_related_exposure(const state &s, bool player)
                            | (inherited & ~current.value->occupied());
 
             auto &aggregate = attacker == player ? result.first : result.second;
-            aggregate[direction.feature] += std::popcount(exposed[index]);
+            const auto feature = orient_l_direction(direction.feature, player);
+            aggregate[feature] += std::popcount(exposed[index]);
         }
     }
     return result;

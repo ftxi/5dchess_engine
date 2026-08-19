@@ -7,6 +7,7 @@
 #include "replay_log.h"
 #include "run_perftest.h"
 #include "run_rollout.h"
+#include "train_linear.h"
 
 namespace
 {
@@ -30,6 +31,8 @@ constexpr std::array commands{
     command{"diff", "", "compare balanced and naive searches", run_diff},
     command{"perftest", "[policy]", "check every position in a 5DPGN game", run_perftest},
     command{"rollout", "[options]", "run random rollout simulations", run_rollout},
+    command{"train-linear", "[options] <training-data> <output-weights>",
+            "fit and save linear evaluation weights", run_train_linear},
     command{"replay-log", "<log> [seed]", "replay and time a protocol failure log", replay_log},
 };
 

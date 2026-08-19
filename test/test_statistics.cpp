@@ -1,5 +1,6 @@
 #include <cassert>
 #include <array>
+#include <cmath>
 #include <vector>
 #include "core/multiverse_variants.h"
 #include "core/pgnparser.h"
@@ -8,6 +9,7 @@
 
 constexpr const char *empty_board = "8/8/8/8/8/8/8/8";
 constexpr const char *black_king_a1 = "8/8/8/8/8/8/8/k7";
+constexpr const char *white_king_a1 = "8/8/8/8/8/8/8/K7";
 constexpr const char *black_kings_a1_b1 = "8/8/8/8/8/8/8/kk6";
 constexpr const char *white_rooks_a1_b1 = "8/8/8/8/8/8/8/RR6";
 
@@ -134,6 +136,33 @@ void test_black_to_move_with_timeline_advantage()
     assert(data.hostile_active_created == 2);
 }
 
+void test_standard_move_space_volume()
+{
+    const state s(*pgnparser(R"(
+[Board "Standard - Turn Zero"]
+)").parse_game());
+    const move_count_data data = count_move_space(s);
+    const float expected = std::log(21.0f); // null coordinate + 20 moves
+
+    assert(std::abs(data.log_universe_volume - expected) < 1e-6f);
+    assert(std::abs(data.log_non_new_volume - expected) < 1e-6f);
+}
+
+void test_branching_move_space_volume()
+{
+    const state s(*pgnparser(R"(
+[Board "Standard - Turn Zero"]
+
+1. Nf3
+)").parse_game());
+    const move_count_data data = count_move_space(s);
+
+    assert(std::isfinite(data.log_universe_volume));
+    assert(std::isfinite(data.log_non_new_volume));
+    assert(data.log_non_new_volume >= 0.0f);
+    assert(data.log_universe_volume > data.log_non_new_volume);
+}
+
 void test_t_exposure_and_blocker()
 {
     multiverse_odd open_multiverse({
@@ -164,6 +193,29 @@ void test_l_exposure_is_directional_and_uses_all_boards()
     const royal_safety_data data = count_royal_safety(state(multiverse));
     assert(data.friendly_exposure[royal_safety_data::L_PLUS] == 2);
     assert(data.friendly_exposure[royal_safety_data::L_MINUS] == 1);
+}
+
+void test_l_exposure_flips_for_black_to_move()
+{
+    multiverse_odd multiverse({
+        {0, 1, true, white_king_a1},
+        {1, 1, true, empty_board},
+    });
+    const royal_safety_data data = count_royal_safety(state(multiverse));
+
+    // In raw timeline coordinates the exposure extends toward L+, but Black's
+    // feature frame reverses L so that it matches White's perspective.
+    assert(data.friendly_exposure[royal_safety_data::L_PLUS] == 1);
+    assert(data.friendly_exposure[royal_safety_data::L_MINUS] == 2);
+
+    multiverse_odd diagonal_multiverse({
+        {0, 1, true, white_king_a1},
+        {1, 2, true, empty_board},
+    });
+    const royal_safety_data diagonal
+        = count_royal_safety(state(diagonal_multiverse));
+    assert(diagonal.friendly_exposure[royal_safety_data::L_MINUS_T_PLUS] == 2);
+    assert(diagonal.friendly_exposure[royal_safety_data::L_PLUS_T_MINUS] == 1);
 }
 
 void test_diagonal_exposure_and_player_perspective()
@@ -228,8 +280,11 @@ int main()
     test_initial_odd_multiverse();
     test_white_to_move_with_inactive_timeline();
     test_black_to_move_with_timeline_advantage();
+    test_standard_move_space_volume();
+    test_branching_move_space_volume();
     test_t_exposure_and_blocker();
     test_l_exposure_is_directional_and_uses_all_boards();
+    test_l_exposure_flips_for_black_to_move();
     test_diagonal_exposure_and_player_perspective();
     test_established_and_provisional_vacuum();
     test_strong_check_uses_distinct_pieces_on_source_board();

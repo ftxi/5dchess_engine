@@ -11,11 +11,28 @@
 #include <cstdint>
 #include "uci.h"
 #include "finetree.h"
+#include "rollout.h"
 #include "uct.h"
 
 constexpr int default_mcts_rollout_max_actions = 200;
 
 constexpr float WINNING_SCORE = 1.0f;
+
+struct default_policy_result
+{
+    float score;
+    rollout_termination termination;
+    std::optional<bool> winner;
+    std::size_t rollout_actions;
+    double rollout_seconds;
+    double evaluation_seconds;
+
+    constexpr bool is_conclusive() const
+    {
+        return termination == rollout_termination::WINNER
+            || termination == rollout_termination::STALEMATE;
+    }
+};
 
 struct mcts_node_info
 {
@@ -43,7 +60,10 @@ protected:
     std::optional<std::uint32_t> rollout_seed;
     std::atomic<int> rollout_max_actions;
     void on_option_changed(const std::string &key, const option_value_t &value) override;
-    virtual float default_policy(state position, std::stop_token stop_token, std::mt19937 *rng);
+    virtual default_policy_result default_policy(
+        state position,
+        std::stop_token stop_token,
+        std::mt19937 *rng);
 public:
     mcts_engine(
         std::unique_ptr<io_handler> io_handler,
@@ -61,9 +81,19 @@ class zero_engine : public mcts_engine
 {
 public:
     using mcts_engine::mcts_engine;
-    float default_policy(state, std::stop_token, std::mt19937 *) override
+    default_policy_result default_policy(
+        state,
+        std::stop_token,
+        std::mt19937 *) override
     {
-        return 0.0f;
+        return {
+            0.0f,
+            rollout_termination::ACTION_LIMIT,
+            std::nullopt,
+            0,
+            0.0,
+            0.0
+        };
     }
 };
 

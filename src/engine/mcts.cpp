@@ -112,8 +112,68 @@ node_t *best_child(node_t *node)
     return best_child;
 }
 
+std::size_t node_depth(const node_t *node)
+{
+    std::size_t depth = 0;
+    while(node->get_parent() != nullptr)
+    {
+        ++depth;
+        node = node->get_parent();
+    }
+    return depth;
+}
 
-node_t *tree_policy(node_t *node, std::stop_token stop_token)
+void collect_root_actions(node_t *node, std::vector<node_t *> &actions)
+{
+    for(node_t *child : node->get_children())
+    {
+        if(child->is_ceiling())
+        {
+            actions.push_back(child);
+        }
+        else
+        {
+            collect_root_actions(child, actions);
+        }
+    }
+}
+
+struct root_action_metrics
+{
+    std::size_t discovered = 0;
+    std::size_t visited = 0;
+    std::size_t selected_visits = 0;
+    std::size_t second_visits = 0;
+};
+
+root_action_metrics measure_root_actions(node_t *root, node_t *selected)
+{
+    std::vector<node_t *> actions;
+    collect_root_actions(root, actions);
+
+    root_action_metrics metrics;
+    metrics.discovered = actions.size();
+    for(node_t *action : actions)
+    {
+        const std::size_t visits = action->get_info().visits;
+        metrics.visited += visits != 0;
+        if(action == selected)
+        {
+            metrics.selected_visits = visits;
+        }
+        else if(visits > metrics.second_visits)
+        {
+            metrics.second_visits = visits;
+        }
+    }
+    return metrics;
+}
+
+
+node_t *tree_policy(
+    node_t *node,
+    std::stop_token stop_token,
+    bool &admitted_node)
 {
     dprint("tree_policy()", node->print_semimove(), (node->is_nodal() ? "nodal" : "temporary"), (node->is_ceiling() ? "ceiling" : ""));
     while(!node->is_terminal() && !stop_token.stop_requested())
@@ -121,6 +181,7 @@ node_t *tree_policy(node_t *node, std::stop_token stop_token)
         node_t *next_node = expand(node, stop_token);
         if(next_node)
         {
+            admitted_node = true;
             return next_node;
         }
         // if no unexpanded children, select the best child
@@ -204,18 +265,38 @@ void mcts_engine::initialize()
     root = nullptr;
 }
 
-float mcts_engine::default_policy(state position, std::stop_token stop_token, std::mt19937 *rng)
+default_policy_result mcts_engine::default_policy(
+    state position,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
 {
-    const std::optional<bool> winner = rollout(
+    const auto rollout_started = std::chrono::steady_clock::now();
+    const rollout_result result = rollout_detailed(
         std::move(position),
         rollout_max_actions.load(),
         stop_token,
         rng);
-    if(!winner.has_value())
+    const double rollout_seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - rollout_started).count();
+    if(!result.winner.has_value())
     {
-        return 0.0f;
+        return {
+            0.0f,
+            result.termination,
+            result.winner,
+            result.actions,
+            rollout_seconds,
+            0.0
+        };
     }
-    return *winner ? -WINNING_SCORE : WINNING_SCORE;
+    return {
+        *result.winner ? -WINNING_SCORE : WINNING_SCORE,
+        result.termination,
+        result.winner,
+        result.actions,
+        rollout_seconds,
+        0.0
+    };
 }
 
 void mcts_engine::on_option_changed(const std::string &key, const option_value_t &value)
@@ -261,7 +342,23 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
     std::size_t iteration_count = 0;
     std::size_t conclusive_rollouts = 0;
     std::size_t inconclusive_rollouts = 0;
+    std::size_t rollout_white_wins = 0;
+    std::size_t rollout_black_wins = 0;
+    std::size_t rollout_stalemates = 0;
+    std::size_t rollout_actions_total = 0;
+    std::size_t rollout_actions_max = 0;
+    double rollout_seconds = 0.0;
+    double evaluation_seconds = 0.0;
+    double cutoff_score_sum = 0.0;
+    double cutoff_score_abs_sum = 0.0;
+    double cutoff_score_squared_sum = 0.0;
+    float cutoff_score_min = std::numeric_limits<float>::infinity();
+    float cutoff_score_max = -std::numeric_limits<float>::infinity();
     std::size_t terminal_tree_evaluations = 0;
+    std::size_t unique_terminal_tree_nodes = 0;
+    std::size_t simulation_tree_depth_sum = 0;
+    std::size_t simulation_tree_depth_max = 0;
+    std::size_t mcts_nodes_admitted = 0;
     std::optional<std::mt19937> rollout_rng;
     if(rollout_seed.has_value())
     {
@@ -279,7 +376,8 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
             dprint("find_best_move: time deadline reached", iteration_count);
             break;
         }
-        node_t *node = tree_policy(root.get(), stop_token);
+        bool admitted_node = false;
+        node_t *node = tree_policy(root.get(), stop_token, admitted_node);
         if(node == nullptr)
         {
             dprint("find_best_move: tree_policy returned nullptr at iteration", iteration_count,
@@ -289,40 +387,82 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         }
         const bool terminal_leaf = node->is_terminal();
         float outcome;
+        std::optional<default_policy_result> policy_result;
         if(terminal_leaf)
         {
+            if(node->get_info().visits == 0)
+            {
+                ++unique_terminal_tree_nodes;
+            }
             outcome = terminal_outcome(node->get_context()->hc_info.s);
             ++terminal_tree_evaluations;
         }
         else
         {
-            outcome = default_policy(
+            policy_result = default_policy(
                 rollout_state(node),
                 stop_token,
                 rollout_rng.has_value() ? &*rollout_rng : nullptr);
+            outcome = policy_result->score;
         }
-        if(stop_token.stop_requested())
+        if(stop_token.stop_requested()
+           || (policy_result.has_value()
+               && policy_result->termination == rollout_termination::STOPPED))
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count);
             break;
         }
         if(!terminal_leaf)
         {
-            if(outcome == 0.0f)
+            rollout_actions_total += policy_result->rollout_actions;
+            rollout_actions_max = std::max(
+                rollout_actions_max, policy_result->rollout_actions);
+            rollout_seconds += policy_result->rollout_seconds;
+            evaluation_seconds += policy_result->evaluation_seconds;
+
+            switch(policy_result->termination)
             {
-                ++inconclusive_rollouts;
-            }
-            else
-            {
-                ++conclusive_rollouts;
+                case rollout_termination::WINNER:
+                    ++conclusive_rollouts;
+                    assert(policy_result->winner.has_value());
+                    if(*policy_result->winner)
+                    {
+                        ++rollout_black_wins;
+                    }
+                    else
+                    {
+                        ++rollout_white_wins;
+                    }
+                    break;
+                case rollout_termination::STALEMATE:
+                    ++conclusive_rollouts;
+                    ++rollout_stalemates;
+                    break;
+                case rollout_termination::ACTION_LIMIT:
+                    ++inconclusive_rollouts;
+                    cutoff_score_sum += outcome;
+                    cutoff_score_abs_sum += std::abs(outcome);
+                    cutoff_score_squared_sum
+                        += static_cast<double>(outcome) * outcome;
+                    cutoff_score_min = std::min(cutoff_score_min, outcome);
+                    cutoff_score_max = std::max(cutoff_score_max, outcome);
+                    break;
+                case rollout_termination::STOPPED:
+                    assert(false && "stopped rollout must not be backpropagated");
+                    break;
             }
         }
+        const std::size_t depth = node_depth(node);
+        simulation_tree_depth_sum += depth;
+        simulation_tree_depth_max = std::max(simulation_tree_depth_max, depth);
+        mcts_nodes_admitted += admitted_node;
         backpropagate(node, outcome);
         iteration_count++;
     }
     dprint("find_best_move: post-loop, iterations=", iteration_count,
            "root_visits=", root->get_info().visits,
            "root_children=", root->get_children().size());
+    root_action_metrics action_metrics;
     const auto report_search_metrics = [&]()
     {
         const double seconds = std::chrono::duration<double>(
@@ -338,7 +478,29 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
              << " ips=" << visits_per_second
              << " conclusive_rollouts=" << conclusive_rollouts
              << " inconclusive_rollouts=" << inconclusive_rollouts
-             << " terminal_tree_evaluations=" << terminal_tree_evaluations;
+             << " rollout_white_wins=" << rollout_white_wins
+             << " rollout_black_wins=" << rollout_black_wins
+             << " rollout_stalemates=" << rollout_stalemates
+             << " rollout_actions_total=" << rollout_actions_total
+             << " rollout_actions_max=" << rollout_actions_max
+             << " rollout_seconds=" << rollout_seconds
+             << " evaluation_seconds=" << evaluation_seconds
+             << " cutoff_score_sum=" << cutoff_score_sum
+             << " cutoff_score_abs_sum=" << cutoff_score_abs_sum
+             << " cutoff_score_squared_sum=" << cutoff_score_squared_sum
+             << " cutoff_score_min="
+             << (inconclusive_rollouts == 0 ? 0.0f : cutoff_score_min)
+             << " cutoff_score_max="
+             << (inconclusive_rollouts == 0 ? 0.0f : cutoff_score_max)
+             << " terminal_tree_evaluations=" << terminal_tree_evaluations
+             << " unique_terminal_tree_nodes=" << unique_terminal_tree_nodes
+             << " simulation_tree_depth_sum=" << simulation_tree_depth_sum
+             << " simulation_tree_depth_max=" << simulation_tree_depth_max
+             << " mcts_nodes_admitted=" << mcts_nodes_admitted
+             << " root_actions_discovered=" << action_metrics.discovered
+             << " root_actions_visited=" << action_metrics.visited
+             << " selected_action_visits=" << action_metrics.selected_visits
+             << " second_action_visits=" << action_metrics.second_visits;
         send_info(info.str());
     };
     node_t *current_node = root.get();
@@ -403,6 +565,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         {
             best_ext_moves.emplace_back(fm);
         }
+        action_metrics = measure_root_actions(root.get(), current_node);
         report_search_metrics();
         double score_average = 0.0;
         for(float score : selected_scores)
@@ -433,6 +596,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
                "iterations=", iteration_count,
                "root_visits=", root->get_info().visits,
                "root_children=", root->get_children().size());
+        action_metrics = measure_root_actions(root.get(), nullptr);
         report_search_metrics();
         return std::nullopt;
     }

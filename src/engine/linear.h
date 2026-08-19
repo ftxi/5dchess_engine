@@ -8,6 +8,7 @@
 #include <optional>
 #include <random>
 #include <stop_token>
+#include <utility>
 
 #include "mcts.h"
 #include "statistics.h"
@@ -19,6 +20,8 @@ public:
         = material_data<int>::COUNT;
     static constexpr std::size_t timeline_feature_count
         = timeline_data::COUNT;
+    static constexpr std::size_t move_count_feature_count
+        = move_count_data::COUNT;
     static constexpr std::size_t royal_exposure_feature_count
         = royal_safety_data::EXPOSURE_COUNT * 2;
     static constexpr std::size_t check_feature_count = 4;
@@ -39,8 +42,14 @@ public:
         = unplayable_material_sum_offset + material_feature_count;
     static constexpr std::size_t timeline_offset
         = unplayable_material_diff_offset + material_feature_count;
-    static constexpr std::size_t royal_safety_offset
+    static constexpr std::size_t move_count_offset
         = timeline_offset + timeline_feature_count;
+    static constexpr std::size_t log_universe_volume_offset
+        = move_count_offset;
+    static constexpr std::size_t log_non_new_volume_offset
+        = move_count_offset + 1;
+    static constexpr std::size_t royal_safety_offset
+        = move_count_offset + move_count_feature_count;
     static constexpr std::size_t checks_sum_offset
         = royal_safety_offset + royal_exposure_feature_count;
     static constexpr std::size_t checks_diff_offset = checks_sum_offset + 1;
@@ -49,6 +58,15 @@ public:
     static constexpr std::size_t features_count
         = royal_safety_offset + royal_safety_feature_count;
 
+    // Increment this whenever the meaning or ordering of a feature changes.
+    // Serialized weights and training samples carry this version so that an
+    // incompatible file fails loudly instead of silently corrupting scores.
+    static constexpr std::uint32_t feature_schema_version = 1;
+
+    // timeline_data fields are appended in their declaration order.
+    static constexpr std::size_t timeline_advantage_offset
+        = timeline_offset + 9;
+
     using feature_vector_t = std::array<float, features_count>;
     using weight_vector_t = feature_vector_t;
 
@@ -56,26 +74,36 @@ private:
     weight_vector_t weight_vector{};
 
 protected:
-    float default_policy(
+    default_policy_result default_policy(
         state position,
         std::stop_token stop_token,
         std::mt19937 *rng) override;
 
 public:
+    static weight_vector_t default_weights();
+
     linear_engine(
         std::unique_ptr<io_handler> io_handler,
         std::optional<std::uint32_t> seed = std::nullopt,
         int max_rollout_actions = default_mcts_rollout_max_actions,
-        weight_vector_t weights = {})
+        weight_vector_t weights = default_weights())
     : mcts_engine(std::move(io_handler), seed, max_rollout_actions),
       weight_vector(std::move(weights)) {}
 
     static feature_vector_t extract_features(const state &position);
+    static double predict_player_score(
+        const feature_vector_t &features,
+        const weight_vector_t &weights);
     float evaluate(const state &position) const;
 
     const weight_vector_t &get_weights() const
     {
         return weight_vector;
+    }
+
+    void set_weights(weight_vector_t weights)
+    {
+        weight_vector = std::move(weights);
     }
 };
 

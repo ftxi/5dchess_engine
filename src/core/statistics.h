@@ -68,12 +68,29 @@ material_data<int> count_material_diff(const state &s);
 
 timeline_data count_timelines(const state &s);
 
+/* Candidate-action counts for the player to move.
+
+   These are logarithms of hypercuboid volumes rather than counts of legal
+   actions.  The non-new volume restricts every possible new-timeline axis to
+   its null coordinate.
+ */
+struct move_count_data
+{
+    float log_universe_volume;
+    float log_non_new_volume;
+    constexpr static int COUNT = 2;
+};
+
+move_count_data count_move_space(const state &s);
+
 /* Royal safety, from the perspective of the player to move.
 
    An exposure belongs to the player whose piece could use the ray to attack an
    opposing royal piece.  T_PLUS is accumulated at timeline ends.  The six
    L-related directions are accumulated at every stored board because a board
-   in history can become relevant as neighboring timelines advance.
+   in history can become relevant as neighboring timelines advance.  Their L
+   sign is normalized to the player-to-move's White-oriented frame: raw L
+   directions are reversed when Black is to move.
  */
 struct royal_safety_data
 {
