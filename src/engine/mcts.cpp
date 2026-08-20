@@ -204,18 +204,24 @@ void mcts_engine::initialize()
     root = nullptr;
 }
 
-float mcts_engine::default_policy(state position, std::stop_token stop_token, std::mt19937 *rng)
+default_policy_result mcts_engine::default_policy(
+    state position,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
 {
-    const std::optional<bool> winner = rollout(
+    const rollout_result result = rollout_detailed(
         std::move(position),
         rollout_max_actions.load(),
         stop_token,
         rng);
-    if(!winner.has_value())
+    if(!result.winner.has_value())
     {
-        return 0.0f;
+        return {0.0f, result.termination};
     }
-    return *winner ? -WINNING_SCORE : WINNING_SCORE;
+    return {
+        *result.winner ? -WINNING_SCORE : WINNING_SCORE,
+        result.termination
+    };
 }
 
 void mcts_engine::on_option_changed(const std::string &key, const option_value_t &value)
@@ -289,6 +295,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         }
         const bool terminal_leaf = node->is_terminal();
         float outcome;
+        std::optional<rollout_termination> rollout_end;
         if(terminal_leaf)
         {
             outcome = terminal_outcome(node->get_context()->hc_info.s);
@@ -296,25 +303,29 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         }
         else
         {
-            outcome = default_policy(
+            const default_policy_result result = default_policy(
                 rollout_state(node),
                 stop_token,
                 rollout_rng.has_value() ? &*rollout_rng : nullptr);
+            outcome = result.score;
+            rollout_end = result.termination;
         }
-        if(stop_token.stop_requested())
+        if(stop_token.stop_requested()
+           || rollout_end == rollout_termination::STOPPED)
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count);
             break;
         }
         if(!terminal_leaf)
         {
-            if(outcome == 0.0f)
+            if(rollout_end == rollout_termination::WINNER
+               || rollout_end == rollout_termination::STALEMATE)
             {
-                ++inconclusive_rollouts;
+                ++conclusive_rollouts;
             }
             else
             {
-                ++conclusive_rollouts;
+                ++inconclusive_rollouts;
             }
         }
         backpropagate(node, outcome);

@@ -43,17 +43,18 @@ generator<moveseq> iterative_search(
 
 } /* anonymous namespace */
 
-std::optional<bool> rollout_inplace(
+rollout_result rollout_inplace_detailed(
     state &s,
     int max_actions,
     std::stop_token stop_token,
     std::mt19937 *rng)
 {
+    std::size_t actions = 0;
     for(int num_actions = 0; num_actions < max_actions; ++num_actions)
     {
         if(stop_token.stop_requested())
         {
-            return std::nullopt;
+            return {rollout_termination::STOPPED, std::nullopt, actions};
         }
 
         const auto [present, player] = s.get_present();
@@ -73,19 +74,44 @@ std::optional<bool> rollout_inplace(
                 s.apply_move(move);
             }
             s.submit();
+            ++actions;
             continue;
         }
 
         if(stop_token.stop_requested())
         {
-            return std::nullopt;
+            return {rollout_termination::STOPPED, std::nullopt, actions};
         }
 
-        return s.get_mate_type() == state::mate_type::STALEMATE
-            ? std::nullopt
-            : std::optional<bool>{!player};
+        if(s.get_mate_type() == state::mate_type::STALEMATE)
+        {
+            return {rollout_termination::STALEMATE, std::nullopt, actions};
+        }
+        return {
+            rollout_termination::WINNER,
+            std::optional<bool>{!player},
+            actions
+        };
     }
-    return std::nullopt;
+    return {rollout_termination::ACTION_LIMIT, std::nullopt, actions};
+}
+
+rollout_result rollout_detailed(
+    state s,
+    int max_actions,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
+{
+    return rollout_inplace_detailed(s, max_actions, stop_token, rng);
+}
+
+std::optional<bool> rollout_inplace(
+    state &s,
+    int max_actions,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
+{
+    return rollout_inplace_detailed(s, max_actions, stop_token, rng).winner;
 }
 
 std::optional<bool> rollout(
@@ -94,5 +120,5 @@ std::optional<bool> rollout(
     std::stop_token stop_token,
     std::mt19937 *rng)
 {
-    return rollout_inplace(s, max_actions, stop_token, rng);
+    return rollout_detailed(std::move(s), max_actions, stop_token, rng).winner;
 }

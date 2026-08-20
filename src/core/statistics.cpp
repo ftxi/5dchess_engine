@@ -1,5 +1,8 @@
 #include "statistics.h"
 #include <algorithm>
+#include <cmath>
+
+#include "hypercuboid.h"
 
 namespace
 {
@@ -57,6 +60,30 @@ timeline_data count_timelines(const state &s)
         active_timeline_allowance,
         friendly_active_created,
         hostile_active_created
+    };
+}
+
+move_space_data count_move_space(const state &s)
+{
+    auto [info, search_space] = HC_info::build_HC(s);
+    (void)search_space;
+
+    double log_universe_volume = 0.0;
+    double log_non_new_volume = 0.0;
+    for(index_t axis = 0; axis < info.dimension; ++axis)
+    {
+        const double log_axis_size = std::log(
+            static_cast<double>(info.universe[axis].size()));
+        log_universe_volume += log_axis_size;
+        if(axis < info.new_axis)
+        {
+            log_non_new_volume += log_axis_size;
+        }
+    }
+
+    return {
+        static_cast<float>(log_universe_volume),
+        static_cast<float>(log_non_new_volume)
     };
 }
 

@@ -1,5 +1,6 @@
 #include <cassert>
 #include <array>
+#include <cmath>
 #include <vector>
 #include "core/multiverse_variants.h"
 #include "core/pgnparser.h"
@@ -131,6 +132,33 @@ void test_black_to_move_with_timeline_advantage()
     assert(data.hostile_active_created == 2);
 }
 
+void test_standard_move_space_volume()
+{
+    const state s(*pgnparser(R"(
+[Board "Standard - Turn Zero"]
+)").parse_game());
+    const move_space_data data = count_move_space(s);
+    const float expected = std::log(21.0f); // null coordinate + 20 moves
+
+    assert(std::abs(data.log_universe_volume - expected) < 1e-6f);
+    assert(std::abs(data.log_non_new_volume - expected) < 1e-6f);
+}
+
+void test_branching_move_space_volume()
+{
+    const state s(*pgnparser(R"(
+[Board "Standard - Turn Zero"]
+
+1. Nf3
+)").parse_game());
+    const move_space_data data = count_move_space(s);
+
+    assert(std::isfinite(data.log_universe_volume));
+    assert(std::isfinite(data.log_non_new_volume));
+    assert(data.log_non_new_volume >= 0.0f);
+    assert(data.log_universe_volume > data.log_non_new_volume);
+}
+
 int main()
 {
     test_standard_material();
@@ -138,4 +166,6 @@ int main()
     test_initial_odd_multiverse();
     test_white_to_move_with_inactive_timeline();
     test_black_to_move_with_timeline_advantage();
+    test_standard_move_space_volume();
+    test_branching_move_space_volume();
 }
