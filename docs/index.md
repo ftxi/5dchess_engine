@@ -9,6 +9,9 @@ Engine-specific references:
   layout, player perspective, and built-in heuristic weights.
 - [Training the linear evaluation](linear-training.md) defines target
   perspective, optimization, checkpoint formats, and the training CLI.
+- [Linear training experiment](linear-training-experiment.md) records the
+  first real-data training rounds, held-out metrics, paired matches, and
+  limitations.
 - [5DUCI](5duci.md) defines the engine protocol.
 
 The following image roughly captures the structure of the code:
