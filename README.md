@@ -74,6 +74,12 @@ python autoplay.py --white "./build/5dchess flat-uct --seed 11 --rollout-max-act
 Autoplay metrics include `engine_score`: flat-UCT's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
 Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
 
+For persistent Elo ratings across many registered engines, manual result
+reporting, automatic opponent selection, and concurrent games, see
+[Elo registry and concurrent matchmaker](docs/elo-matchmaker.md). The pure
+`elo.py` tool never launches an engine; `elo_matchmaker.py` optionally automates
+its scheduled matches through `autoplay.py`.
+
 #### Coding with IDE
 
 It is possible to run the c++ part of the code without interacting with python or web interface at all. It also makes sense to use a modern programming IDE:

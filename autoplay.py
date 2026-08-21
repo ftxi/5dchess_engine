@@ -414,25 +414,30 @@ def status_worker(module_dir: str, pgn: str, sender) -> None:
     sender.close()
 
 
-def save_adjudication_position(game) -> Path:
+def save_adjudication_position(
+    game, game_number: int = 1, log_dir: Path = Path("logs")
+) -> Path:
     """Persist the exact position passed to get_match_status() for diagnosis."""
 
-    logs = Path("logs")
-    logs.mkdir(parents=True, exist_ok=True)
-    output = logs / "adjudication.5dpgn"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    output = log_dir / f"adjudication-{game_number:04d}.5dpgn"
     output.write_text(snapshot_pgn(game))
     return output.resolve()
 
 
 def save_protocol_failure(
-    game, players: list[EngineProcess], result: str, show_flags: int, game_number: int
+    game,
+    players: list[EngineProcess],
+    result: str,
+    show_flags: int,
+    game_number: int,
+    log_dir: Path = Path("logs"),
 ) -> Path | None:
     """Persist protocol diagnostics and the partial PGN for later inspection."""
 
-    logs = Path("logs")
     try:
-        logs.mkdir(parents=True, exist_ok=True)
-        output = logs / f"protocol-failure-{game_number:04d}.txt"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        output = log_dir / f"protocol-failure-{game_number:04d}.txt"
         lines = [f"Result: {result}", "", "Engines:"]
         for color, player in zip(("white", "black"), players):
             lines.append(f"[{color}] command={player.command!r} name={player.name!r}")
@@ -478,7 +483,13 @@ async def adjudicate(pgn: str, module_dir: Path) -> str:
             process.join()
 
 
-async def play(args, rules, game_number: int = 1) -> str:
+async def play(
+    args,
+    rules,
+    game_number: int = 1,
+    capture: dict[str, str] | None = None,
+) -> str:
+    log_dir = getattr(args, "log_dir", Path("logs"))
     players = [
         EngineProcess(args.white_name, args.white, args.timeout),
         EngineProcess(args.black_name, args.black, args.timeout),
@@ -554,7 +565,9 @@ async def play(args, rules, game_number: int = 1) -> str:
         if startup_errors:
             outcome = "protocol"
             result = f"protocol failure during startup: {startup_errors[0]}"
-            failure_file = save_protocol_failure(game, players, result, show_flags, game_number)
+            failure_file = save_protocol_failure(
+                game, players, result, show_flags, game_number, log_dir
+            )
             print(f"\nResult: {result}\n", file=sys.stderr)
             if failure_file:
                 print(f"Protocol diagnostics saved at\n  {failure_file}", file=sys.stderr)
@@ -569,7 +582,9 @@ async def play(args, rules, game_number: int = 1) -> str:
         if new_game_errors:
             outcome = "protocol"
             result = f"protocol failure during new game: {new_game_errors[0]}"
-            failure_file = save_protocol_failure(game, players, result, show_flags, game_number)
+            failure_file = save_protocol_failure(
+                game, players, result, show_flags, game_number, log_dir
+            )
             print(f"\nResult: {result}\n", file=sys.stderr)
             if failure_file:
                 print(f"Protocol diagnostics saved at\n  {failure_file}", file=sys.stderr)
@@ -593,7 +608,9 @@ async def play(args, rules, game_number: int = 1) -> str:
                     "black" if index else "white", args.movetime, "protocol_error")
                 outcome = "protocol"
                 result = f"protocol failure from {player_label(index)}: {exc}"
-                failure_file = save_protocol_failure(game, players, result, show_flags, game_number)
+                failure_file = save_protocol_failure(
+                    game, players, result, show_flags, game_number, log_dir
+                )
                 if failure_file:
                     print(f"Protocol diagnostics saved at\n  {failure_file}", file=sys.stderr)
                 break
@@ -603,7 +620,7 @@ async def play(args, rules, game_number: int = 1) -> str:
                 "black" if index else "white", args.movetime,
                 "bestmove" if moves else "nobestmove")
             if not moves:
-                adjudication_file = save_adjudication_position(game)
+                adjudication_file = save_adjudication_position(game, game_number, log_dir)
                 print(
                     f"{player_label(index)} returned nobestmove; adjudicating position saved at\n"
                     f"  {adjudication_file}",
@@ -666,6 +683,12 @@ async def play(args, rules, game_number: int = 1) -> str:
         if watching_stdin:
             loop.remove_reader(sys.stdin)
         await asyncio.gather(*(player.close() for player in players))
+        if capture is not None:
+            capture.update(
+                outcome=outcome,
+                summary=result,
+                pgn=game.show_pgn(show_flags),
+            )
 
 
 def print_summary(counts: dict[str, int], requested: int) -> None:
