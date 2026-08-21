@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <tuple>
 #include <ranges>
 #include <cassert>

@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <cassert>
 #include "core/action.h"
 #include "core/pgnparser.h"
