@@ -14,6 +14,7 @@ import json
 import math
 import random
 import sqlite3
+import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -133,7 +134,9 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             white_delta REAL,
             black_delta REAL,
             status TEXT NOT NULL DEFAULT 'scheduled'
-                CHECK (status IN ('scheduled', 'running', 'reported', 'completed', 'void')),
+                CHECK (status IN (
+                    'scheduled', 'running', 'reported', 'completed', 'void', 'aborted'
+                )),
             result TEXT CHECK (result IN ('white', 'black', 'draw', 'void')),
             reason TEXT NOT NULL DEFAULT '',
             summary TEXT NOT NULL DEFAULT '',
@@ -145,6 +148,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             started_at TEXT,
             reported_at TEXT,
             completed_at TEXT,
+            aborted_at TEXT,
             UNIQUE (batch_id, ordinal),
             CHECK (white_id <> black_id)
         );
@@ -166,7 +170,87 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             # to perform this one-time migration.
             if "duplicate column name" not in str(exc).lower():
                 raise
+    match_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(matches)")
+    }
+    match_schema = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'matches'"
+    ).fetchone()[0]
+    if "aborted_at" not in match_columns or "'aborted'" not in match_schema:
+        _migrate_matches_for_aborts(connection)
     connection.commit()
+
+
+def _migrate_matches_for_aborts(connection: sqlite3.Connection) -> None:
+    """Rebuild the matches table to extend its CHECK constraint safely."""
+
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.executescript(
+            """
+            BEGIN IMMEDIATE;
+            DROP INDEX IF EXISTS matches_batch_status;
+            DROP INDEX IF EXISTS matches_engines;
+            ALTER TABLE matches RENAME TO matches_before_aborts;
+            CREATE TABLE matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER NOT NULL REFERENCES batches(id),
+                ordinal INTEGER NOT NULL,
+                white_id TEXT NOT NULL REFERENCES engines(id),
+                black_id TEXT NOT NULL REFERENCES engines(id),
+                white_command TEXT NOT NULL,
+                black_command TEXT NOT NULL,
+                white_rating_before REAL NOT NULL,
+                black_rating_before REAL NOT NULL,
+                white_delta REAL,
+                black_delta REAL,
+                status TEXT NOT NULL DEFAULT 'scheduled'
+                    CHECK (status IN (
+                        'scheduled', 'running', 'reported', 'completed', 'void', 'aborted'
+                    )),
+                result TEXT CHECK (result IN ('white', 'black', 'draw', 'void')),
+                reason TEXT NOT NULL DEFAULT '',
+                summary TEXT NOT NULL DEFAULT '',
+                pgn TEXT NOT NULL DEFAULT '',
+                output_log TEXT NOT NULL DEFAULT '',
+                metrics_csv TEXT NOT NULL DEFAULT '',
+                worker TEXT NOT NULL DEFAULT '',
+                scheduled_at TEXT NOT NULL,
+                started_at TEXT,
+                reported_at TEXT,
+                completed_at TEXT,
+                aborted_at TEXT,
+                UNIQUE (batch_id, ordinal),
+                CHECK (white_id <> black_id)
+            );
+            INSERT INTO matches(
+                id, batch_id, ordinal, white_id, black_id,
+                white_command, black_command,
+                white_rating_before, black_rating_before,
+                white_delta, black_delta, status, result, reason, summary,
+                pgn, output_log, metrics_csv, worker, scheduled_at,
+                started_at, reported_at, completed_at, aborted_at
+            )
+            SELECT
+                id, batch_id, ordinal, white_id, black_id,
+                white_command, black_command,
+                white_rating_before, black_rating_before,
+                white_delta, black_delta, status, result, reason, summary,
+                pgn, output_log, metrics_csv, worker, scheduled_at,
+                started_at, reported_at, completed_at, NULL
+            FROM matches_before_aborts;
+            DROP TABLE matches_before_aborts;
+            CREATE INDEX matches_batch_status ON matches(batch_id, status);
+            CREATE INDEX matches_engines ON matches(white_id, black_id);
+            COMMIT;
+            """
+        )
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _engine_from_row(row: sqlite3.Row) -> EngineRecord:
@@ -398,7 +482,7 @@ def _historical_counts(connection: sqlite3.Connection, rated: bool):
         """
         SELECT m.white_id, m.black_id
         FROM matches m JOIN batches b ON b.id = m.batch_id
-        WHERE m.status <> 'void' AND (? = 0 OR b.rated = 1)
+        WHERE m.status NOT IN ('void', 'aborted') AND (? = 0 OR b.rated = 1)
         """,
         (int(rated),),
     ).fetchall()
@@ -776,6 +860,196 @@ def reset_running_match(connection: sqlite3.Connection, match_id: int) -> None:
         raise EloError(f"match {match_id} is not running")
 
 
+def cancel_batch(
+    connection: sqlite3.Connection, batch_id: int, *, reason: str = ""
+) -> list[sqlite3.Row]:
+    """Cancel an open batch without retaining game results or changing ratings."""
+
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        batch = connection.execute(
+            "SELECT status FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        if batch is None:
+            raise EloError(f"unknown batch {batch_id}")
+        if batch["status"] != "open":
+            raise EloError(f"batch {batch_id} is already {batch['status']}")
+        connection.execute(
+            """
+            UPDATE matches
+            SET status = 'aborted', result = NULL, reason = ?,
+                worker = '', started_at = NULL, reported_at = NULL,
+                completed_at = NULL, aborted_at = ?,
+                white_delta = NULL, black_delta = NULL
+            WHERE batch_id = ?
+            """,
+            (reason, utc_now(), batch_id),
+        )
+        connection.execute(
+            "UPDATE batches SET status = 'cancelled', finalized_at = ? WHERE id = ?",
+            (utc_now(), batch_id),
+        )
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    return connection.execute(
+        "SELECT * FROM matches WHERE batch_id = ? ORDER BY ordinal", (batch_id,)
+    ).fetchall()
+
+
+def _settle_aborted_batches(
+    connection: sqlite3.Connection, batch_ids: Iterable[int]
+) -> None:
+    for batch_id in sorted(set(batch_ids)):
+        batch = connection.execute(
+            "SELECT status FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()
+        if batch is None or batch["status"] != "open":
+            continue
+        active = connection.execute(
+            """
+            SELECT COUNT(*) FROM matches
+            WHERE batch_id = ? AND status IN ('scheduled', 'running')
+            """,
+            (batch_id,),
+        ).fetchone()[0]
+        if active:
+            continue
+        reported = connection.execute(
+            "SELECT COUNT(*) FROM matches WHERE batch_id = ? AND status = 'reported'",
+            (batch_id,),
+        ).fetchone()[0]
+        if reported:
+            finalize_batch(connection, batch_id)
+        else:
+            with connection:
+                connection.execute(
+                    """
+                    UPDATE batches SET status = 'cancelled', finalized_at = ?
+                    WHERE id = ? AND status = 'open'
+                    """,
+                    (utc_now(), batch_id),
+                )
+
+
+def abort_matches(
+    connection: sqlite3.Connection,
+    match_ids: Iterable[int],
+    *,
+    reason: str = "",
+) -> list[sqlite3.Row]:
+    """Abort selected matches in open batches and settle batches when possible."""
+
+    identifiers = list(dict.fromkeys(int(match_id) for match_id in match_ids))
+    if not identifiers:
+        raise EloError("at least one match ID is required")
+    placeholders = ", ".join("?" for _ in identifiers)
+    rows = connection.execute(
+        f"""
+        SELECT m.*, b.status AS batch_status
+        FROM matches m JOIN batches b ON b.id = m.batch_id
+        WHERE m.id IN ({placeholders})
+        """,  # noqa: S608
+        identifiers,
+    ).fetchall()
+    found = {int(row["id"]) for row in rows}
+    missing = [match_id for match_id in identifiers if match_id not in found]
+    if missing:
+        raise EloError(f"unknown match ID(s): {', '.join(map(str, missing))}")
+    immutable = [
+        int(row["id"])
+        for row in rows
+        if row["batch_status"] != "open" or row["status"] == "completed"
+    ]
+    if immutable:
+        raise EloError(
+            "cannot abort finalized match(es): " + ", ".join(map(str, immutable))
+        )
+    timestamp = utc_now()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            f"""
+            UPDATE matches
+            SET status = 'aborted', result = NULL, reason = ?, worker = '',
+                reported_at = NULL, completed_at = NULL, aborted_at = ?,
+                white_delta = NULL, black_delta = NULL
+            WHERE id IN ({placeholders}) AND status <> 'aborted'
+            """,  # noqa: S608
+            (reason, timestamp, *identifiers),
+        )
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    batch_ids = {int(row["batch_id"]) for row in rows}
+    _settle_aborted_batches(connection, batch_ids)
+    return connection.execute(
+        f"SELECT * FROM matches WHERE id IN ({placeholders}) ORDER BY id",  # noqa: S608
+        identifiers,
+    ).fetchall()
+
+
+def abort_engine_matches(
+    connection: sqlite3.Connection,
+    engine_id: str,
+    *,
+    batch_id: int | None = None,
+    all_open: bool = False,
+    reason: str = "",
+    allow_empty: bool = False,
+) -> list[sqlite3.Row]:
+    """Abort open matches involving one engine, with explicit multi-batch scope."""
+
+    get_engine(connection, engine_id)
+    parameters: list[object] = [engine_id, engine_id]
+    batch_filter = ""
+    if batch_id is not None:
+        batch_filter = "AND b.id = ?"
+        parameters.append(batch_id)
+    rows = connection.execute(
+        f"""
+        SELECT m.id, m.batch_id
+        FROM matches m JOIN batches b ON b.id = m.batch_id
+        WHERE b.status = 'open' AND (m.white_id = ? OR m.black_id = ?)
+          AND m.status <> 'aborted' {batch_filter}
+        ORDER BY m.batch_id, m.ordinal
+        """,  # noqa: S608
+        parameters,
+    ).fetchall()
+    if not rows:
+        if allow_empty:
+            return []
+        scope = f" in batch {batch_id}" if batch_id is not None else ""
+        raise EloError(f"engine {engine_id!r} has no abortable open matches{scope}")
+    batch_ids = sorted({int(row["batch_id"]) for row in rows})
+    if batch_id is None and not all_open and len(batch_ids) > 1:
+        raise EloError(
+            f"engine {engine_id!r} has matches in open batches "
+            f"{', '.join(map(str, batch_ids))}; specify --batch or --all-open"
+        )
+    return abort_matches(
+        connection,
+        [int(row["id"]) for row in rows],
+        reason=reason,
+    )
+
+
+def resolve_open_batch_id(connection: sqlite3.Connection, batch_id: int | None) -> int:
+    if batch_id is not None:
+        return batch_id
+    rows = connection.execute(
+        "SELECT id FROM batches WHERE status = 'open' ORDER BY id"
+    ).fetchall()
+    if not rows:
+        raise EloError("there is no open batch")
+    if len(rows) > 1:
+        identifiers = ", ".join(str(row["id"]) for row in rows)
+        raise EloError(f"multiple batches are open ({identifiers}); specify a batch ID")
+    return int(rows[0]["id"])
+
+
 def report_result(
     connection: sqlite3.Connection,
     match_id: int,
@@ -897,7 +1171,7 @@ def finalize_batch(connection: sqlite3.Connection, batch_id: int) -> list[sqlite
             (utc_now(), batch_id),
         )
         connection.commit()
-    except Exception:
+    except BaseException:
         connection.rollback()
         raise
     return connection.execute(
@@ -1058,6 +1332,13 @@ def build_parser() -> argparse.ArgumentParser:
     for action in ("enable", "disable"):
         command = subparsers.add_parser(action, help=f"{action} an engine")
         command.add_argument("id")
+        if action == "disable":
+            command.add_argument(
+                "--abort-open",
+                action="store_true",
+                help="also abort this engine's matches in every open batch",
+            )
+            command.add_argument("--reason", default="engine disabled")
 
     for action in ("list", "leaderboard"):
         command = subparsers.add_parser(action)
@@ -1103,6 +1384,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     reset = subparsers.add_parser("reset-running")
     reset.add_argument("match_id", type=int)
+
+    abort = subparsers.add_parser(
+        "abort", help="exclude open matches from ratings and matchmaking"
+    )
+    abort_targets = abort.add_subparsers(dest="abort_target", required=True)
+    abort_batch = abort_targets.add_parser("batch", help="abort an entire open batch")
+    abort_batch.add_argument("batch_id", type=int, nargs="?")
+    abort_batch.add_argument("--reason", default="batch aborted by operator")
+    abort_match = abort_targets.add_parser("match", help="abort selected matches")
+    abort_match.add_argument("match_ids", type=int, nargs="+")
+    abort_match.add_argument("--reason", default="match aborted by operator")
+    abort_engine = abort_targets.add_parser(
+        "engine", help="abort open matches involving an engine"
+    )
+    abort_engine.add_argument("engine_id")
+    abort_scope = abort_engine.add_mutually_exclusive_group()
+    abort_scope.add_argument("--batch", dest="batch_id", type=int)
+    abort_scope.add_argument("--all-open", action="store_true")
+    abort_engine.add_argument("--reason", default="engine matches aborted by operator")
     return parser
 
 
@@ -1166,6 +1466,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                     enabled=args.action == "enable",
                 )
                 print(f"{args.action.title()}d {engine.id}")
+                if args.action == "disable":
+                    if args.abort_open:
+                        aborted = abort_engine_matches(
+                            connection,
+                            engine.id,
+                            all_open=True,
+                            reason=args.reason,
+                            allow_empty=True,
+                        )
+                        print(
+                            f"Aborted {len(aborted)} open match(es) involving {engine.id}"
+                        )
+                    else:
+                        open_count = connection.execute(
+                            """
+                            SELECT COUNT(*) FROM matches m
+                            JOIN batches b ON b.id = m.batch_id
+                            WHERE b.status = 'open'
+                              AND (m.white_id = ? OR m.black_id = ?)
+                              AND m.status IN ('scheduled', 'running', 'reported')
+                            """,
+                            (engine.id, engine.id),
+                        ).fetchone()[0]
+                        if open_count:
+                            print(
+                                f"Warning: {open_count} open match(es) still use {engine.id}; "
+                                f"run 'elo.py abort engine {engine.id}' to discard them.",
+                                file=sys.stderr,
+                            )
             elif args.action == "list":
                 engines = list_engines(connection)
                 if args.json:
@@ -1261,6 +1590,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif args.action == "reset-running":
                 reset_running_match(connection, args.match_id)
                 print(f"Reset match {args.match_id} to scheduled")
+            elif args.action == "abort":
+                if args.abort_target == "batch":
+                    batch_id = resolve_open_batch_id(connection, args.batch_id)
+                    rows = cancel_batch(connection, batch_id, reason=args.reason)
+                    print(f"Aborted batch {batch_id} with {len(rows)} match(es)")
+                elif args.abort_target == "match":
+                    rows = abort_matches(connection, args.match_ids, reason=args.reason)
+                    print(
+                        "Aborted match(es): "
+                        + ", ".join(str(row["id"]) for row in rows)
+                    )
+                else:
+                    rows = abort_engine_matches(
+                        connection,
+                        args.engine_id,
+                        batch_id=args.batch_id,
+                        all_open=args.all_open,
+                        reason=args.reason,
+                    )
+                    print(
+                        f"Aborted {len(rows)} open match(es) involving "
+                        f"{args.engine_id}"
+                    )
     except (EloError, OSError, sqlite3.Error) as exc:
         parser.error(str(exc))
     return 0

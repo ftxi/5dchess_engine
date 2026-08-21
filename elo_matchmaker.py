@@ -7,6 +7,8 @@ import argparse
 import asyncio
 import contextlib
 import os
+import signal
+import sqlite3
 import sys
 import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -41,6 +43,7 @@ class WorkerJob:
     game_text: str | None
     match_dir: str
     event: str
+    database: str
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,58 @@ class WorkerResult:
     pgn: str
     output_log: str
     metrics_csv: str
+
+
+class WorkerAborted(Exception):
+    """The database no longer marks this worker's match as running."""
+
+
+def _initialize_worker() -> None:
+    # The parent owns terminal interrupts and changes match state to request
+    # cooperative cancellation. Letting every worker raise KeyboardInterrupt
+    # produces noisy ProcessPool remote tracebacks and races pool shutdown.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+async def _play_until_released(job: WorkerJob, arguments, rules, capture) -> str:
+    async def wait_until_released() -> None:
+        connection = sqlite3.connect(job.database, timeout=5.0)
+        try:
+            while True:
+                row = connection.execute(
+                    "SELECT status FROM matches WHERE id = ?", (job.match_id,)
+                ).fetchone()
+                if row is None or row[0] != "running":
+                    return
+                await asyncio.sleep(0.1)
+        finally:
+            connection.close()
+
+    play_task = asyncio.create_task(
+        autoplay.play(arguments, rules, game_number=job.match_id, capture=capture)
+    )
+    release_task = asyncio.create_task(wait_until_released())
+    try:
+        done, _ = await asyncio.wait(
+            (play_task, release_task), return_when=asyncio.FIRST_COMPLETED
+        )
+        if play_task in done:
+            return await play_task
+        try:
+            await release_task
+        except BaseException:
+            play_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await play_task
+            raise
+        play_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await play_task
+        raise WorkerAborted
+    finally:
+        release_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await release_task
 
 
 def _play_worker(job: WorkerJob) -> WorkerResult:
@@ -92,15 +147,17 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
                 autoplay.initialize_metrics(metrics_csv)
                 rules = autoplay.load_rules(arguments.module_dir)
                 outcome = asyncio.run(
-                    autoplay.play(
-                        arguments, rules, game_number=job.match_id, capture=capture
-                    )
+                    _play_until_released(job, arguments, rules, capture)
                 )
                 summary = capture.get("summary", outcome)
                 pgn = capture.get("pgn", "")
-            except (
-                BaseException
-            ) as exc:  # A worker must turn even SystemExit into a report.
+            except WorkerAborted:
+                outcome = "aborted"
+                summary = "match aborted"
+                pgn = capture.get("pgn", "")
+            except (Exception, SystemExit) as exc:
+                # Report ordinary worker failures without swallowing process
+                # termination primitives such as GeneratorExit.
                 summary = f"worker exception: {type(exc).__name__}: {exc}"
                 traceback.print_exc()
             finally:
@@ -149,6 +206,40 @@ def _print_completed(
     print(f"{'=' * 72}", flush=True)
 
 
+def _report_completed(connection, result: WorkerResult) -> bool:
+    status = connection.execute(
+        "SELECT status FROM matches WHERE id = ?", (result.match_id,)
+    ).fetchone()
+    if status is None or status["status"] in {
+        "aborted",
+        "reported",
+        "completed",
+        "void",
+    }:
+        return False
+    reported, reason = _reported_result(result)
+    try:
+        elo.report_result(
+            connection,
+            result.match_id,
+            reported,
+            reason=reason,
+            summary=result.summary,
+            pgn=result.pgn,
+            output_log=result.output_log,
+            metrics_csv=result.metrics_csv,
+            auto_finalize=False,
+        )
+    except elo.EloError:
+        latest = connection.execute(
+            "SELECT status FROM matches WHERE id = ?", (result.match_id,)
+        ).fetchone()
+        if latest is not None and latest["status"] == "aborted":
+            return False
+        raise
+    return True
+
+
 def _print_batch_ratings(
     connection, batch_id: int, pairings: Sequence[elo.Pairing], rows
 ) -> None:
@@ -156,8 +247,8 @@ def _print_batch_ratings(
     print(f"\nBatch {batch_id} rating update:")
     for pairing in pairings:
         row = by_match[pairing.match_id]
-        if row["status"] == "void":
-            print(f"  Match {pairing.match_id}: void; no rating change")
+        if row["status"] in {"void", "aborted"}:
+            print(f"  Match {pairing.match_id}: {row['status']}; no rating change")
             continue
         white_delta = float(row["white_delta"] or 0.0)
         black_delta = float(row["black_delta"] or 0.0)
@@ -195,7 +286,16 @@ def _make_job(pairing: elo.Pairing, args, run_dir: Path) -> WorkerJob:
         game_text=args.game_text,
         match_dir=str(match_dir.resolve()),
         event=getattr(args, "event", "Autoplay"),
+        database=str(getattr(args, "database", elo.DEFAULT_DATABASE)),
     )
+
+
+def _quiet_pool_shutdown(executor: ProcessPoolExecutor, *, cancel: bool) -> None:
+    previous_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        executor.shutdown(wait=True, cancel_futures=cancel)
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 def run_scheduled_batch(
@@ -218,40 +318,100 @@ def run_scheduled_batch(
     jobs = [_make_job(pairing, args, run_dir) for pairing in runnable]
     completed = 0
     worker_tag = f"matchmaker:{os.getpid()}"
+    executor: ProcessPoolExecutor | None = None
+    futures = []
+    completed_results: list[WorkerResult] = []
     try:
-        with ProcessPoolExecutor(max_workers=min(args.jobs, len(jobs))) as executor:
-            future_to_job = {executor.submit(_play_worker, job): job for job in jobs}
-            for future in as_completed(future_to_job):
-                job = future_to_job[future]
-                try:
-                    result = future.result()
-                except BaseException as exc:
-                    # Process-pool transport failures still become durable void results.
-                    result = WorkerResult(
-                        match_id=job.match_id,
-                        outcome="error",
-                        summary=f"worker process failure: {type(exc).__name__}: {exc}",
-                        pgn="",
-                        output_log=str(Path(job.match_dir) / "autoplay.log"),
-                        metrics_csv=str(Path(job.match_dir) / "go-metrics.csv"),
-                    )
-                reported, reason = _reported_result(result)
-                elo.report_result(
-                    connection,
-                    result.match_id,
-                    reported,
-                    reason=reason,
-                    summary=result.summary,
-                    pgn=result.pgn,
-                    output_log=result.output_log,
-                    metrics_csv=result.metrics_csv,
-                    auto_finalize=False,
+        executor = ProcessPoolExecutor(
+            max_workers=min(args.jobs, len(jobs)), initializer=_initialize_worker
+        )
+        future_to_job = {executor.submit(_play_worker, job): job for job in jobs}
+        futures = list(future_to_job)
+        for future in as_completed(future_to_job):
+            job = future_to_job[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                # Process-pool transport failures still become durable void results.
+                result = WorkerResult(
+                    match_id=job.match_id,
+                    outcome="error",
+                    summary=f"worker process failure: {type(exc).__name__}: {exc}",
+                    pgn="",
+                    output_log=str(Path(job.match_dir) / "autoplay.log"),
+                    metrics_csv=str(Path(job.match_dir) / "go-metrics.csv"),
                 )
+            completed_results.append(result)
+            if _report_completed(connection, result):
                 completed += 1
                 _print_completed(
                     pairing_by_id[result.match_id], result, completed, total
                 )
+        _quiet_pool_shutdown(executor, cancel=False)
+        executor = None
+    except KeyboardInterrupt:
+        # Include results already settled at the instant Ctrl+C arrived.
+        known_result_ids = {result.match_id for result in completed_results}
+        for future in futures:
+            done = getattr(future, "done", lambda: False)()
+            if not done:
+                continue
+            try:
+                result = future.result()
+            except BaseException:
+                continue
+            if result.match_id not in known_result_ids:
+                completed_results.append(result)
+                known_result_ids.add(result.match_id)
+                if _report_completed(connection, result):
+                    completed += 1
+                    _print_completed(
+                        pairing_by_id[result.match_id], result, completed, total
+                    )
+        finished = connection.execute(
+            """
+            SELECT COUNT(*) FROM matches
+            WHERE batch_id = ? AND status IN ('reported', 'completed', 'void')
+            """,
+            (batch_id,),
+        ).fetchone()[0]
+        if not finished:
+            elo.cancel_batch(
+                connection,
+                batch_id,
+                reason="automatic run interrupted before its first game finished",
+            )
+            print(
+                f"\nCancelled batch {batch_id} before its first result; "
+                "it has no rating or matchmaking effect.",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            rows = connection.execute(
+                """
+                SELECT id FROM matches
+                WHERE batch_id = ? AND status = 'running' AND worker = ?
+                """,
+                (batch_id, worker_tag),
+            ).fetchall()
+            for row in rows:
+                elo.reset_running_match(connection, row["id"])
+            print(
+                f"\nInterrupted batch {batch_id} after {finished} finished "
+                "match(es); results were retained and unfinished matches can be resumed.",
+                file=sys.stderr,
+                flush=True,
+            )
+        if executor is not None:
+            for future in futures:
+                future.cancel()
+            _quiet_pool_shutdown(executor, cancel=True)
+            executor = None
+        raise
     finally:
+        if executor is not None:
+            _quiet_pool_shutdown(executor, cancel=True)
         # A pool-construction failure or Ctrl+C must not strand claimed games.
         rows = connection.execute(
             "SELECT id FROM matches WHERE batch_id = ? AND status = 'running' AND worker = ?",
@@ -278,10 +438,12 @@ def run_scheduled_batch(
     ).fetchone()
     if batch_status is None:
         raise elo.EloError(f"unknown batch {batch_id}")
-    if batch_status["status"] == "finalized":
+    if batch_status["status"] in {"finalized", "cancelled"}:
         rows = connection.execute(
             "SELECT * FROM matches WHERE batch_id = ? ORDER BY ordinal", (batch_id,)
         ).fetchall()
+        if batch_status["status"] == "cancelled":
+            return rows
     else:
         rows = elo.finalize_batch(connection, batch_id)
     _print_batch_ratings(
@@ -340,7 +502,15 @@ def _run_new(connection, args) -> int:
     return 0
 
 
+def _resolve_resume_batch_id(connection, batch_id: int | None) -> int:
+    return elo.resolve_open_batch_id(connection, batch_id)
+
+
 def _resume(connection, args) -> int:
+    requested_batch_id = args.batch_id
+    args.batch_id = _resolve_resume_batch_id(connection, requested_batch_id)
+    if requested_batch_id is None:
+        print(f"Resuming the only open batch: {args.batch_id}")
     if args.recover_running:
         rows = connection.execute(
             "SELECT id FROM matches WHERE batch_id = ? AND status = 'running'",
@@ -359,6 +529,20 @@ def _resume(connection, args) -> int:
         for pairing in elo.batch_pairings(connection, args.batch_id)
         if statuses.get(pairing.match_id) == "scheduled"
     ]
+    disabled = sorted(
+        {
+            engine_id
+            for pairing in pairings
+            for engine_id in (pairing.white_id, pairing.black_id)
+            if not elo.get_engine(connection, engine_id).enabled
+        }
+    )
+    if disabled:
+        print(
+            "Warning: this batch still contains disabled engine(s): "
+            + ", ".join(disabled),
+            file=sys.stderr,
+        )
     if not pairings:
         active = sum(status == "running" for status in statuses.values())
         if active:
@@ -412,7 +596,12 @@ def build_parser() -> argparse.ArgumentParser:
     resume = subparsers.add_parser(
         "resume", help="continue a previously interrupted batch"
     )
-    resume.add_argument("batch_id", type=int)
+    resume.add_argument(
+        "batch_id",
+        type=int,
+        nargs="?",
+        help="batch to resume; omit when exactly one batch is open",
+    )
     resume.add_argument("--recover-running", action="store_true")
     _add_game_options(resume, include_games=False)
     return parser
@@ -435,6 +624,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _resume(connection, args)
     except (elo.EloError, OSError) as exc:
         parser.error(str(exc))
+    except KeyboardInterrupt:
+        print("Interrupted.", file=sys.stderr)
+        return 130
     return 0
 
 

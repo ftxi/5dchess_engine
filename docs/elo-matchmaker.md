@@ -77,6 +77,63 @@ but does not affect ratings. The final result automatically finalizes a
 complete batch. Use `--no-auto-finalize` and `elo.py finalize BATCH_ID` when
 explicit control is preferable.
 
+## Abort unwanted games and disable broken engines
+
+Abort means that an operator deliberately excludes work from ratings and
+matchmaking. It differs from `void`, which means a game ran but did not produce
+a valid result. Aborted matches retain their reason and diagnostic artifacts,
+but their official result is cleared.
+
+Abort the only open batch, or name a batch when several are open:
+
+```sh
+python elo.py abort batch --reason "engine configuration was wrong"
+python elo.py abort batch 7 --reason "engine configuration was wrong"
+```
+
+This aborts scheduled, running, and reported matches in the batch, applies no
+rating changes, and releases the open-rated-batch lock. Running automatic
+workers notice the state change, cancel autoplay, and close their engines.
+
+Individual matches can be excluded while keeping the rest of the batch:
+
+```sh
+python elo.py abort match 42 44 --reason "bad opening position"
+```
+
+If valid reported matches remain after all other work is aborted, the batch is
+finalized using only those valid results. If nothing valid remains, the batch
+is cancelled. Matches in an already finalized batch cannot be aborted because
+later rating snapshots may depend on them.
+
+To remove every open match involving a broken engine:
+
+```sh
+python elo.py abort engine experimental-v2 --reason "loads the wrong weights"
+```
+
+When that engine occurs in multiple open batches, select one with `--batch` or
+explicitly use `--all-open`.
+
+Disabling is deliberately separate from aborting:
+
+```sh
+python elo.py disable experimental-v2
+```
+
+A disabled engine is excluded from future scheduling, but existing scheduled
+matches remain reproducible snapshots and can still be resumed. The command
+warns when such matches exist. To disable and abort all its open work in one
+operation, use:
+
+```sh
+python elo.py disable experimental-v2 --abort-open \
+  --reason "engine is broken"
+```
+
+Re-enable the same unchanged engine when appropriate. If its playing behavior
+was fixed or its weights changed, register or clone a new engine ID instead.
+
 Machine-readable scheduling is available with `--format json` or
 `--format tsv`. Other useful commands are:
 
@@ -244,11 +301,32 @@ All games in a wave use the ratings captured when the wave was scheduled.
 Their deltas are summed and applied atomically, making the result independent
 of process completion order. The next wave uses the updated ratings.
 
-Interrupted batches can be inspected and resumed:
+Each result and its completion block are reported as soon as its worker
+finishes. Pressing Ctrl+C before the first result cancels the entire wave: it
+does not report games, update ratings, or affect future matchmaking, and a new
+rated run can start immediately. The batch remains only as cancelled audit
+history.
+
+If at least one game has already finished, those finished results are retained
+and unfinished games return to the scheduled state. The open batch can then be
+resumed without looking up its ID when it is the only open batch:
+
+```sh
+python elo_matchmaker.py resume --jobs 8
+```
+
+An explicit ID remains available when more than one batch is open:
+
+```sh
+python elo_matchmaker.py resume 7 --jobs 8
+```
+
+An abrupt termination that prevents this cleanup (for example, a power loss or
+`kill -9`) can leave a batch to inspect and resume:
 
 ```sh
 python elo.py pending
-python elo_matchmaker.py resume 7 --recover-running --jobs 8
+python elo_matchmaker.py resume --recover-running --jobs 8
 ```
 
 Use `--recover-running` only when the former workers are no longer alive. It

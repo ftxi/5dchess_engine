@@ -61,6 +61,29 @@ class EloDatabaseTest(unittest.TestCase):
         }
         self.assertIn("strategy", columns)
 
+    def test_existing_matches_table_gains_aborted_state(self) -> None:
+        schema = self.connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'matches'"
+        ).fetchone()[0]
+        old_schema = schema.replace(", 'aborted'", "").replace(
+            "\n            aborted_at TEXT,", ""
+        )
+        self.connection.execute("DROP TABLE matches")
+        self.connection.execute(old_schema)
+        self.connection.commit()
+        self.connection.close()
+
+        self.connection = elo.connect(self.database)
+        columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(matches)").fetchall()
+        }
+        migrated_schema = self.connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'matches'"
+        ).fetchone()[0]
+        self.assertIn("aborted_at", columns)
+        self.assertIn("'aborted'", migrated_schema)
+
     def test_registration_is_immutable_and_clone_has_separate_identity(self) -> None:
         self.register("experimental-v1", rating=1612.0)
         with self.assertRaises(elo.EloError):
@@ -317,8 +340,338 @@ class EloDatabaseTest(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(status, "scheduled")
 
+    def test_ctrl_c_before_first_result_cancels_batch(self) -> None:
+        self.register("a")
+        self.register("b")
+        batch_id, matches = elo.schedule_batch(self.connection, 2)
+        arguments = SimpleNamespace(
+            jobs=1,
+            module_dir=Path("build"),
+            movetime=10,
+            timeout=10,
+            max_actions=1,
+            game_file=None,
+            game_text=None,
+        )
+
+        class Future:
+            def __init__(self) -> None:
+                self.cancelled = False
+
+            def cancel(self) -> bool:
+                self.cancelled = True
+                return True
+
+        class Executor:
+            def __init__(self, **_kwargs) -> None:
+                self.futures: list[Future] = []
+                self.shutdown_calls: list[tuple[bool, bool]] = []
+
+            def submit(self, _function, _job) -> Future:
+                future = Future()
+                self.futures.append(future)
+                return future
+
+            def shutdown(self, wait=True, *, cancel_futures=False) -> None:
+                self.shutdown_calls.append((wait, cancel_futures))
+
+        executor = Executor()
+        with mock.patch.object(
+            elo_matchmaker, "ProcessPoolExecutor", return_value=executor
+        ), mock.patch.object(
+            elo_matchmaker, "as_completed", side_effect=KeyboardInterrupt
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                elo_matchmaker.run_scheduled_batch(
+                    self.connection,
+                    batch_id,
+                    matches,
+                    arguments,
+                    Path(self.temporary.name) / "run",
+                )
+
+        self.assertTrue(all(future.cancelled for future in executor.futures))
+        self.assertEqual(executor.shutdown_calls, [(True, True)])
+        rows = self.connection.execute(
+            "SELECT status, result, summary FROM matches WHERE batch_id = ? ORDER BY id",
+            (batch_id,),
+        ).fetchall()
+        self.assertEqual([row["status"] for row in rows], ["aborted", "aborted"])
+        self.assertEqual([row["result"] for row in rows], [None, None])
+        self.assertEqual([row["summary"] for row in rows], ["", ""])
+        batch_status = self.connection.execute(
+            "SELECT status FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()[0]
+        self.assertEqual(batch_status, "cancelled")
+
+        # A cancelled rated batch no longer blocks a fresh rated run.
+        new_batch_id, _ = elo.schedule_batch(self.connection, 1)
+        self.assertNotEqual(new_batch_id, batch_id)
+
+    def test_ctrl_c_after_result_retains_it_and_reschedules_unfinished_game(
+        self,
+    ) -> None:
+        self.register("a")
+        self.register("b")
+        batch_id, matches = elo.schedule_batch(self.connection, 2)
+        arguments = SimpleNamespace(
+            jobs=1,
+            module_dir=Path("build"),
+            movetime=10,
+            timeout=10,
+            max_actions=1,
+            game_file=None,
+            game_text=None,
+        )
+
+        class Future:
+            def __init__(self, match_id: int, finishes: bool) -> None:
+                self.match_id = match_id
+                self.finishes = finishes
+
+            def cancel(self) -> bool:
+                return False
+
+            def result(self) -> elo_matchmaker.WorkerResult:
+                if not self.finishes:
+                    raise KeyboardInterrupt
+                return elo_matchmaker.WorkerResult(
+                    match_id=self.match_id,
+                    outcome="draw",
+                    summary="finished draw",
+                    pgn="pgn",
+                    output_log="match.log",
+                    metrics_csv="metrics.csv",
+                )
+
+        class Executor:
+            def __init__(self) -> None:
+                self.submitted = 0
+
+            def submit(self, _function, job) -> Future:
+                self.submitted += 1
+                return Future(job.match_id, finishes=self.submitted == 1)
+
+            def shutdown(self, wait=True, *, cancel_futures=False) -> None:
+                pass
+
+        def one_then_interrupt(future_to_job):
+            yield next(iter(future_to_job))
+            streamed_status = self.connection.execute(
+                "SELECT status FROM matches WHERE id = ?", (matches[0].match_id,)
+            ).fetchone()[0]
+            self.assertEqual(streamed_status, "reported")
+            raise KeyboardInterrupt
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with mock.patch.object(
+                elo_matchmaker, "ProcessPoolExecutor", return_value=Executor()
+            ), mock.patch.object(
+                elo_matchmaker, "as_completed", side_effect=one_then_interrupt
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    elo_matchmaker.run_scheduled_batch(
+                        self.connection,
+                        batch_id,
+                        matches,
+                        arguments,
+                        Path(self.temporary.name) / "run",
+                    )
+        self.assertIn("finished draw", output.getvalue())
+
+        rows = self.connection.execute(
+            "SELECT status, result FROM matches WHERE batch_id = ? ORDER BY id",
+            (batch_id,),
+        ).fetchall()
+        self.assertEqual(rows[0]["status"], "reported")
+        self.assertEqual(rows[0]["result"], "draw")
+        self.assertEqual(rows[1]["status"], "scheduled")
+        batch_status = self.connection.execute(
+            "SELECT status FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()[0]
+        self.assertEqual(batch_status, "open")
+
+    def test_cancelling_batch_discards_reported_results_and_rating_effects(
+        self,
+    ) -> None:
+        self.register("a", rating=1400.0)
+        self.register("b", rating=1600.0)
+        batch_id, matches = elo.schedule_batch(self.connection, 2)
+        elo.report_result(
+            self.connection,
+            matches[0].match_id,
+            "white",
+            summary="result that must be discarded",
+            auto_finalize=False,
+        )
+
+        elo.cancel_batch(self.connection, batch_id, reason="wrong parameters")
+
+        rows = self.connection.execute(
+            "SELECT status, result, summary FROM matches WHERE batch_id = ? ORDER BY id",
+            (batch_id,),
+        ).fetchall()
+        self.assertEqual([row["status"] for row in rows], ["aborted", "aborted"])
+        self.assertEqual([row["result"] for row in rows], [None, None])
+        self.assertEqual(
+            [row["summary"] for row in rows],
+            ["result that must be discarded", ""],
+        )
+        self.assertEqual(elo.get_engine(self.connection, "a").rating, 1400.0)
+        self.assertEqual(elo.get_engine(self.connection, "b").rating, 1600.0)
+
+    def test_aborting_one_match_preserves_and_finalizes_other_results(self) -> None:
+        self.register("a", rating=1500.0)
+        self.register("b", rating=1500.0)
+        batch_id, matches = elo.schedule_batch(self.connection, 2)
+        elo.abort_matches(
+            self.connection, [matches[0].match_id], reason="bad configuration"
+        )
+        elo.report_result(self.connection, matches[1].match_id, "draw")
+
+        rows = self.connection.execute(
+            "SELECT status, result FROM matches WHERE batch_id = ? ORDER BY ordinal",
+            (batch_id,),
+        ).fetchall()
+        self.assertEqual(rows[0]["status"], "aborted")
+        self.assertIsNone(rows[0]["result"])
+        self.assertEqual(rows[1]["status"], "completed")
+        batch_status = self.connection.execute(
+            "SELECT status FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()[0]
+        self.assertEqual(batch_status, "finalized")
+
+    def test_aborting_engine_matches_cancels_focused_batch(self) -> None:
+        self.register("broken")
+        self.register("anchor")
+        batch_id, matches = elo.schedule_batch(
+            self.connection, 2, focus_engine="broken"
+        )
+        rows = elo.abort_engine_matches(
+            self.connection, "broken", reason="wrong weights"
+        )
+        self.assertEqual(
+            {row["id"] for row in rows}, {item.match_id for item in matches}
+        )
+        self.assertTrue(all(row["status"] == "aborted" for row in rows))
+        batch_status = self.connection.execute(
+            "SELECT status FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()[0]
+        self.assertEqual(batch_status, "cancelled")
+
+    def test_aborting_engine_across_multiple_batches_requires_explicit_scope(
+        self,
+    ) -> None:
+        self.register("broken")
+        self.register("anchor")
+        first, first_matches = elo.schedule_batch(
+            self.connection, 1, focus_engine="broken", rated=False
+        )
+        second, second_matches = elo.schedule_batch(
+            self.connection, 1, focus_engine="broken", rated=False
+        )
+        with self.assertRaisesRegex(elo.EloError, "specify --batch or --all-open"):
+            elo.abort_engine_matches(self.connection, "broken")
+
+        rows = elo.abort_engine_matches(
+            self.connection, "broken", all_open=True, reason="broken"
+        )
+        expected = {
+            first_matches[0].match_id,
+            second_matches[0].match_id,
+        }
+        self.assertEqual({row["id"] for row in rows}, expected)
+        statuses = self.connection.execute(
+            "SELECT id, status FROM batches WHERE id IN (?, ?) ORDER BY id",
+            (first, second),
+        ).fetchall()
+        self.assertEqual(
+            [row["status"] for row in statuses], ["cancelled", "cancelled"]
+        )
+
+    def test_disabling_engine_does_not_change_scheduled_matches(self) -> None:
+        self.register("broken")
+        self.register("anchor")
+        self.register("spare")
+        _, matches = elo.schedule_batch(self.connection, 1, rated=False)
+        elo.update_engine(self.connection, "broken", enabled=False)
+        status = self.connection.execute(
+            "SELECT status FROM matches WHERE id = ?", (matches[0].match_id,)
+        ).fetchone()[0]
+        self.assertEqual(status, "scheduled")
+        suggestions = elo.suggest_pairings(self.connection, 1, rated=False)
+        self.assertNotIn("broken", {suggestions[0].white_id, suggestions[0].black_id})
+
+    def test_disable_abort_open_combines_both_operations(self) -> None:
+        self.register("broken")
+        self.register("anchor")
+        batch_id, _ = elo.schedule_batch(self.connection, 2, focus_engine="broken")
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = elo.main(
+                [
+                    "--database",
+                    str(self.database),
+                    "disable",
+                    "broken",
+                    "--abort-open",
+                    "--reason",
+                    "bad engine",
+                ]
+            )
+        self.assertEqual(result, 0)
+        self.assertFalse(elo.get_engine(self.connection, "broken").enabled)
+        rows = self.connection.execute(
+            "SELECT status FROM matches WHERE batch_id = ?", (batch_id,)
+        ).fetchall()
+        self.assertTrue(all(row["status"] == "aborted" for row in rows))
+
+    def test_finalized_match_cannot_be_aborted(self) -> None:
+        self.register("a")
+        self.register("b")
+        _, matches = elo.schedule_batch(self.connection, 1)
+        elo.report_result(self.connection, matches[0].match_id, "draw")
+        with self.assertRaisesRegex(elo.EloError, "cannot abort finalized"):
+            elo.abort_matches(self.connection, [matches[0].match_id])
+
+    def test_resume_without_id_selects_only_open_batch(self) -> None:
+        self.register("a")
+        self.register("b")
+        batch_id, _ = elo.schedule_batch(self.connection, 1)
+        self.assertEqual(
+            elo_matchmaker._resolve_resume_batch_id(self.connection, None), batch_id
+        )
+
+    def test_resume_without_id_rejects_multiple_open_batches(self) -> None:
+        self.register("a")
+        self.register("b")
+        first, _ = elo.schedule_batch(self.connection, 1, rated=False)
+        second, _ = elo.schedule_batch(self.connection, 1, rated=False)
+        with self.assertRaisesRegex(
+            elo.EloError, rf"multiple batches are open \({first}, {second}\)"
+        ):
+            elo_matchmaker._resolve_resume_batch_id(self.connection, None)
+
+    def test_resume_without_id_rejects_missing_open_batch(self) -> None:
+        with self.assertRaisesRegex(elo.EloError, "no open batch"):
+            elo_matchmaker._resolve_resume_batch_id(self.connection, None)
+
 
 class MatchmakerOutputTest(unittest.TestCase):
+    def test_elo_parser_accepts_abort_targets(self) -> None:
+        parser = elo.build_parser()
+        batch = parser.parse_args(["abort", "batch"])
+        matches = parser.parse_args(["abort", "match", "4", "9"])
+        engine = parser.parse_args(["abort", "engine", "broken", "--all-open"])
+        self.assertIsNone(batch.batch_id)
+        self.assertEqual(matches.match_ids, [4, 9])
+        self.assertTrue(engine.all_open)
+
+    def test_matchmaker_accepts_resume_without_batch_id(self) -> None:
+        args = elo_matchmaker.build_parser().parse_args(["resume", "--jobs", "2"])
+        self.assertIsNone(args.batch_id)
+        self.assertEqual(args.jobs, 2)
+
     def test_matchmaker_rejects_strategy_without_engine(self) -> None:
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
