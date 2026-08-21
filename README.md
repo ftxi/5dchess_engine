@@ -67,6 +67,10 @@ To play a match between two engines, first build the Python module (run `cmake` 
 ```sh
 python autoplay.py --white "./build/5dchess mcts" --black "./build/5dchess monkey"
 ```
+Autoplay records standard PGN match headers. Use `--event` and `--site` to
+name a standalone run; both default to `Autoplay` and `Local`. In a series,
+`Round` is the one-based game number.
+
 For a compact 10-game flat-UCT/MCTS protocol smoke test, use:
 ```sh
 python autoplay.py --white "./build/5dchess flat-uct --seed 11 --rollout-max-actions 2" --black "./build/5dchess mcts --seed 29 --rollout-max-actions 2" --movetime 20 --max-actions 2 --games 10

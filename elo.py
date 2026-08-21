@@ -24,6 +24,7 @@ DEFAULT_DATABASE = Path("logs/elo-matchmaker.sqlite3")
 DEFAULT_RATING = 1500.0
 DEFAULT_K_FACTOR = 32.0
 RESULTS = {"white", "black", "draw", "void"}
+FOCUSED_STRATEGIES = {"adaptive", "coverage"}
 
 
 class EloError(RuntimeError):
@@ -56,6 +57,7 @@ class Pairing:
     black_command: str
     white_rating: float
     black_rating: float
+    ordinal: int | None = None
 
 
 def utc_now() -> str:
@@ -111,6 +113,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             k_factor REAL NOT NULL,
             seed INTEGER NOT NULL,
             focus_engine TEXT REFERENCES engines(id),
+            strategy TEXT,
             note TEXT NOT NULL DEFAULT ''
         );
 
@@ -152,6 +155,17 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             ON matches(white_id, black_id);
         """
     )
+    batch_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(batches)")
+    }
+    if "strategy" not in batch_columns:
+        try:
+            connection.execute("ALTER TABLE batches ADD COLUMN strategy TEXT")
+        except sqlite3.OperationalError as exc:
+            # Two processes may open an old database simultaneously and race
+            # to perform this one-time migration.
+            if "duplicate column name" not in str(exc).lower():
+                raise
     connection.commit()
 
 
@@ -399,6 +413,20 @@ def _historical_counts(connection: sqlite3.Connection, rated: bool):
     return totals, whites, pairs, directed_whites
 
 
+def _resolve_strategy(focus_engine: str | None, strategy: str | None) -> str | None:
+    if focus_engine is None:
+        if strategy is not None:
+            raise EloError("--strategy requires --engine")
+        return None
+    selected = strategy or "adaptive"
+    if selected not in FOCUSED_STRATEGIES:
+        raise EloError(
+            f"unknown focused strategy {selected!r}; "
+            f"choose one of {', '.join(sorted(FOCUSED_STRATEGIES))}"
+        )
+    return selected
+
+
 def suggest_pairings(
     connection: sqlite3.Connection,
     count: int,
@@ -406,11 +434,13 @@ def suggest_pairings(
     focus_engine: str | None = None,
     seed: int = 0,
     rated: bool = True,
+    strategy: str | None = None,
 ) -> list[Pairing]:
     """Suggest a balanced concurrent wave without changing the database."""
 
     if count <= 0:
         raise EloError("match count must be positive")
+    strategy = _resolve_strategy(focus_engine, strategy)
     engines = _eligible_engines(connection, rated)
     by_id = {engine.id: engine for engine in engines}
     if focus_engine is not None and focus_engine not in by_id:
@@ -425,6 +455,7 @@ def suggest_pairings(
         raise EloError(f"at least two {kind} engines are required")
 
     totals, whites, pair_counts, directed_whites = _historical_counts(connection, rated)
+    historical_totals = totals.copy()
     batch_uses = {engine.id: 0 for engine in engines}
     rng = random.Random(seed)
     suggestions: list[Pairing] = []
@@ -464,15 +495,82 @@ def suggest_pairings(
             opponents = [engine for engine in available if engine.id != focus.id]
             if not opponents:
                 break
-            opponent = min(
-                opponents,
-                key=lambda item: (
-                    pair_counts.get(tuple(sorted((focus.id, item.id))), 0),
-                    abs(focus.rating - item.rating),
-                    totals.get(item.id, 0),
-                    rng.random(),
-                ),
-            )
+            if strategy == "coverage":
+                opponent = min(
+                    opponents,
+                    key=lambda item: (
+                        pair_counts.get(tuple(sorted((focus.id, item.id))), 0),
+                        abs(focus.rating - item.rating),
+                        totals.get(item.id, 0),
+                        rng.random(),
+                    ),
+                )
+            else:
+                # Every tenth focused game is a bounded exploration game. The
+                # other nine favor informative, reliable opponents near the
+                # focus engine's current rating.
+                focus_game_number = totals.get(focus.id, 0) + 1
+                exploration = focus_game_number % 10 == 0
+                exploration_pool = [
+                    item
+                    for item in opponents
+                    if abs(focus.rating - item.rating) <= 400.0
+                ]
+                if exploration and exploration_pool:
+                    opponent = min(
+                        exploration_pool,
+                        key=lambda item: (
+                            pair_counts.get(tuple(sorted((focus.id, item.id))), 0),
+                            batch_uses[item.id],
+                            totals.get(item.id, 0),
+                            abs(focus.rating - item.rating),
+                            rng.random(),
+                        ),
+                    )
+                else:
+                    has_lower = any(item.rating < focus.rating for item in opponents)
+                    has_higher = any(item.rating > focus.rating for item in opponents)
+                    lower_uses = sum(
+                        batch_uses[item.id]
+                        for item in opponents
+                        if item.rating < focus.rating
+                    )
+                    higher_uses = sum(
+                        batch_uses[item.id]
+                        for item in opponents
+                        if item.rating > focus.rating
+                    )
+
+                    def adaptive_score(item: EngineRecord) -> tuple[float, float]:
+                        gap = abs(focus.rating - item.rating)
+                        head_to_head = pair_counts.get(
+                            tuple(sorted((focus.id, item.id))), 0
+                        )
+                        proximity = math.exp(-gap / 200.0)
+                        repeat_factor = (1.0 + head_to_head) ** -0.25
+                        opponent_games = historical_totals.get(item.id, 0)
+                        confidence = 0.5 + 0.5 * min(
+                            1.0, math.sqrt(opponent_games / 40.0)
+                        )
+                        load_factor = (1.0 + batch_uses[item.id]) ** -0.5
+                        bracket_factor = 1.0
+                        if has_lower and has_higher:
+                            if item.rating < focus.rating and lower_uses < higher_uses:
+                                bracket_factor = 1.15
+                            elif (
+                                item.rating > focus.rating and higher_uses < lower_uses
+                            ):
+                                bracket_factor = 1.15
+                        score = (
+                            proximity
+                            * repeat_factor
+                            * confidence
+                            * load_factor
+                            * bracket_factor
+                        )
+                        return score, rng.random()
+
+                    opponent = max(opponents, key=adaptive_score)
             selected = focus, opponent
         else:
             candidates: list[tuple[tuple[float, ...], EngineRecord, EngineRecord]] = []
@@ -538,10 +636,12 @@ def schedule_batch(
     seed: int = 0,
     rated: bool = True,
     k_factor: float = DEFAULT_K_FACTOR,
+    strategy: str | None = None,
     note: str = "",
 ) -> tuple[int, list[Pairing]]:
     if not math.isfinite(k_factor) or k_factor <= 0:
         raise EloError("K-factor must be positive and finite")
+    strategy = _resolve_strategy(focus_engine, strategy)
     try:
         connection.execute("BEGIN IMMEDIATE")
         if rated:
@@ -558,6 +658,7 @@ def schedule_batch(
             focus_engine=focus_engine,
             seed=seed,
             rated=rated,
+            strategy=strategy,
         )
         if rated:
             verify_artifacts(
@@ -570,10 +671,11 @@ def schedule_batch(
             )
         cursor = connection.execute(
             """
-            INSERT INTO batches(created_at, status, rated, k_factor, seed, focus_engine, note)
-            VALUES (?, 'open', ?, ?, ?, ?, ?)
+            INSERT INTO batches(
+                created_at, status, rated, k_factor, seed, focus_engine, strategy, note
+            ) VALUES (?, 'open', ?, ?, ?, ?, ?, ?)
             """,
-            (utc_now(), int(rated), k_factor, seed, focus_engine, note),
+            (utc_now(), int(rated), k_factor, seed, focus_engine, strategy, note),
         )
         batch_id = int(cursor.lastrowid)
         scheduled: list[Pairing] = []
@@ -602,10 +704,11 @@ def schedule_batch(
                 Pairing(
                     match_id=int(cursor.lastrowid),
                     batch_id=batch_id,
+                    ordinal=ordinal,
                     **{
                         key: value
                         for key, value in asdict(pairing).items()
-                        if key not in {"match_id", "batch_id"}
+                        if key not in {"match_id", "batch_id", "ordinal"}
                     },
                 )
             )
@@ -640,6 +743,7 @@ def batch_pairings(connection: sqlite3.Connection, batch_id: int) -> list[Pairin
             black_command=row["black_command"],
             white_rating=row["white_rating_before"],
             black_rating=row["black_rating_before"],
+            ordinal=row["ordinal"],
         )
         for row in rows
     ]
@@ -852,7 +956,7 @@ def match_history(
 ) -> list[dict[str, object]]:
     rows = connection.execute(
         """
-        SELECT m.*, b.rated, b.status AS batch_status
+        SELECT m.*, b.rated, b.strategy, b.status AS batch_status
         FROM matches m JOIN batches b ON b.id = m.batch_id
         ORDER BY m.id DESC LIMIT ?
         """,
@@ -864,7 +968,8 @@ def match_history(
 def pending_matches(connection: sqlite3.Connection) -> list[dict[str, object]]:
     rows = connection.execute(
         """
-        SELECT m.*, ew.name AS white_name, eb.name AS black_name, b.rated
+        SELECT m.*, ew.name AS white_name, eb.name AS black_name,
+               b.rated, b.strategy
         FROM matches m
         JOIN batches b ON b.id = m.batch_id
         JOIN engines ew ON ew.id = m.white_id
@@ -964,6 +1069,11 @@ def build_parser() -> argparse.ArgumentParser:
         command = subparsers.add_parser(action)
         command.add_argument("count", type=int)
         command.add_argument("--engine", dest="focus_engine")
+        command.add_argument(
+            "--strategy",
+            choices=sorted(FOCUSED_STRATEGIES),
+            help="focused matchmaking strategy; requires --engine (default: adaptive)",
+        )
         command.add_argument("--seed", type=int, default=0)
         command.add_argument("--unrated", action="store_true")
         command.add_argument(
@@ -999,6 +1109,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if (
+        args.action in {"suggest", "schedule"}
+        and args.strategy is not None
+        and args.focus_engine is None
+    ):
+        parser.error("--strategy requires --engine")
     try:
         with connect(args.database) as connection:
             if args.action == "register":
@@ -1083,6 +1199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     focus_engine=args.focus_engine,
                     seed=args.seed,
                     rated=not args.unrated,
+                    strategy=args.strategy,
                 )
                 _print_pairings(pairings, args.format)
             elif args.action == "schedule":
@@ -1093,6 +1210,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     seed=args.seed,
                     rated=not args.unrated,
                     k_factor=args.k_factor,
+                    strategy=args.strategy,
                     note=args.note,
                 )
                 if args.format == "text":

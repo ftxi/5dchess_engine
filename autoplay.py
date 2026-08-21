@@ -14,6 +14,7 @@ import re
 import shlex
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 
@@ -397,6 +398,79 @@ def snapshot_pgn(game) -> str:
     return f'[Size "{size_x}x{size_y}"]\n[Timeline "{parity}"]\n{boards}\n'
 
 
+def configure_pgn_metadata(
+    game,
+    args,
+    *,
+    round_number: int,
+    site: str | None = None,
+    match_id: int | None = None,
+) -> None:
+    """Set the standard match headers owned by the autoplay controller."""
+
+    metadata = dict(game.metadata)
+    metadata.update(
+        {
+            "event": getattr(args, "event", "Autoplay"),
+            "site": getattr(args, "site", "Local") if site is None else site,
+            "date": date.today().strftime("%Y.%m.%d"),
+            "round": str(round_number),
+            "white": args.white_name or args.white,
+            "black": args.black_name or args.black,
+            "result": "*",
+        }
+    )
+    if match_id is not None:
+        metadata["matchid"] = str(match_id)
+    game.metadata = metadata
+
+
+def set_pgn_result(game, outcome: str) -> None:
+    """Translate an autoplay outcome into a standard PGN Result header."""
+
+    metadata = dict(game.metadata)
+    metadata["result"] = {
+        "white": "1-0",
+        "black": "0-1",
+        "draw": "1/2-1/2",
+        "cap": "1/2-1/2",
+    }.get(outcome, "*")
+    game.metadata = metadata
+
+
+def append_termination_comment(game, comment: str) -> None:
+    """Append a concise, PGN-safe explanation to the current game node."""
+
+    safe_comment = (
+        re.sub(r"\s+", " ", comment)
+        .replace("{", "(")
+        .replace("}", ")")
+        .strip()
+    )
+    comments = list(game.get_comments())
+    comments.append(safe_comment)
+    game.set_comments(comments)
+
+
+def protocol_termination_comment(
+    player: EngineProcess, index: int, error: Exception
+) -> str:
+    """Describe a protocol termination without copying verbose diagnostics."""
+
+    detail = str(error).lower()
+    if isinstance(error, (BrokenPipeError, ConnectionResetError)):
+        reason = "crashed"
+    elif "cannot start" in detail:
+        reason = "failed to start"
+    elif "timed out" in detail or "did not respond" in detail:
+        reason = "timed out"
+    elif "exited with" in detail:
+        reason = "crashed"
+    else:
+        reason = "had a protocol failure"
+    return f"{'Black' if index else 'White'} [{player.name or player.command}] {reason}."
+
+
 def status_worker(module_dir: str, pgn: str, sender) -> None:
     """Compute match status outside the controller so it can be terminated."""
 
@@ -505,6 +579,13 @@ async def play(
         game = rules.game.from_pgn(initial_pgn)
     except RuntimeError as exc:
         raise SystemExit(f"Cannot parse initial game: {exc}") from exc
+    configure_pgn_metadata(
+        game,
+        args,
+        round_number=getattr(args, "round_number", game_number),
+        site=getattr(args, "pgn_site", None),
+        match_id=getattr(args, "match_id", None),
+    )
     initial_position = uci_position(game)
     # The 5D "present" may move backwards after branching, so it cannot be
     # used as a monotonically increasing display counter.  Capture only the
@@ -561,10 +642,21 @@ async def play(
         startup_results = await asyncio.gather(
             *(player.start() for player in players), return_exceptions=True
         )
-        startup_errors = [item for item in startup_results if isinstance(item, Exception)]
+        startup_errors = [
+            (index, item)
+            for index, item in enumerate(startup_results)
+            if isinstance(item, Exception)
+        ]
         if startup_errors:
+            failed_index, startup_error = startup_errors[0]
             outcome = "protocol"
-            result = f"protocol failure during startup: {startup_errors[0]}"
+            result = f"protocol failure during startup: {startup_error}"
+            append_termination_comment(
+                game,
+                protocol_termination_comment(
+                    players[failed_index], failed_index, startup_error
+                ),
+            )
             failure_file = save_protocol_failure(
                 game, players, result, show_flags, game_number, log_dir
             )
@@ -578,10 +670,21 @@ async def play(
         new_game_results = await asyncio.gather(
             *(player.new_game() for player in players), return_exceptions=True
         )
-        new_game_errors = [item for item in new_game_results if isinstance(item, Exception)]
+        new_game_errors = [
+            (index, item)
+            for index, item in enumerate(new_game_results)
+            if isinstance(item, Exception)
+        ]
         if new_game_errors:
+            failed_index, new_game_error = new_game_errors[0]
             outcome = "protocol"
-            result = f"protocol failure during new game: {new_game_errors[0]}"
+            result = f"protocol failure during new game: {new_game_error}"
+            append_termination_comment(
+                game,
+                protocol_termination_comment(
+                    players[failed_index], failed_index, new_game_error
+                ),
+            )
             failure_file = save_protocol_failure(
                 game, players, result, show_flags, game_number, log_dir
             )
@@ -608,6 +711,9 @@ async def play(
                     "black" if index else "white", args.movetime, "protocol_error")
                 outcome = "protocol"
                 result = f"protocol failure from {player_label(index)}: {exc}"
+                append_termination_comment(
+                    game, protocol_termination_comment(player, index, exc)
+                )
                 failure_file = save_protocol_failure(
                     game, players, result, show_flags, game_number, log_dir
                 )
@@ -639,6 +745,9 @@ async def play(
                 elif status.startswith("error:"):
                     outcome = "error"
                     exit_code = status.partition(":")[2]
+                    append_termination_comment(
+                        game, f"Adjudication failed with exit code {exit_code}."
+                    )
                     result = (
                         f"no result: adjudicator exited with {exit_code}; "
                         f"position retained at {adjudication_file}"
@@ -671,13 +780,20 @@ async def play(
         else:
             result = "draw: action limit reached"
 
+        set_pgn_result(game, outcome)
         print(f"\nResult: {result}\n")
         print(game.show_pgn(show_flags))
         return outcome
     except asyncio.CancelledError:
+        set_pgn_result(game, "protocol")
+        append_termination_comment(game, "Interrupted.")
         print("\nInterrupted: quitting both engines.\n", file=sys.stderr)
         print("Partial game PGN:\n")
         print(game.show_pgn(show_flags))
+        raise
+    except Exception as exc:
+        set_pgn_result(game, "error")
+        append_termination_comment(game, f"Autoplay failed: {type(exc).__name__}.")
         raise
     finally:
         if watching_stdin:
@@ -735,6 +851,8 @@ def main() -> int:
     parser.add_argument("--black", default="./build/5dchess monkey", help="black engine command")
     parser.add_argument("--white-name", default="")
     parser.add_argument("--black-name", default="")
+    parser.add_argument("--event", default="Autoplay", help="PGN Event header")
+    parser.add_argument("--site", default="Local", help="PGN Site header")
     game_group = parser.add_mutually_exclusive_group()
     game_group.add_argument("-g", "--game", dest="game_file", type=Path, help="initial .5dpgn file")
     game_group.add_argument("-m", dest="game_text", help="initial 5DPGN text")

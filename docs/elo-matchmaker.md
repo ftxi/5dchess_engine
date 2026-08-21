@@ -45,6 +45,25 @@ python elo.py suggest 4 --engine experimental-v2
 python elo.py schedule 4 --engine experimental-v2
 ```
 
+Focused matchmaking defaults to the adaptive strategy:
+
+```sh
+python elo.py suggest 4 --engine experimental-v2 --strategy adaptive
+```
+
+Adaptive matchmaking favors opponents near the focus engine's Elo, gives more
+weight to opponents with established ratings, mildly discourages repeats,
+balances opponents above and below the focus rating within a wave, and uses one
+bounded exploration game per ten focused games. For a broad diagnostic pass,
+the coverage strategy retains the original fewest-head-to-head-first behavior:
+
+```sh
+python elo.py suggest 4 --engine experimental-v2 --strategy coverage
+```
+
+`--strategy` only applies together with `--engine`. Matchmaking without a focus
+engine continues to use the existing global arena algorithm unchanged.
+
 Run each pairing with `autoplay.py` or any other controller, then report the
 observed result:
 
@@ -68,6 +87,132 @@ python elo.py leaderboard
 python elo.py update ENGINE --no-enabled
 ```
 
+## Rating and matchmaking mathematics
+
+### Elo update
+
+For engine A with rating $R_A$ against engine B with rating $R_B$, A's
+expected score is
+
+$$
+E_A = \frac{1}{1 + 10^{(R_B-R_A)/400}}.
+$$
+
+After the result, A's rating change is
+
+$$
+\Delta_A = K(S_A-E_A),
+$$
+
+where $S_A$ is 1 for a win, 0.5 for a draw, and 0 for a loss. The default is
+$K=32$, configurable with `--k-factor`. B is updated with the complementary
+score, so the two changes sum to zero apart from floating-point rounding. Void
+games are recorded but have no rating change; the automatic runner reports an
+action-limit result as a draw.
+
+The constants follow the conventional Elo scale: a 400-point difference means
+the stronger engine has ten times the weaker engine's expected-score odds.
+Starting at 1500 is only a neutral pool convention. $K=32$ is large enough for
+new engine versions to move usefully over tens of games while avoiding the
+large game-to-game swings of a placement-only rating. This implementation is
+plain Elo: it does not maintain Glicko-style rating deviation or uncertainty.
+
+Concurrent games form one rating batch. Every game $i$ uses the ratings
+captured at the start of the batch, and all changes for engine A are summed:
+
+$$
+R'_A = R_A + \sum_i \Delta_{A,i}.
+$$
+
+Applying the sum once makes the final rating independent of which concurrent
+game finishes first. The next batch is scheduled from the updated ratings.
+
+### Adaptive focused matchmaking
+
+With `--engine F`, `adaptive` is the default strategy. For each eligible
+opponent O, ordinary adaptive games maximize
+
+$$
+Q(F,O) = P \times H \times C \times L \times B,
+$$
+
+using these factors:
+
+| Factor | Formula | Reason for the formula and parameter |
+| --- | --- | --- |
+| Rating proximity $P$ | $\exp(-|R_F-R_O|/200)$ | Nearby ratings produce the most informative results. A 200-point gap multiplies preference by $e^{-1}$, strongly preferring close opponents without imposing a hard cutoff. |
+| Repeat factor $H$ | $(1+h)^{-0.25}$ | $h$ is prior plus already-proposed head-to-head games. The quarter-power is intentionally mild: 15 previous meetings only halve this factor, so a close opponent can remain preferable to an unused distant one. |
+| Confidence proxy $C$ | $0.5 + 0.5\min(1,\sqrt{g/40})$ | $g$ is the opponent's historical game count. Established opponents are better rating anchors, but the 0.5 floor prevents new opponents from becoming unselectable. Confidence reaches its cap at 40 games. This is a matchmaking heuristic, not statistical rating deviation. |
+| Batch load $L$ | $(1+b)^{-0.5}$ | $b$ is how often the opponent has already been selected in the proposed concurrent batch. The square-root penalty makes a second simultaneous use worth about 0.707 while still allowing repeats when that opponent is clearly best. |
+| Bracketing $B$ | 1.15 for the underrepresented rating side; otherwise 1 | If opponents exist both above and below $R_F$, a small 15% bonus favors the side used less in the current batch. This checks both rating directions without overriding a large proximity difference. |
+
+Exact ties are resolved by the seeded pseudo-random generator, so the same
+database and `--seed` produce the same suggestions.
+
+Every tenth non-void game involving the focus engine is an exploration game.
+Exploration first restricts candidates to $|R_F-R_O|\leq400$, then minimizes
+this tuple lexicographically:
+
+$$
+(h,\ b,\ g,\ |R_F-R_O|,\ \text{seeded tie-break}).
+$$
+
+Here exploration's $g$ includes opponents already proposed earlier in the
+current wave. Thus exploration prefers a less-tested nearby opponent, but does
+not routinely spend games on extreme mismatches. Ten percent is enough to
+detect local rating errors and keep nearby comparison paths connected without
+restoring exhaustive round-robin behavior. The 400-point window covers a wide
+Elo neighborhood; if that window is empty, the scheduler falls back to the
+ordinary adaptive score.
+
+### Coverage focused matchmaking
+
+`--strategy coverage` retains the original diagnostic behavior. It chooses the
+minimum tuple
+
+$$
+(h,\ |R_F-R_O|,\ g,\ \text{seeded tie-break})
+$$
+
+lexicographically. Because $h$ is first, the focus engine is spread across
+opponents with the fewest previous meetings before rating proximity matters.
+This is deliberately less efficient for estimating Elo, but useful for a new
+engine smoke test that should encounter weak, strong, and unusual baselines.
+
+### Global matchmaking without a focus engine
+
+Without `--engine`, the existing global arena scheduler is unchanged. For every
+available unordered pair A/B, it minimizes
+
+$$
+(\max(g_A,g_B),\ g_A+g_B,\ h_{AB},\ |R_A-R_B|,\
+\text{seeded tie-break})
+$$
+
+lexicographically. This prioritizes equal test participation, then pair
+diversity, then rating proximity. It is intended to maintain a broadly tested
+engine pool rather than imitate a player-facing live-game queue.
+
+For rated scheduling, only rated non-void games contribute to $g$, $h$, and
+color history. For unrated scheduling, all non-void games contribute. After
+each proposed pairing, the in-memory counts are incremented before choosing the
+next pairing, so one suggested wave balances itself. Per-engine `max_parallel`
+limits are also enforced; zero means unlimited and a stateful engine defaults
+to one.
+
+### Color assignment
+
+After selecting two engines, colors are assigned independently of the opponent
+score:
+
+1. Give White to the engine that has had fewer White games in this exact
+   head-to-head pairing.
+2. If tied, give White to the engine with fewer White games overall.
+3. If still tied, use the seeded tie-breaker.
+
+These rules reduce color imbalance without distorting which opponents are
+selected.
+
 ## Run games automatically and concurrently
 
 The automatic runner schedules games in waves. `--jobs` controls actual
@@ -76,10 +221,20 @@ concurrency; the default wave size is the same as the job count.
 ```sh
 python elo_matchmaker.py run \
   --engine experimental-v2 \
+  --strategy adaptive \
+  --event "Experiment A" \
   --games 100 \
   --jobs 8 \
   --movetime 1000
 ```
+
+The `--strategy` option may be omitted here because focused automatic runs
+default to `adaptive`. Use `--strategy coverage` when initially checking a new
+engine broadly against every available opponent.
+
+The event name is copied into each game's PGN. The runner records the site as
+`Local/Batch N`, the round as the match's one-based ordinal within that batch,
+and the global database match number in the `Matchid` header.
 
 Each completed game is printed as one block containing its pairing, result,
 full PGN, log path, and metrics path. Because concurrent games can finish in
@@ -117,4 +272,3 @@ For rated evaluation, freeze a checkpoint, register it as a non-training engine
 version, and run its matches in parallel. Frozen checkpoint versions appear on
 the official leaderboard; training engines do not unless
 `elo.py leaderboard --include-training` is requested.
-

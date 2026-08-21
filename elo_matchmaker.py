@@ -23,6 +23,8 @@ import elo
 @dataclass(frozen=True)
 class WorkerJob:
     match_id: int
+    batch_id: int
+    round_number: int
     white_id: str
     black_id: str
     white_name: str
@@ -38,6 +40,7 @@ class WorkerJob:
     game_file: str | None
     game_text: str | None
     match_dir: str
+    event: str
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,11 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
                     black=job.black_command,
                     white_name=job.white_name,
                     black_name=job.black_name,
+                    event=job.event,
+                    site="Local",
+                    pgn_site=f"Local/Batch {job.batch_id}",
+                    round_number=job.round_number,
+                    match_id=job.match_id,
                     game_file=Path(job.game_file) if job.game_file else None,
                     game_text=job.game_text,
                     module_dir=Path(job.module_dir),
@@ -118,18 +126,22 @@ def _reported_result(result: WorkerResult) -> tuple[str, str]:
 def _print_completed(
     pairing: elo.Pairing, result: WorkerResult, completed: int, total: int
 ) -> None:
+    def engine_label(name: str, engine_id: str) -> str:
+        return f"[{engine_id}]" if name == engine_id else f"{name} [{engine_id}]"
+
     print()
     print(
         f"{'=' * 18} Match {pairing.match_id} finished ({completed}/{total}) {'=' * 18}"
     )
     print(
-        f"White:  {pairing.white_name} [{pairing.white_id}]  {pairing.white_rating:.1f}"
+        f"White:  {engine_label(pairing.white_name, pairing.white_id)}  "
+        f"{pairing.white_rating:.1f}"
     )
     print(
-        f"Black:  {pairing.black_name} [{pairing.black_id}]  {pairing.black_rating:.1f}"
+        f"Black:  {engine_label(pairing.black_name, pairing.black_id)}  "
+        f"{pairing.black_rating:.1f}"
     )
     print(f"Result: {result.summary}")
-    print("Elo:    pending completion of this concurrent batch")
     print(f"Log:    {result.output_log}")
     print(f"Metrics:{' ' if result.metrics_csv else ''}{result.metrics_csv}")
     print("\nPGN:\n")
@@ -160,9 +172,13 @@ def _print_batch_ratings(
 
 def _make_job(pairing: elo.Pairing, args, run_dir: Path) -> WorkerJob:
     assert pairing.match_id is not None
+    assert pairing.batch_id is not None
+    assert pairing.ordinal is not None
     match_dir = run_dir / f"match-{pairing.match_id:06d}"
     return WorkerJob(
         match_id=pairing.match_id,
+        batch_id=pairing.batch_id,
+        round_number=pairing.ordinal,
         white_id=pairing.white_id,
         black_id=pairing.black_id,
         white_name=pairing.white_name,
@@ -178,6 +194,7 @@ def _make_job(pairing: elo.Pairing, args, run_dir: Path) -> WorkerJob:
         game_file=str(args.game_file.resolve()) if args.game_file else None,
         game_text=args.game_text,
         match_dir=str(match_dir.resolve()),
+        event=getattr(args, "event", "Autoplay"),
     )
 
 
@@ -298,11 +315,15 @@ def _run_new(connection, args) -> int:
             seed=args.seed + wave - 1,
             rated=not args.unrated,
             k_factor=args.k_factor,
+            strategy=args.strategy,
             note=f"automatic run wave {wave}",
+        )
+        strategy_label = (
+            f", {args.strategy or 'adaptive'} strategy" if args.focus_engine else ""
         )
         print(
             f"\nStarting batch {batch_id}: {len(pairings)} match(es), "
-            f"up to {min(args.jobs, len(pairings))} concurrently"
+            f"up to {min(args.jobs, len(pairings))} concurrently{strategy_label}"
         )
         for pairing in pairings:
             print(
@@ -359,6 +380,11 @@ def _add_game_options(parser: argparse.ArgumentParser, *, include_games: bool) -
     if include_games:
         parser.add_argument("--games", type=int, required=True)
         parser.add_argument("--engine", dest="focus_engine")
+        parser.add_argument(
+            "--strategy",
+            choices=sorted(elo.FOCUSED_STRATEGIES),
+            help="focused matchmaking strategy; requires --engine (default: adaptive)",
+        )
         parser.add_argument("--seed", type=int, default=0)
         parser.add_argument("--unrated", action="store_true")
         parser.add_argument("--k-factor", type=float, default=elo.DEFAULT_K_FACTOR)
@@ -369,6 +395,7 @@ def _add_game_options(parser: argparse.ArgumentParser, *, include_games: bool) -
     parser.add_argument("--timeout", type=int, default=2000)
     parser.add_argument("--max-actions", type=int, default=500)
     parser.add_argument("--logs-dir", type=Path, default=Path("logs/elo-runs"))
+    parser.add_argument("--event", default="Autoplay")
     game_group = parser.add_mutually_exclusive_group()
     game_group.add_argument("-g", "--game", dest="game_file", type=Path)
     game_group.add_argument("-m", dest="game_text")
@@ -398,6 +425,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Shared validation expects these fields, but resume does not schedule.
         args.games = 1
         args.batch_size = None
+    elif args.strategy is not None and args.focus_engine is None:
+        parser.error("--strategy requires --engine")
     _validate_run_args(parser, args)
     try:
         with elo.connect(args.database) as connection:

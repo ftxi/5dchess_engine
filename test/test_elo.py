@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,6 +32,35 @@ class EloDatabaseTest(unittest.TestCase):
             **options,
         )
 
+    def test_existing_database_gains_strategy_column(self) -> None:
+        self.connection.close()
+        self.database.unlink()
+        legacy = sqlite3.connect(self.database)
+        legacy.execute(
+            """
+            CREATE TABLE batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                finalized_at TEXT,
+                status TEXT NOT NULL,
+                rated INTEGER NOT NULL,
+                k_factor REAL NOT NULL,
+                seed INTEGER NOT NULL,
+                focus_engine TEXT,
+                note TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        legacy.commit()
+        legacy.close()
+
+        self.connection = elo.connect(self.database)
+        columns = {
+            row["name"]
+            for row in self.connection.execute("PRAGMA table_info(batches)").fetchall()
+        }
+        self.assertIn("strategy", columns)
+
     def test_registration_is_immutable_and_clone_has_separate_identity(self) -> None:
         self.register("experimental-v1", rating=1612.0)
         with self.assertRaises(elo.EloError):
@@ -57,6 +87,17 @@ class EloDatabaseTest(unittest.TestCase):
         self.assertEqual(colors.count(("a", "b")), 2)
         self.assertEqual(colors.count(("b", "a")), 2)
 
+    def test_scheduled_pairings_have_batch_relative_ordinals(self) -> None:
+        self.register("a")
+        self.register("b")
+        batch_id, pairings = elo.schedule_batch(self.connection, 2)
+        self.assertEqual([item.batch_id for item in pairings], [batch_id, batch_id])
+        self.assertEqual([item.ordinal for item in pairings], [1, 2])
+        self.assertEqual(
+            [item.ordinal for item in elo.batch_pairings(self.connection, batch_id)],
+            [1, 2],
+        )
+
     def test_focused_scheduler_spreads_games_across_opponents(self) -> None:
         for engine_id in ("new", "anchor-a", "anchor-b"):
             self.register(engine_id)
@@ -66,6 +107,95 @@ class EloDatabaseTest(unittest.TestCase):
             for item in pairings
         }
         self.assertEqual(opponents, {"anchor-a", "anchor-b"})
+
+    def test_adaptive_focus_prefers_close_repeated_opponent_over_unused_far_one(
+        self,
+    ) -> None:
+        self.register("focus", rating=1500.0)
+        self.register("close", rating=1520.0)
+        batch_id, history = elo.schedule_batch(
+            self.connection,
+            16,
+            focus_engine="focus",
+            strategy="coverage",
+        )
+        for pairing in history:
+            elo.report_result(
+                self.connection,
+                pairing.match_id,
+                "draw",
+                auto_finalize=False,
+            )
+        elo.finalize_batch(self.connection, batch_id)
+        self.register("far", rating=1900.0)
+
+        adaptive = elo.suggest_pairings(
+            self.connection,
+            1,
+            focus_engine="focus",
+            strategy="adaptive",
+            seed=3,
+        )[0]
+        coverage = elo.suggest_pairings(
+            self.connection,
+            1,
+            focus_engine="focus",
+            strategy="coverage",
+            seed=3,
+        )[0]
+
+        def opponent(pairing: elo.Pairing) -> str:
+            return pairing.black_id if pairing.white_id == "focus" else pairing.white_id
+
+        self.assertEqual(opponent(adaptive), "close")
+        self.assertEqual(opponent(coverage), "far")
+
+    def test_focused_strategy_defaults_to_adaptive_and_is_persisted(self) -> None:
+        self.register("focus")
+        self.register("opponent")
+        batch_id, _ = elo.schedule_batch(
+            self.connection,
+            1,
+            focus_engine="focus",
+        )
+        strategy = self.connection.execute(
+            "SELECT strategy FROM batches WHERE id = ?", (batch_id,)
+        ).fetchone()[0]
+        self.assertEqual(strategy, "adaptive")
+
+    def test_adaptive_focus_uses_every_tenth_game_for_exploration(self) -> None:
+        self.register("focus", rating=1500.0)
+        self.register("close", rating=1520.0)
+        batch_id, history = elo.schedule_batch(
+            self.connection,
+            9,
+            focus_engine="focus",
+            strategy="coverage",
+        )
+        for pairing in history:
+            elo.report_result(
+                self.connection,
+                pairing.match_id,
+                "draw",
+                auto_finalize=False,
+            )
+        elo.finalize_batch(self.connection, batch_id)
+        self.register("untried", rating=1600.0)
+
+        pairing = elo.suggest_pairings(
+            self.connection,
+            1,
+            focus_engine="focus",
+            strategy="adaptive",
+        )[0]
+        opponent = pairing.black_id if pairing.white_id == "focus" else pairing.white_id
+        self.assertEqual(opponent, "untried")
+
+    def test_strategy_is_rejected_without_focus_engine(self) -> None:
+        self.register("a")
+        self.register("b")
+        with self.assertRaisesRegex(elo.EloError, "requires --engine"):
+            elo.suggest_pairings(self.connection, 1, strategy="coverage")
 
     def test_stateful_engine_limits_a_concurrent_wave(self) -> None:
         self.register("learner", training=True, stateful=True)
@@ -189,6 +319,53 @@ class EloDatabaseTest(unittest.TestCase):
 
 
 class MatchmakerOutputTest(unittest.TestCase):
+    def test_matchmaker_rejects_strategy_without_engine(self) -> None:
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                elo_matchmaker.main(["run", "--games", "1", "--strategy", "coverage"])
+
+    def test_matchmaker_accepts_event_but_not_site(self) -> None:
+        parser = elo_matchmaker.build_parser()
+        args = parser.parse_args(["run", "--games", "1", "--event", "Experiment A"])
+        self.assertEqual(args.event, "Experiment A")
+        self.assertFalse(hasattr(args, "site"))
+
+    def test_matchmaker_accepts_focused_strategy(self) -> None:
+        parser = elo_matchmaker.build_parser()
+        args = parser.parse_args(
+            ["run", "--games", "1", "--engine", "new", "--strategy", "coverage"]
+        )
+        self.assertEqual(args.strategy, "coverage")
+
+    def test_worker_job_contains_batch_pgn_identity(self) -> None:
+        pairing = elo.Pairing(
+            match_id=42,
+            batch_id=7,
+            ordinal=2,
+            white_id="new",
+            black_id="anchor",
+            white_name="New Engine",
+            black_name="Anchor",
+            white_command="new",
+            black_command="anchor",
+            white_rating=1500.0,
+            black_rating=1510.0,
+        )
+        arguments = SimpleNamespace(
+            module_dir=Path("build"),
+            movetime=10,
+            timeout=20,
+            max_actions=30,
+            game_file=None,
+            game_text=None,
+            event="Experiment A",
+        )
+        job = elo_matchmaker._make_job(pairing, arguments, Path("logs"))
+        self.assertEqual(job.batch_id, 7)
+        self.assertEqual(job.round_number, 2)
+        self.assertEqual(job.match_id, 42)
+        self.assertEqual(job.event, "Experiment A")
+
     def test_completed_summary_contains_pgn(self) -> None:
         pairing = elo.Pairing(
             match_id=12,
@@ -215,8 +392,40 @@ class MatchmakerOutputTest(unittest.TestCase):
             elo_matchmaker._print_completed(pairing, result, 1, 4)
         rendered = output.getvalue()
         self.assertIn("Match 12 finished (1/4)", rendered)
+        self.assertIn("White:  New Engine [new]", rendered)
+        self.assertIn("Black:  Anchor [anchor]", rendered)
         self.assertIn("white(New Engine) wins", rendered)
         self.assertIn('[Result "1-0"]', rendered)
+        self.assertNotIn("pending completion", rendered)
+
+    def test_completed_summary_suppresses_duplicate_name_and_id(self) -> None:
+        pairing = elo.Pairing(
+            match_id=13,
+            batch_id=3,
+            white_id="mcts",
+            black_id="linear-trained",
+            white_name="mcts",
+            black_name="linear-trained",
+            white_command="mcts",
+            black_command="linear-trained",
+            white_rating=1517.0,
+            black_rating=1511.7,
+        )
+        result = elo_matchmaker.WorkerResult(
+            match_id=13,
+            outcome="black",
+            summary="black wins",
+            pgn="pgn",
+            output_log="match.log",
+            metrics_csv="metrics.csv",
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            elo_matchmaker._print_completed(pairing, result, 1, 5)
+        rendered = output.getvalue()
+        self.assertIn("White:  [mcts]  1517.0", rendered)
+        self.assertIn("Black:  [linear-trained]  1511.7", rendered)
+        self.assertNotIn("mcts [mcts]", rendered)
 
 
 if __name__ == "__main__":
