@@ -27,6 +27,7 @@ inline std::string show_turn(turn_t t)
 }
 
 enum class match_status_t {PLAYING, WHITE_WINS, BLACK_WINS, STALEMATE};
+enum class mate_type {NONE, CHECKMATE, SOFTMATE, STALEMATE};
 
 
 [[maybe_unused]]

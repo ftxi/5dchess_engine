@@ -450,55 +450,15 @@ std::string ext_move::pgn(const state &s, pgn_options options) const
     return fm.pgn(s, promote_to, options);
 }
 
-std::string action::pgn(const state &initial_state, pgn_options options) const
+std::string action::pgn_impl(
+    const state &initial_state,
+    pgn_options options,
+    const std::vector<char> &check_symbols
+) const
 {
-    options &= pgn_options::SHOW_ALL;
-    state t = initial_state;
     std::vector<ext_move> mvs = get_moves();
-    std::vector<char> check_symbols(mvs.size(), 0);
-    state::mate_type mt = state::mate_type::NONE;
-    if(static_cast<bool>(options & pgn_options::SHOW_MATE))
-    {
-        for(size_t i = 0; i < mvs.size(); i++)
-        {
-            auto [m, pt] = mvs[i];
-            state::move_info mi = t.get_move_info(m, pt);
-            if(!mi.new_state)
-                return "---INVALID ACTION---";
-            if(mi.checking_opponent)
-            {
-                check_symbols[i] = '+';
-            }
-            t = std::move(*mi.new_state);
-        }
-        bool flag = t.submit();
-        if(!flag)
-            return "---INVALID ACTION---";
-        char mate_symbol;
-        mt = t.get_mate_type();
-        switch (mt)
-        {
-            case state::mate_type::NONE:
-                mate_symbol = '+';
-                break;
-            case state::mate_type::SOFTMATE:
-                mate_symbol = '*';
-                break;
-            case state::mate_type::CHECKMATE:
-                mate_symbol = '#';
-                break;
-            default:
-                mate_symbol = '?';
-                break;
-        }
-        auto it = std::find(check_symbols.rbegin(), check_symbols.rend(), '+');
-        if (it != check_symbols.rend())
-        {
-            *it = mate_symbol;
-        }
-    }
     state s = initial_state;
-    std::string pgn = "";
+    std::string pgn;
     bool multimove = mvs.size() > 1;
     for(size_t i = 0; i < mvs.size(); i++)
     {
@@ -511,4 +471,107 @@ std::string action::pgn(const state &initial_state, pgn_options options) const
         pgn.pop_back();
     }
     return pgn;
+}
+
+std::string action::pgn(const state &initial_state, pgn_options options) const
+{
+    return pgn_advanced(
+        initial_state,
+        options & ~pgn_options::SHOW_OUTCOME
+    ).first;
+}
+
+std::pair<std::string, std::optional<mate_type>> action::pgn_advanced(
+    const state &initial_state,
+    pgn_options options
+) const
+{
+    return pgn_advanced(initial_state, options, action{});
+}
+
+std::pair<std::string, std::optional<mate_type>> action::pgn_advanced(
+    const state &initial_state,
+    pgn_options options,
+    const action &witness
+) const
+{
+    options &= pgn_options::SHOW_ALL;
+    if(!static_cast<bool>(options & (pgn_options::SHOW_MATE | pgn_options::SHOW_OUTCOME)))
+    {
+        return {
+            pgn_impl(initial_state, options, std::vector<char>(mvs.size(), 0)),
+            std::nullopt
+        };
+    }
+
+    state final_state = initial_state;
+    std::vector<char> check_symbols(mvs.size(), 0);
+    if(static_cast<bool>(options & pgn_options::SHOW_MATE))
+    {
+        for(size_t i = 0; i < mvs.size(); ++i)
+        {
+            const auto &[move, promote_to] = mvs[i];
+            state::move_info mi = final_state.get_move_info(move, promote_to);
+            if(!mi.new_state)
+            {
+                return {"---INVALID ACTION---", std::nullopt};
+            }
+            if(mi.checking_opponent)
+            {
+                check_symbols[i] = '+';
+            }
+            final_state = std::move(*mi.new_state);
+        }
+        if(!final_state.submit())
+        {
+            return {"---INVALID ACTION---", std::nullopt};
+        }
+    }
+    else
+    {
+        std::optional<state> submitted = initial_state.can_apply(*this);
+        if(!submitted.has_value())
+        {
+            return {"---INVALID ACTION---", std::nullopt};
+        }
+        final_state = std::move(*submitted);
+    }
+
+    mate_type mt;
+    if(witness.mvs.empty())
+    {
+        mt = final_state.get_mate_type();
+    }
+    else if(final_state.can_apply(witness).has_value())
+    {
+        std::vector<ext_move> witness_moves = witness.mvs;
+        const bool has_branching_jump = sort(witness_moves, final_state)
+            < static_cast<int>(witness_moves.size());
+        mt = has_branching_jump && final_state.is_softmate()
+            ? mate_type::SOFTMATE
+            : mate_type::NONE;
+    }
+    else
+    {
+        mt = final_state.get_mate_type();
+    }
+
+    char mate_symbol = 0;
+    switch(mt)
+    {
+        case mate_type::NONE: mate_symbol = '+'; break;
+        case mate_type::SOFTMATE: mate_symbol = '*'; break;
+        case mate_type::CHECKMATE: mate_symbol = '#'; break;
+        case mate_type::STALEMATE: break;
+    }
+    if(mate_symbol)
+    {
+        auto it = std::find(check_symbols.rbegin(), check_symbols.rend(), '+');
+        if(it != check_symbols.rend())
+        {
+            *it = mate_symbol;
+        }
+    }
+
+    return {pgn_impl(initial_state, options, check_symbols), mt};
 }

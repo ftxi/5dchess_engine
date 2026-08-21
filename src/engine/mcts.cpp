@@ -190,7 +190,7 @@ float terminal_outcome(const state &s)
 {
     const auto [present, player] = s.get_present();
     (void)present;
-    return s.get_mate_type() == state::mate_type::STALEMATE
+    return s.get_mate_type() == mate_type::STALEMATE
         ? 0.0f
         : (player ? WINNING_SCORE : -WINNING_SCORE);
 }

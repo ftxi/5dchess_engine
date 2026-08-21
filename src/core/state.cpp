@@ -588,7 +588,17 @@ std::vector<vec4> state::gen_movable_pieces_impl(const std::vector<int> &lines) 
     return result;
 }
 
-state::mate_type state::get_mate_type() const
+mate_type state::get_mate_type() const
+{
+    return get_mate_type_impl(false);
+}
+
+bool state::is_softmate() const
+{
+    return get_mate_type_impl(true) == mate_type::SOFTMATE;
+}
+
+mate_type state::get_mate_type_impl(bool legal_action_witness) const
 {
     dprint("state::get_mate_type()");
     auto [w, ss] = HC_info::build_HC(*this);
@@ -632,6 +642,16 @@ state::mate_type state::get_mate_type() const
     if(w.search(ss2).first())
     {
         dprint("has branching non-jump back solution");
+        return mate_type::NONE;
+    }
+    if(legal_action_witness)
+    {
+        if(phantom().find_checks(!player).first().has_value())
+        {
+            dprint("softmate (legal action witnessed)");
+            return mate_type::SOFTMATE;
+        }
+        dprint("not softmate (legal action witnessed without check)");
         return mate_type::NONE;
     }
     if(w.search(ss).first())

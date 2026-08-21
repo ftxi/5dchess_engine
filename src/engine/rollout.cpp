@@ -81,7 +81,7 @@ std::optional<bool> rollout_inplace(
             return std::nullopt;
         }
 
-        return s.get_mate_type() == state::mate_type::STALEMATE
+        return s.get_mate_type() == mate_type::STALEMATE
             ? std::nullopt
             : std::optional<bool>{!player};
     }

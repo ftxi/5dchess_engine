@@ -114,8 +114,13 @@ public:
     std::vector<vec4> get_movable_pieces(const std::vector<int> &lines) const;
     
     
-    enum class mate_type {NONE, CHECKMATE, SOFTMATE, STALEMATE};
     mate_type get_mate_type() const;
+    bool is_softmate() const;
+
+private:
+    mate_type get_mate_type_impl(bool legal_action_witness) const;
+
+public:
 
     // wrappers for low-level functions
     std::pair<int, int> get_board_size() const;

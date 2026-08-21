@@ -14,11 +14,19 @@ class gnode {
     std::optional<state> s;
     action act;
     T info;
-    std::optional<pgnparser_ast::token_t> outcome;
     std::vector<std::unique_ptr<gnode>> children;
 
     gnode(gnode<T> *parent, std::optional<state> s, const action &act, const T &info)
-        : parent(parent), s(s), act(act), info(info), outcome(std::nullopt), children() {}
+        : parent(parent), s(s), act(act), info(info), children() {}
+
+    std::string render_pgn_turn(
+        const std::function<std::string(T)> &show,
+        pgn_options show_flags,
+        turn_t turn,
+        bool full_turn_display,
+        const action &witness,
+        bool has_continuation
+    );
 public:
     static std::unique_ptr<gnode<T>> create_root(const state &s, const T &info)
     {
@@ -35,7 +43,6 @@ public:
         auto node = std::unique_ptr<gnode<T>>(
             new gnode<T>(new_parent, s, act, info)
         );
-        node->outcome = outcome;
         for (const auto& child : children) {
             node->children.push_back(child->clone(node.get()));
         }
@@ -48,8 +55,6 @@ public:
     const T &get_info() const { return info; }
     void set_info(const T &x) { info = x; }
     void set_info(T &&x) { info = x; }
-    std::optional<pgnparser_ast::token_t> get_outcome() const { return outcome; }
-    void set_outcome(pgnparser_ast::token_t x) { outcome = x; }
     gnode<T> *get_parent() const { return parent; }
 
     gnode<T> *add_child(std::unique_ptr<gnode<T>> child) 
@@ -74,12 +79,19 @@ public:
         }
         return nullptr;
     }
+
+    static constexpr pgn_options default_pgn_options = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE;
     
-    std::string to_string(
+    std::string pgn_tree(
         std::function<std::string(T)> show = [](T){return "";},
-        pgn_options show_flags = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE,
+        pgn_options show_flags = default_pgn_options,
         turn_t start_turn = {1,false},
         bool full_turn_display=true
+    );
+
+    std::string pgn_path(
+        std::function<std::string(T)> show = [](T){return "";},
+        pgn_options show_flags = default_pgn_options
     );
 };
 

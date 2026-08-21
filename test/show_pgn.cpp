@@ -68,17 +68,25 @@ int main()
 1. Nf3 1/2-1/2
 )");
     std::string outcome_pgn = outcome_game.show_pgn(pgn_options::SHOW_OUTCOME);
-    assert(outcome_pgn.contains("1-0"));
-    assert(outcome_pgn.contains("0-1"));
-    assert(outcome_pgn.contains("1/2-1/2"));
+    assert(!outcome_pgn.contains("1-0"));
+    assert(!outcome_pgn.contains("0-1"));
+    assert(!outcome_pgn.contains("1/2-1/2"));
     std::string no_outcome_pgn = outcome_game.show_pgn(pgn_options::SHOW_NOTHING);
     assert(!no_outcome_pgn.contains("1-0"));
     assert(!no_outcome_pgn.contains("0-1"));
     assert(!no_outcome_pgn.contains("1/2-1/2"));
+    std::string outcome_path_pgn = outcome_game.show_pgn(pgn_options::SHOW_OUTCOME, false);
+    assert(!outcome_path_pgn.contains("1/2-1/2"));
+    assert(!outcome_path_pgn.contains("1-0"));
+    assert(!outcome_path_pgn.contains("0-1"));
     game::from_pgn(outcome_pgn);
 
     game g = game::from_pgn(str);
     std::cout << "Final mate state: " << static_cast<int>(g.get_current_state().get_mate_type()) << "\n";
+    std::string inferred_outcome_pgn = g.show_pgn(pgn_options::SHOW_OUTCOME);
+    assert(inferred_outcome_pgn.contains("1-0"));
+    std::string inferred_outcome_path_pgn = g.show_pgn(pgn_options::SHOW_OUTCOME, false);
+    assert(inferred_outcome_path_pgn.contains("1-0"));
     std::string default_pgn = g.show_pgn();
     std::cout << default_pgn << "\n\n";
     const std::vector<pgn_options> flags_to_test = {
@@ -87,7 +95,6 @@ int main()
         pgn_options::SHOW_PAWN,
         pgn_options::SHOW_CAPTURE,
         pgn_options::SHOW_PROMOTION,
-//        state::SHOW_MATE,
         pgn_options::SHOW_LCOMMENT,
         pgn_options::SHOW_SHORT,
         pgn_options::SHOW_OUTCOME,

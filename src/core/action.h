@@ -5,9 +5,11 @@
 #include <tuple>
 #include <set>
 #include <ostream>
+#include <optional>
 #include <vector>
 #include "vec4.h"
 #include "piece.h"
+#include "turn.h"
 #include "utils.h"
 
 class state;
@@ -90,6 +92,11 @@ class action
     std::vector<ext_move> mvs;
     int branching_index;
     action(std::vector<ext_move> mvs) : mvs(mvs) {}
+    std::string pgn_impl(
+        const state &,
+        pgn_options,
+        const std::vector<char> &check_symbols
+    ) const;
 public:
     action() : mvs{}, branching_index{0} {}
     /* Sort a vector of extended moves according to the standard order
@@ -103,6 +110,10 @@ public:
     std::string to_string() const;
     std::string lan(const state &) const;
     std::string pgn(const state &, pgn_options options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;
+    using pgn_adv_res = std::pair<std::string, std::optional<mate_type>>;
+    constexpr static pgn_options DEFAULT_PGN_OPTIONS = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION;
+    pgn_adv_res pgn_advanced(const state &, pgn_options options=DEFAULT_PGN_OPTIONS) const;
+    pgn_adv_res pgn_advanced(const state &, pgn_options options, const action &witness) const;
     bool operator ==(const action &other) const = default;
     friend std::ostream &operator<<(std::ostream &os, const action &act);
 };
