@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <tuple>
 #include <ranges>
 #include <cassert>
@@ -60,6 +61,32 @@ std::string str = R"(
 int main()
 {
     int return_code = 0;
+
+    game metadata_game = game::from_pgn(R"(
+[Result "1-0"]
+[Black "Black Engine"]
+[Event "Autoplay"]
+[White "White Engine"]
+[Round "2"]
+[Date "2026.08.21"]
+[Site "Local/Batch 7"]
+[Matchid "42"]
+[Board "Standard"]
+)" );
+    std::string metadata_pgn = metadata_game.show_pgn(pgn_options::SHOW_NOTHING);
+    const std::vector<std::string> ordered_headers = {
+        "[Event ", "[Site ", "[Date ", "[Round ",
+        "[White ", "[Black ", "[Result ",
+    };
+    size_t previous_header = 0;
+    for(const std::string &header : ordered_headers)
+    {
+        size_t position = metadata_pgn.find(header);
+        assert(position != std::string::npos);
+        assert(position >= previous_header);
+        previous_header = position;
+    }
+    assert(metadata_pgn.contains("[Matchid \"42\"]"));
 
     game outcome_game = game::from_pgn(R"(
 [Board "Standard"]

@@ -1,6 +1,11 @@
 Structure of the code
 ========
 
+Engine documentation:
+
+- [Linear evaluation features](linear-features.md)
+- [Frozen Linear profile](linear-trained.md)
+
 The following image roughly captures the structure of the code:
 ```
   ┌──────────────┐                                             

@@ -1,3 +1,4 @@
+#undef NDEBUG
 #include <iostream>
 #include <algorithm>
 #include <random>
@@ -87,9 +88,9 @@ void ASSERT_EQ(auto lhs, auto rhs)
 {
     if(lhs != rhs)
     {
-        std::cout << "assertion failed:\n";
-        std::cout << "lhs = " << lhs << std::endl;
-        std::cout << "rhs = " << rhs << std::endl;
+        std::cerr << "assertion failed:\n";
+        std::cerr << "lhs = " << lhs << std::endl;
+        std::cerr << "rhs = " << rhs << std::endl;
         throw std::runtime_error("ASSERT_EQ failed");
     }
 }

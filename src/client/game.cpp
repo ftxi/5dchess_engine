@@ -453,8 +453,8 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
 std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
 {
     std::ostringstream oss;
-    constexpr static std::array<std::string, 9> ordered_keys = {
-        "event", "site", "date", "round", "white", "black", "variant", "timeline", "size"
+    constexpr static std::array<std::string, 10> ordered_keys = {
+        "event", "site", "date", "round", "white", "black", "result", "variant", "timeline", "size"
     };
 
     for(const auto &k : ordered_keys)

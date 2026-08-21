@@ -8,6 +8,7 @@
 #include <optional>
 #include <random>
 #include <stop_token>
+#include <utility>
 
 #include "mcts.h"
 #include "statistics.h"
@@ -19,6 +20,8 @@ public:
         = material_data<int>::COUNT;
     static constexpr std::size_t timeline_feature_count
         = timeline_data::COUNT;
+    static constexpr std::size_t move_space_feature_count
+        = move_space_data::COUNT;
 
     static constexpr std::size_t bias_offset = 0;
     static constexpr std::size_t mandatory_material_sum_offset = 1;
@@ -34,8 +37,17 @@ public:
         = unplayable_material_sum_offset + material_feature_count;
     static constexpr std::size_t timeline_offset
         = unplayable_material_diff_offset + material_feature_count;
-    static constexpr std::size_t features_count
+    static constexpr std::size_t move_space_offset
         = timeline_offset + timeline_feature_count;
+    static constexpr std::size_t log_universe_volume_offset
+        = move_space_offset;
+    static constexpr std::size_t log_non_new_volume_offset
+        = move_space_offset + 1;
+    static constexpr std::size_t features_count
+        = move_space_offset + move_space_feature_count;
+
+    static constexpr std::size_t timeline_advantage_offset
+        = timeline_offset + 9;
 
     using feature_vector_t = std::array<float, features_count>;
     using weight_vector_t = feature_vector_t;
@@ -44,17 +56,20 @@ private:
     weight_vector_t weight_vector{};
 
 protected:
-    float default_policy(
+    default_policy_result default_policy(
         state position,
         std::stop_token stop_token,
         std::mt19937 *rng) override;
 
 public:
+    static weight_vector_t default_weights();
+    static weight_vector_t trained_weights();
+
     linear_engine(
         std::unique_ptr<io_handler> io_handler,
         std::optional<std::uint32_t> seed = std::nullopt,
         int max_rollout_actions = default_mcts_rollout_max_actions,
-        weight_vector_t weights = {})
+        weight_vector_t weights = default_weights())
     : mcts_engine(std::move(io_handler), seed, max_rollout_actions),
       weight_vector(std::move(weights)) {}
 

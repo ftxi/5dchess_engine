@@ -68,4 +68,19 @@ material_data<int> count_material_diff(const state &s);
 
 timeline_data count_timelines(const state &s);
 
+/* Logarithmic candidate-action volumes for the player to move.
+
+   These are hypercuboid volumes, not exact legal-action counts.  The
+   non-new value fixes every possible new-timeline axis at its null
+   coordinate.
+ */
+struct move_space_data
+{
+    float log_universe_volume;
+    float log_non_new_volume;
+    constexpr static int COUNT = 2;
+};
+
+move_space_data count_move_space(const state &s);
+
 #endif /* STATISTICS_H */

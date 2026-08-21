@@ -24,9 +24,9 @@ struct command_line_options
 
 void print_usage(std::ostream &out)
 {
-    out << "Usage: 5dchess <mcts|zero|linear|flat-uct|monkey> [options]\n"
+    out << "Usage: 5dchess <mcts|zero|linear|linear-trained|flat-uct|monkey> [options]\n"
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
-        << "  -r, --rollout-max-actions <n>   MCTS/linear/flat-UCT rollout action limit (default "
+        << "  -r, --rollout-max-actions <n>   search rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
         << "  -h, --help                      display this help text and exit\n";
 }
@@ -68,6 +68,7 @@ command_line_options parse_options(
         else if(option == "-r" || option == "--rollout-max-actions")
         {
             if((engine_name != "mcts" && engine_name != "linear"
+                && engine_name != "linear-trained"
                 && engine_name != "flat-uct")
                || rollout_limit_seen || ++i >= argc)
             {
@@ -107,6 +108,7 @@ int main(int argc, const char *argv[])
 
     const std::string engine_name = argv[1];
     if(engine_name != "mcts" && engine_name != "zero" && engine_name != "linear"
+       && engine_name != "linear-trained"
        && engine_name != "flat-uct" && engine_name != "monkey")
     {
         std::cerr << "Unknown engine: " << engine_name << "\n";
@@ -138,11 +140,14 @@ int main(int argc, const char *argv[])
         selected_engine = std::make_unique<zero_engine>(
             std::make_unique<stdio_handler>(), options.seed);
     }
-    else if(engine_name == "linear")
+    else if(engine_name == "linear" || engine_name == "linear-trained")
     {
+        const auto weights = engine_name == "linear"
+            ? linear_engine::default_weights()
+            : linear_engine::trained_weights();
         selected_engine = std::make_unique<linear_engine>(
             std::make_unique<stdio_handler>(), options.seed,
-            options.rollout_max_actions);
+            options.rollout_max_actions, weights);
     }
     else if(engine_name == "flat-uct")
     {
