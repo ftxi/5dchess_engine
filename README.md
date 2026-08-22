@@ -1,12 +1,9 @@
-5dchess_engine
+5D Chess Engine
 ==================
 
+An open source C++ engine based on Monte Carlo tree search (MCTS) for the game '5D Chess With Multiverse Time Travel', featuring fast checkmate detection and customized MCTS tree design.
 
-The `5dchess_engine` is a standalone program that can also be used as a library for analyzing 5D chess game. Written in c++, it is also compiled for use in python and javascript environments. When used as a standalone tool, it offers both a command line interface and a web-based interface for viewing and analyzing games.
-
-This project is written in a serious language for chess-programming (c++). It aims to provide fast performance for basic game logic such as move generation and checkmate detection, which can be used as a solic foundation for a competant 5d chess bot. 
-
-There is a 5d chess bot implemented in this project, which utilizes a customized Monte Carlo Tree Search algorithm. Plans for the near future is to try out different modifications of MCTS to improve the performance of the bot.
+Besides the [5duci](docs/5duci.md) engine, this project also includes a web interface which allows analyzing 5D Chess positions online. Moreover, it provides python and javascript bindings that allows access of game logic from different programming languages.
 
 ### Try it online!
 
@@ -14,6 +11,7 @@ Visit <https://ftxi.github.io/5dchess_engine/>.
 
 ### Features
 
+This project is written in a serious language for chess-programming. The target for it has shift from early stage goal of providing fast performance for basic game logic such as move generation and checkmate detection, which can be then used as a solid foundation for a competent 5d chess bot, to actually improving the bot. In fact, the plans for the near future is to try out different modifications of MCTS and figure out which is the correct direction.
 
 This program supports reading arbitary 5d chess variant specified by 5dfen. For moves, it supports long algebraic notation (which looks like `(0T13)b6b5` for physical moves and `(-1T19)e8(0T18)f8` for superphysical moves) or simplified 5dpgn notation specified in [docs/pgn-bnf.txt](docs/pgn-bnf.txt).
 
@@ -61,7 +59,7 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are six engines: `5dchess mcts`, `5dchess zero`, `5dchess linear`, `5dchess linear-trained`, `5dchess flat-uct`, and `5dchess monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `zero` is MCTS with a constant-zero default policy. The two Linear engines evaluate inconclusive rollout positions with the same bounded 64-feature model: `linear` uses hand-written weights and `linear-trained` uses a frozen experimental profile. See [Linear evaluation features](docs/linear-features.md). `flat-uct` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCT rule, without expanding a search tree. Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-uct --seed 1234`. MCTS, both Linear engines, and flat-UCT also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess linear --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw by MCTS and flat-UCT; Linear evaluates the final rollout position instead. Setting the limit to zero disables rollout entirely. The shared UCT implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are six engines: `mcts`, `zero`, `linear`, `linear-trained`, `flat-uct`, and `monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `zero` is MCTS with a constant-zero default policy. The two Linear engines evaluate inconclusive rollout positions with the same bounded 64-feature model: `linear` uses hand-written weights and `linear-trained` uses a frozen experimental profile. See [Linear evaluation features](docs/linear-features.md). `flat-uct` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCT rule, without expanding a search tree. Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-uct --seed 1234`. MCTS, both Linear engines, and flat-UCT also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess linear --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw by MCTS and flat-UCT; Linear evaluates the final rollout position instead. Setting the limit to zero disables rollout entirely. The shared UCT implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
@@ -157,5 +155,5 @@ For more details on the structure of this repository, please read [this page](do
 - [ ] Move weighting for default policy
 - [ ] Move ordering for tree policy
 - [ ] Progressive widening
-- [ ] Learned weights for the linear engine
+- [x] Learned weights for the linear engine
 - [ ] UCT/PUCT switch
