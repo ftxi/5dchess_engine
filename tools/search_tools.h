@@ -2,6 +2,7 @@
 #define SEARCH_TOOLS_H
 
 #include <optional>
+#include <cstddef>
 #include <utility>
 
 #include "state.h"
@@ -23,15 +24,15 @@ std::optional<moveseq> find_first_action(state &s, search_mode mode);
 generator<moveseq> naive_search(state s);
 
 template<bool PRINT=false>
-void count_balanced(state s, int count);
+std::size_t count_balanced(state s, int limit);
 template<bool PRINT=false>
-void count_stable(state s, int count);
+std::size_t count_stable(state s, int limit);
 template<bool PRINT=false>
-void count_iterative(state s, int count);
+std::size_t count_iterative(state s, int limit);
 template<bool PRINT=false>
-void count_mixed(state s, int count);
+std::size_t count_mixed(state s, int limit);
 template<bool PRINT=false>
-void count_naive(state s, int count);
+std::size_t count_naive(state s, int limit);
 
 void diff(state s);
 

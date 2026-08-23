@@ -49,10 +49,10 @@ generator<moveseq> naive_search(state s)
 }
 
 template<bool PRINT>
-void count_balanced(state s, int count)
+std::size_t count_balanced(state s, int limit)
 {
     auto [w, ss] = HC_info::build_HC(s);
-    std::vector<moveseq> legal_moves;
+    std::size_t count = 0;
     for(auto x : w.search(ss))
     {
         if constexpr(PRINT)
@@ -65,18 +65,17 @@ void count_balanced(state s, int count)
             }
             std::cout << "\n";
         }
-        legal_moves.push_back(x);
-        if(--count==0)
-            break;
+        ++count;
+        if(count == static_cast<std::size_t>(limit)) break;
     }
-    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+    return count;
 }
 
 template<bool PRINT>
-void count_stable(state s, int count)
+std::size_t count_stable(state s, int limit)
 {
     auto [w, ss] = HC_info::build_HC(s);
-    std::vector<moveseq> legal_moves;
+    std::size_t count = 0;
     for(auto x : w.stable_search(ss))
     {
         if constexpr(PRINT)
@@ -89,18 +88,17 @@ void count_stable(state s, int count)
             }
             std::cout << "\n";
         }
-        legal_moves.push_back(x);
-        if(--count==0)
-            break;
+        ++count;
+        if(count == static_cast<std::size_t>(limit)) break;
     }
-    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+    return count;
 }
 
 template<bool PRINT>
-void count_iterative(state s, int count)
+std::size_t count_iterative(state s, int limit)
 {
     auto [w, ss] = HC_info::build_HC(s);
-    std::vector<moveseq> legal_moves;
+    std::size_t count = 0;
     for(auto x : w.iterative_search(ss))
     {
         if constexpr(PRINT)
@@ -113,18 +111,17 @@ void count_iterative(state s, int count)
             }
             std::cout << "\n";
         }
-        legal_moves.push_back(x);
-        if(--count==0)
-            break;
+        ++count;
+        if(count == static_cast<std::size_t>(limit)) break;
     }
-    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+    return count;
 }
 
 template<bool PRINT>
-void count_mixed(state s, int count)
+std::size_t count_mixed(state s, int limit)
 {
     auto [w, ss] = HC_info::build_HC(s);
-    std::vector<moveseq> legal_moves;
+    std::size_t count = 0;
     for(auto x : w.mixed_search(ss))
     {
         if constexpr(PRINT)
@@ -137,17 +134,16 @@ void count_mixed(state s, int count)
             }
             std::cout << "\n";
         }
-        legal_moves.push_back(x);
-        if(--count==0)
-            break;
+        ++count;
+        if(count == static_cast<std::size_t>(limit)) break;
     }
-    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+    return count;
 }
 
 template<bool PRINT>
-void count_naive(state s, int count)
+std::size_t count_naive(state s, int limit)
 {
-    std::vector<moveseq> legal_moves;
+    std::size_t count = 0;
     for(auto x : naive_search(s))
     {
         if constexpr (PRINT)
@@ -160,11 +156,10 @@ void count_naive(state s, int count)
             }
             std::cout << "\n";
         }
-        legal_moves.push_back(x);
-        if(--count==0)
-            break;
+        ++count;
+        if(count == static_cast<std::size_t>(limit)) break;
     }
-    std::cout << "Summary: totally " << legal_moves.size() << " options\n";
+    return count;
 }
 
 void diff(state s)
@@ -258,13 +253,13 @@ std::optional<moveseq> find_first_action(state &s, search_mode mode)
     return std::nullopt;
 }
 
-template void count_balanced<false>(state, int);
-template void count_balanced<true>(state, int);
-template void count_stable<false>(state, int);
-template void count_stable<true>(state, int);
-template void count_iterative<false>(state, int);
-template void count_iterative<true>(state, int);
-template void count_mixed<false>(state, int);
-template void count_mixed<true>(state, int);
-template void count_naive<false>(state, int);
-template void count_naive<true>(state, int);
+template std::size_t count_balanced<false>(state, int);
+template std::size_t count_balanced<true>(state, int);
+template std::size_t count_stable<false>(state, int);
+template std::size_t count_stable<true>(state, int);
+template std::size_t count_iterative<false>(state, int);
+template std::size_t count_iterative<true>(state, int);
+template std::size_t count_mixed<false>(state, int);
+template std::size_t count_mixed<true>(state, int);
+template std::size_t count_naive<false>(state, int);
+template std::size_t count_naive<true>(state, int);
