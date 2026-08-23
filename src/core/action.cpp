@@ -230,7 +230,7 @@ std::string full_move::pgn(const state &s, piece_t pt, pgn_options options) cons
     if(static_cast<bool>(options & pgn_options::SHOW_MATE))
     {
         state::move_info mi = s.get_move_info(*this, pt);
-        if(mi.checking_opponent)
+        if(static_cast<bool>(mi.check_type))
         {
             check_symbol = '+';
         }
@@ -516,7 +516,7 @@ std::pair<std::string, std::optional<mate_type>> action::pgn_advanced(
             {
                 return {"---INVALID ACTION---", std::nullopt};
             }
-            if(mi.checking_opponent)
+            if(static_cast<bool>(mi.check_type))
             {
                 check_symbols[i] = '+';
             }

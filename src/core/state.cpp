@@ -212,7 +212,7 @@ bool state::apply_move(full_move fm, piece_t promote_to)
      in HC_info::build_HC()
      */
     // physical move, no time travel
-    if(d.l() == 0 && d.t() == 0)
+    if(d.tl() == vec4(0,0,0,0))
     {
         const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
         bitboard_t z = pmask(p.xy());
@@ -314,14 +314,24 @@ bool state::apply_move(full_move fm, piece_t promote_to)
 state::move_info state::get_move_info(full_move fm, piece_t pt) const
 {
     dprint("get_move_info", fm);
-    std::optional<state> new_state_opt = can_apply(fm, pt);
+    const vec4 p = fm.from;
+    const vec4 q = fm.to;
+    const vec4 d = q - p;
+
+    special_move_t special_move = special_move_t::NONE;
+    const piece_t moved_piece = m->get_piece(p, player);
+    piece_t captured_piece = NO_PIECE;
+
+    auto new_state = std::make_unique<state>(*this);
+    [[maybe_unused]] const bool applied = new_state->apply_move<true>(fm, pt);
+    assert(applied);
     vec4 new_pos(0,0,0,0);
-    std::unique_ptr<state> new_state;
-    bool checking_opponent = false;
+    check_type_t check_type = check_type_t::NONE;
     
-    auto find_board_check = [](const state &s, int l) -> bool {
+    auto find_board_checks = [](const state &s, int l) -> check_type_t {
         auto [t,c] = s.get_timeline_end(l);
         assert(c==s.player);
+        check_type_t result = check_type_t::NONE;
         //find checks on the source board
         std::shared_ptr<board> b = s.get_board(l, t, c);
         bitboard_t pieces = c ? b->black()&~b->white() : b->white()&~b->black();
@@ -341,62 +351,160 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
                     bitboard_t c_pieces = bb & b1_ptr->royal();
                     if (c_pieces)
                     {
-                        return true;
+                        if(p.tl() == q0.tl())
+                        {
+                            result |= check_type_t::PHYSICAL_CHECK;
+                        }
+                        else
+                        {
+                            result |= check_type_t::SP_CHECK;
+                        }
+                        if(std::make_pair(q0.t(), c) != s.get_timeline_end(q0.l()))
+                        {
+                            result |= check_type_t::HISTORICAL_CHECK;
+                        }
                     }
                 }
             }
         }
-        return false;
+        return result;
     };
-    
-    if(new_state_opt)
+
+    state s = *new_state;
+    const auto [l_min, l_max] = s.get_lines_range();
+    for(int l = l_min; l <= l_max; l++)
     {
-        new_state = std::make_unique<state>(*new_state_opt);
-        
-        state s = *new_state_opt;
-        const auto [l_min, l_max] = s.get_lines_range();
-        for(int l = l_min; l <= l_max; l++)
+        auto [t,c] = s.get_timeline_end(l);
+        if(c == !s.player)
         {
-            auto [t,c] = s.get_timeline_end(l);
-            if(c == !s.player)
-            {
-                dprint("duplicated board on line", l, "turn", t, c?"b":"w");
-                s.m->append_board(l, s.m->get_board(l, t, c));
-            }
-        }
-        
-        vec4 p = fm.from;
-        vec4 q = fm.to;
-        vec4 d = q - p;
-        
-        /* WARNING: similiar logic used in hypercuboid.cpp for applying semimoves
-         If some move logic needs to be changed here, make sure also perform change
-         in HC_info::build_HC()
-         */
-        // physical move, no time travel
-        if(d.l() == 0 && d.t() == 0)
-        {
-            dprint(" ... physical move");
-            new_pos = q + vec4(0,0,1,0);
-            checking_opponent = find_board_check(s, q.l());
-        }
-        // non-branching superphysical move
-        else if (std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
-        {
-            dprint(" ... non-branching superphysical move");
-            new_pos = q + vec4(0,0,1,0);
-            checking_opponent = find_board_check(s, q.l()) || find_board_check(s, p.l());
-        }
-        //branching move
-        else
-        {
-            dprint(" ... branching superphysical move");
-            new_pos = vec4(q.x(), q.y(), q.t()+1, new_line());
-            checking_opponent = find_board_check(s, new_line()) || find_board_check(s, p.l());
+            dprint("duplicated board on line", l, "turn", t, c?"b":"w");
+            s.m->append_board(l, s.m->get_board(l, t, c));
         }
     }
-    dprint(checking_opponent ? "checking" : "not checking");
-    return {std::move(new_state), new_pos, checking_opponent};
+
+    /* WARNING: similar logic is used in hypercuboid.cpp for applying semimoves.
+       If move logic changes here, update HC_info::build_HC() as well. */
+    // physical move, no time travel
+    if(d.l() == 0 && d.t() == 0)
+    {
+        dprint(" ... physical move");
+        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        bitboard_t z = pmask(p.xy());
+        const auto &[size_x, size_y] = m->get_board_size();
+        // en passant
+        if((b_ptr->lpawn()&z) && d.x()!=0 && b_ptr->get_piece(q.xy()) == NO_PIECE)
+        {
+            captured_piece = b_ptr->get_piece(ppos(q.x(), p.y()));
+            special_move |= special_move_t::CAPTURE | special_move_t::EN_PASSANT;
+        }
+        // promotion
+        else if((b_ptr->lpawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
+        {
+            captured_piece = b_ptr->get_piece(q.xy());
+            if(captured_piece != NO_PIECE)
+            {
+                special_move |= special_move_t::CAPTURE;
+            }
+            special_move |= special_move_t::PROMOTION;
+        }
+        // castling
+        else if((b_ptr->king()&z) && abs(d.x()) > 1)
+        {
+            special_move |= d.x() > 0
+                ? special_move_t::CASTLE_KINGSIDE
+                : special_move_t::CASTLE_QUEENSIDE;
+        }
+        // normal move or capture
+        else
+        {
+            captured_piece = b_ptr->get_piece(q.xy());
+            if(captured_piece != NO_PIECE)
+            {
+                special_move |= special_move_t::CAPTURE;
+            }
+        }
+        new_pos = q + vec4(0,0,1,0);
+        check_type |= find_board_checks(s, q.l());
+    }
+    // non-branching superphysical move
+    else if(std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
+    {
+        dprint(" ... non-branching superphysical move");
+        special_move |= special_move_t::SUPERPHYSICAL;
+        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        bitboard_t z = pmask(p.xy());
+        const auto &[size_x, size_y] = m->get_board_size();
+        (void)size_x;
+        const std::shared_ptr<board>& c_ptr = m->get_board(q.l(), q.t(), player);
+        // promotion (only brawns can do)
+        if((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
+        {
+            captured_piece = c_ptr->get_piece(q.xy());
+            if(captured_piece != NO_PIECE)
+            {
+                special_move |= special_move_t::CAPTURE;
+            }
+            special_move |= special_move_t::PROMOTION;
+        }
+        // normal non-branching move
+        else
+        {
+            captured_piece = c_ptr->get_piece(q.xy());
+            if(captured_piece != NO_PIECE)
+            {
+                special_move |= special_move_t::CAPTURE;
+            }
+        }
+        new_pos = q + vec4(0,0,1,0);
+        check_type |= find_board_checks(s, q.l());
+        if(p.l() != q.l())
+        {
+            check_type |= find_board_checks(s, p.l());
+        }
+    }
+    else
+    {
+        dprint(" ... branching superphysical move");
+        special_move |= special_move_t::SUPERPHYSICAL | special_move_t::BRANCHING;
+        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        bitboard_t z = pmask(p.xy());
+        const auto &[size_x, size_y] = m->get_board_size();
+        (void)size_x;
+        const std::shared_ptr<board>& x_ptr = m->get_board(q.l(), q.t(), player);
+        // promotion (only brawns can do)
+        if((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
+        {
+            captured_piece = x_ptr->get_piece(q.xy());
+            if(captured_piece != NO_PIECE)
+            {
+                special_move |= special_move_t::CAPTURE;
+            }
+            special_move |= special_move_t::PROMOTION;
+        }
+        // normal branching move
+        else
+        {
+            captured_piece = x_ptr->get_piece(q.xy());
+            if(captured_piece != NO_PIECE)
+            {
+                special_move |= special_move_t::CAPTURE;
+            }
+        }
+        const int branch_line = new_line();
+        new_pos = vec4(q.x(), q.y(), q.t()+1, branch_line);
+        check_type |= find_board_checks(s, branch_line);
+        check_type |= find_board_checks(s, p.l());
+    }
+
+    dprint(static_cast<bool>(check_type) ? "checking" : "not checking");
+    return {
+        std::move(new_state),
+        new_pos,
+        moved_piece,
+        captured_piece,
+        special_move,
+        check_type
+    };
 }
 
 template <bool UNSAFE>

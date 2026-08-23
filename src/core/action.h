@@ -32,6 +32,33 @@ enum class pgn_options : uint16_t
 template <>
 inline constexpr bool enable_bitmask_operators<pgn_options> = true;
 
+enum class special_move_t : uint8_t
+{
+    NONE = 0,
+    CAPTURE = 1,
+    EN_PASSANT = 1 << 1,
+    PROMOTION = 1 << 2,
+    CASTLE_KINGSIDE = 1 << 3,
+    CASTLE_QUEENSIDE = 1 << 4,
+    CASTLE = (1 << 3) | (1 << 4),
+    SUPERPHYSICAL = 1 << 5,
+    BRANCHING = 1 << 6,
+};
+
+template <>
+inline constexpr bool enable_bitmask_operators<special_move_t> = true;
+
+enum class check_type_t : uint8_t
+{
+    NONE = 0,
+    PHYSICAL_CHECK = 1,
+    SP_CHECK = 1 << 1,
+    HISTORICAL_CHECK = 1 << 2,
+};
+
+template <>
+inline constexpr bool enable_bitmask_operators<check_type_t> = true;
+
 /*
  In this implementation, I use `full_move` instead of `move` to avoid confusion with `std::move`.
  (In contrast, the class `semimove` is defined in semimove.h)

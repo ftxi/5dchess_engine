@@ -74,14 +74,18 @@ public:
     bool submit();
     
     /*
-     move_info: given a move, apply it and return the new state, new position of the moved
-     piece, and whether the moved piece(s) checks the opponent.
-     In a castling move, it is considered as check if the moved rook checks opponent king
+     move_info: given a generated move, apply it and describe the result.
+     get_move_info assumes that the move is pseudolegal and applies it in unsafe mode.
+     In a castling move, it is considered a check if either moved piece checks an
+     opponent royal piece.
      */
     struct move_info {
         std::unique_ptr<state> new_state;
         vec4 new_pos;
-        bool checking_opponent;
+        piece_t moved_piece;
+        piece_t captured_piece;
+        special_move_t special_move;
+        check_type_t check_type;
     };
     move_info get_move_info(full_move fm, piece_t promote_to = QUEEN_W) const;
     
