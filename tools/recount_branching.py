@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from pathlib import Path
@@ -39,15 +41,21 @@ def main() -> int:
         fieldnames = reader.fieldnames
     if fieldnames is None:
         raise SystemExit("input CSV has no header")
-    old_limits = {int(row["count_limit"]) for row in rows}
-    if len(old_limits) != 1:
-        raise SystemExit("input CSV has multiple count limits")
-    old_limit = old_limits.pop()
-    if args.maximum <= old_limit:
-        raise SystemExit("--max must exceed the input count limit")
-
     games = tomllib.loads(args.games.read_text())["decks"]["5dc"]
-    capped_rows = [row for row in rows if int(row["legal_actions"]) == old_limit]
+    capped_rows = [row for row in rows if row["capped"].lower() == "true"]
+    if not capped_rows:
+        raise SystemExit("input CSV has no capped rows")
+    for row in capped_rows:
+        old_limit = int(row["count_limit"])
+        if int(row["legal_actions"]) != old_limit:
+            raise SystemExit(
+                f"capped row {row['game_index']}:{row['turn']} does not equal "
+                "its count limit"
+            )
+        if args.maximum <= old_limit:
+            raise SystemExit(
+                f"--max must exceed the count limit for {row['game_index']}:{row['turn']}"
+            )
     recount_fields = [
         "game_index",
         "turn",
@@ -66,6 +74,7 @@ def main() -> int:
         writer.writeheader()
         for index, row in enumerate(capped_rows, start=1):
             game_index = int(row["game_index"])
+            old_limit = int(row["count_limit"])
             pgn = '[Board "Standard"]\n\n' + games[game_index]
             command = [
                 str(args.tool),
@@ -140,43 +149,44 @@ def main() -> int:
             writer.writerow(result)
             output.flush()
 
+    failures = [result for result in results.values() if result["status"] != "ok"]
+    successful = [result for result in results.values() if result["status"] == "ok"]
+    summary = {
+        "requested": len(capped_rows),
+        "successful": len(successful),
+        "still_capped": sum(result["capped"] == "true" for result in successful),
+        "timeouts": sum(result["status"] == "timeout" for result in results.values()),
+        "errors": sum(result["status"] == "error" for result in results.values()),
+        "output": str(args.output),
+        "recounts": str(args.recounts),
+    }
+    if failures:
+        summary["output"] = None
+        print(json.dumps(summary))
+        return 1
+
     for row in rows:
-        row["count_limit"] = str(args.maximum)
         key = (row["game_index"], row["turn"])
         if key not in results:
             continue
         result = results[key]
-        if result["status"] == "ok":
-            row["legal_actions"] = result["legal_actions"]
-            row["capped"] = result["capped"]
-            row["count_status"] = "ok"
-            row["count_error"] = ""
-        else:
-            row["legal_actions"] = ""
-            row["capped"] = ""
-            row["count_status"] = result["status"]
-            row["count_error"] = result["error"]
+        row["legal_actions"] = result["legal_actions"]
+        row["count_limit"] = str(args.maximum)
+        row["capped"] = result["capped"]
+        row["count_status"] = "ok"
+        row["count_error"] = ""
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with args.output.open("w", newline="") as output:
+    with tempfile.NamedTemporaryFile(
+        "w", newline="", dir=args.output.parent, prefix=f".{args.output.name}.", delete=False
+    ) as output:
+        temporary_output = Path(output.name)
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+    os.replace(temporary_output, args.output)
 
-    successful = [result for result in results.values() if result["status"] == "ok"]
-    print(
-        json.dumps(
-            {
-                "requested": len(capped_rows),
-                "successful": len(successful),
-                "still_capped": sum(result["capped"] == "true" for result in successful),
-                "timeouts": sum(result["status"] == "timeout" for result in results.values()),
-                "errors": sum(result["status"] == "error" for result in results.values()),
-                "output": str(args.output),
-                "recounts": str(args.recounts),
-            }
-        )
-    )
+    print(json.dumps(summary))
     return 0
 
 
