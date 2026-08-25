@@ -109,6 +109,48 @@ int main()
         print_range("reference: ", _u);
         return 1;
     }
+
+    // Exercise removal from dynamically stored higher blocks through every
+    // removing operation, including a set whose retained blocks are empty.
+    integer_set removed_by_erase{1, 64, 4096};
+    removed_by_erase.erase(4096);
+    removed_by_erase.erase(64);
+    if(snapshot(removed_by_erase) != std::vector<uint32_t>{1})
+    {
+        std::cerr << "Test failed after high-block erase\n";
+        return 1;
+    }
+
+    integer_set removed_by_minus{2, 65, 4097};
+    removed_by_minus.minus(integer_set{65, 4097});
+    if(snapshot(removed_by_minus) != std::vector<uint32_t>{2})
+    {
+        std::cerr << "Test failed after high-block minus\n";
+        return 1;
+    }
+
+    integer_set removed_by_intersection{3, 66, 4098};
+    removed_by_intersection &= integer_set{3};
+    if(snapshot(removed_by_intersection) != std::vector<uint32_t>{3})
+    {
+        std::cerr << "Test failed after high-block intersection\n";
+        return 1;
+    }
+
+    integer_set removed_by_predicate{4, 67, 4099};
+    removed_by_predicate.erase_if([](uint32_t value) { return value >= 64; });
+    if(snapshot(removed_by_predicate) != std::vector<uint32_t>{4})
+    {
+        std::cerr << "Test failed after high-block erase_if\n";
+        return 1;
+    }
+    removed_by_predicate.erase(4);
+    if(!removed_by_predicate.empty() || removed_by_predicate.begin() != removed_by_predicate.end())
+    {
+        std::cerr << "Test failed after retained blocks became empty\n";
+        return 1;
+    }
+
     std::cerr << "---= integer_set.cpp: all passed =---" << std::endl;
     return 0;
 }

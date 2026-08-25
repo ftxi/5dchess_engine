@@ -28,7 +28,44 @@ class integer_set
     // block_shift = 6 = log2(64)
     constexpr static index_t block_shift = std::bit_width(block_mask);
 
-    std::vector<block_t> data;
+    // Block zero is embedded because almost every observed integer_set fits
+    // in it. Higher blocks allocate only when they are actually needed.
+    block_t first_block = 0;
+    std::vector<block_t> remaining_blocks;
+
+    [[nodiscard]] constexpr size_t block_count() const noexcept
+    {
+        if(!remaining_blocks.empty())
+        {
+            return remaining_blocks.size() + 1;
+        }
+        return first_block == 0 ? 0 : 1;
+    }
+
+    constexpr block_t &block_at(size_t block_index)
+    {
+        assert(block_index < block_count());
+        return block_index == 0
+            ? first_block
+            : remaining_blocks[block_index - 1];
+    }
+
+    constexpr const block_t &block_at(size_t block_index) const
+    {
+        assert(block_index < block_count());
+        return block_index == 0
+            ? first_block
+            : remaining_blocks[block_index - 1];
+    }
+
+    constexpr void ensure_block_count(size_t count)
+    {
+        if(count > 1 && remaining_blocks.size() < count - 1)
+        {
+            remaining_blocks.resize(count - 1, 0);
+        }
+    }
+
 public:
     using value_type = index_t;
     using size_type = std::size_t;
@@ -46,13 +83,13 @@ private:
         value_type bit_index;
 
         /* advance_to_next:
-        if the current block is data.size(), do nothing
+        if the current block is block_count(), do nothing
         if the current position is set or not set, go to the next set position or end
         */
         void advance_to_next()
         {
             assert(set != nullptr);
-            while(block_index < set->data.size())
+            while(block_index < set->block_count())
             {
                 if(bit_index >= block_bits)
                 {
@@ -61,7 +98,7 @@ private:
                     continue;
                 }
 
-                block_t block = set->data[block_index];
+                block_t block = set->block_at(block_index);
                 // keep bits from bit_index onward
                 block &= (~static_cast<block_t>(0)) << bit_index;
                 if(block != 0)
@@ -110,7 +147,7 @@ private:
                 return *this;
             }
 
-            if(block_index >= set->data.size())
+            if(block_index >= set->block_count())
             {
                 return *this;
             }
@@ -152,11 +189,11 @@ public:
     [[nodiscard]] bool intersects(const integer_set &other) const noexcept;
 
     iterator begin() { return iterator(this, 0, 0); }
-    iterator end() { return iterator(this, static_cast<value_type>(data.size()), 0); }
+    iterator end() { return iterator(this, static_cast<value_type>(block_count()), 0); }
     const_iterator begin() const { return const_iterator(this, 0, 0); }
     const_iterator cbegin() const { return const_iterator(this, 0, 0); }
-    const_iterator end() const { return const_iterator(this, static_cast<value_type>(data.size()), 0); }
-    const_iterator cend() const { return const_iterator(this, static_cast<value_type>(data.size()), 0); }
+    const_iterator end() const { return const_iterator(this, static_cast<value_type>(block_count()), 0); }
+    const_iterator cend() const { return const_iterator(this, static_cast<value_type>(block_count()), 0); }
 
     inline constexpr void insert(value_type value);
     bool erase(value_type value);
@@ -191,9 +228,9 @@ struct std::iterator_traits<integer_set::const_iterator>
 template <typename Predicate>
 void integer_set::erase_if(Predicate pred)
 {
-    for(value_type block_index = 0; block_index < data.size(); block_index++)
+    for(value_type block_index = 0; block_index < block_count(); block_index++)
     {
-        block_t &block = data[block_index];
+        block_t &block = block_at(block_index);
         for(value_type bit_index = 0; bit_index < block_bits; bit_index++)
         {
             if(block & (static_cast<block_t>(1) << bit_index))
@@ -212,9 +249,9 @@ template <typename UnaryOp>
 constexpr integer_set integer_set::transform(UnaryOp op) const
 {
     integer_set result;
-    for(value_type block_index = 0; block_index < data.size(); ++block_index)
+    for(value_type block_index = 0; block_index < block_count(); ++block_index)
     {
-        const auto &block = data[block_index];
+        const auto &block = block_at(block_index);
         for(value_type i = 0; i < block_bits; i++)
         {
             if(block & (static_cast<block_t>(1) << i))
@@ -238,11 +275,16 @@ inline constexpr void integer_set::insert(value_type value)
 {
     size_t block_index = value >> block_shift;
     size_t bit_index = value & block_mask;
-    if(block_index >= data.size())
+    ensure_block_count(block_index + 1);
+    if(block_index == 0)
     {
-        data.resize(block_index + 1, 0);
+        first_block |= static_cast<block_t>(1) << bit_index;
     }
-    data[block_index] |= static_cast<block_t>(1) << bit_index;
+    else
+    {
+        remaining_blocks[block_index - 1]
+            |= static_cast<block_t>(1) << bit_index;
+    }
 }
 
 
