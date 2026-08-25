@@ -49,13 +49,17 @@ The flag `-DCMAKE_BUILD_TYPE=Release` above is used to enable optimizations.
 
 The engine is built as `build/5dchess`, and the general command-line utility is built as `build/5dtools`. For commands that consume a game, provide 5DPGN on standard input and press Control-D to complete it. Current utility commands include:
 -  `print`: print the final state of the game
--  `count [<policy>] [<max>]`: display number of available moves capped by `<max>`
--  `all [<policy>] [<max>]`: display all legal moves capped by `<max>`
--  `checkmate [<policy>]`: determine whether the final state is checkmate/stalemate
+-  `count [--at <turn>] [<policy>] [<max>]`: display number of available moves capped by `<max>`
+-  `all [--at <turn>] [<policy>] [<max>]`: display all legal moves capped by `<max>`
+-  `checkmate [--at <turn>] [<policy>]`: determine whether the selected state is checkmate/stalemate
 -  `diff`: compare the output of two algorithms.
 -  `perftest [<policy>]`: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
 -  `rollout [options]`: run and report random rollout simulations
 -  `replay-log <log> [seed]`: replay and time a protocol failure log
+
+For `print`, `count`, `all`, and `diff`, `--at 0` selects the initial
+position. A value such as `--at 16b` selects the state immediately after
+turn `16b` is submitted.
 
 Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, `TEST`, `PYMODULE`, or `EMMODULE` enabled, CMake builds only the core C++ library.
 

@@ -23,11 +23,11 @@ struct command
 // Add new 5dtools commands here. The implementation can live in any .cpp file
 // under tools/; CMake discovers it automatically.
 constexpr std::array commands{
-    command{"print", "", "print the final state of a 5DPGN game", run_print},
-    command{"count", "[policy] [max]", "count available actions", run_count},
-    command{"all", "[policy] [max]", "print available actions", run_all},
-    command{"checkmate", "[policy]", "detect checkmate or stalemate", run_checkmate},
-    command{"diff", "", "compare balanced and naive searches", run_diff},
+    command{"print", "[--at turn]", "print a selected state of a 5DPGN game", run_print},
+    command{"count", "[--at turn] [policy] [max]", "count available actions", run_count},
+    command{"all", "[--at turn] [policy] [max]", "print available actions", run_all},
+    command{"checkmate", "[--at turn] [policy]", "detect checkmate or stalemate", run_checkmate},
+    command{"diff", "[--at turn]", "compare balanced and naive searches", run_diff},
     command{"perftest", "[policy]", "check every position in a 5DPGN game", run_perftest},
     command{"rollout", "[options]", "run random rollout simulations", run_rollout},
     command{"replay-log", "<log> [seed]", "replay and time a protocol failure log", replay_log},
