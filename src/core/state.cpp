@@ -496,6 +496,23 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
         check_type |= find_board_checks(s, p.l());
     }
 
+    if(to_white(moved_piece) == KING_W)
+    {
+        const auto [king_t, king_c] = new_state->get_timeline_end(new_pos.l());
+        const std::shared_ptr<board> king_board =
+            new_state->get_board(new_pos.l(), king_t, king_c);
+        const bitboard_t enemy = player ? king_board->white() : king_board->black();
+        const int king_pos = new_pos.xy();
+        const bitboard_t latent_attack =
+              (knight_jump1_attack(king_pos) & enemy & king_board->knight())
+            | (rook_copy_mask(king_pos, 1) & enemy & king_board->lbishop())
+            | (bishop_copy_mask(king_pos, 1) & enemy & king_board->lunicorn());
+        if(latent_attack)
+        {
+            special_move |= special_move_t::DANGEROUS_KING_MOVE;
+        }
+    }
+
     dprint(static_cast<bool>(check_type) ? "checking" : "not checking");
     return {
         std::move(new_state),

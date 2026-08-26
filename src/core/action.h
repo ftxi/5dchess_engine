@@ -43,6 +43,7 @@ enum class special_move_t : uint8_t
     CASTLE = (1 << 3) | (1 << 4),
     SUPERPHYSICAL = 1 << 5,
     BRANCHING = 1 << 6,
+    DANGEROUS_KING_MOVE = 1 << 7,
 };
 
 template <>
