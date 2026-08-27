@@ -122,9 +122,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     // to track the corresponding departing moves for each arriving move
     std::map<vec4, index_t> jump_indices;
     
-    //TODO: support promotion to other pieces
-    static const piece_t promote_to = QUEEN_W;
-    const auto &[size_x, size_y] = s.get_board_size();
+    const int size_x = s.get_board_size().first;
     
     for(vec4 from : s.gen_movable_pieces())
     {
@@ -169,14 +167,6 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 dprint(" ... en passant");
                 newboard = b_ptr->replace_piece(ppos(q.x(),p.y()), NO_PIECE)
                                 ->move_piece(p.xy(), q.xy());
-            }
-            // promotion
-            else if((b_ptr->lpawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
-            {
-                dprint(" ... promotion");
-                piece_t promoted = player ? to_black(promote_to) : promote_to;
-                newboard = b_ptr->replace_piece(p.xy(), NO_PIECE)
-                                ->replace_piece(q.xy(), promoted);
             }
             // castling
             else if((b_ptr->king()&z) && abs(d.x()) > 1)

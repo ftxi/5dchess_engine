@@ -236,11 +236,19 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         // promotion
         else if((b_ptr->lpawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
         {
-            dprint(" ... promotion");
-            piece_t promoted = player ? to_black(promote_to) : promote_to;
-            m->append_board(p.l(), b_ptr
-                            ->replace_piece(p.xy(), NO_PIECE)
-                            ->replace_piece(q.xy(), promoted));
+            if(promotions == promotion_options::NONE)
+            {
+                dprint(" ... promotion disabled");
+                m->append_board(p.l(), b_ptr->move_piece(p.xy(), q.xy()));
+            }
+            else
+            {
+                dprint(" ... promotion");
+                piece_t promoted = player ? to_black(promote_to) : promote_to;
+                m->append_board(p.l(), b_ptr
+                                ->replace_piece(p.xy(), NO_PIECE)
+                                ->replace_piece(q.xy(), promoted));
+            }
         }
         // castling
         else if((b_ptr->king()&z) && abs(d.x()) > 1)
@@ -273,9 +281,17 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         // promotion (only brawns can do)
         if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
         {
-            dprint(" ... nonbranching brawn promotion");
-            piece_t promoted = player ? to_black(promote_to) : promote_to;
-            m->append_board(q.l(), c_ptr->replace_piece(q.xy(), promoted));
+            if(promotions == promotion_options::NONE)
+            {
+                dprint(" ... nonbranching brawn promotion disabled");
+                m->append_board(q.l(), c_ptr->replace_piece(q.xy(), pic));
+            }
+            else
+            {
+                dprint(" ... nonbranching brawn promotion");
+                piece_t promoted = player ? to_black(promote_to) : promote_to;
+                m->append_board(q.l(), c_ptr->replace_piece(q.xy(), promoted));
+            }
         }
         // normal non_branching move
         else
@@ -299,9 +315,17 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         // promotion (only brawns can do)
         if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
         {
-            dprint(" ... branching brawn promotion");
-            piece_t promoted = player ? to_black(promote_to) : promote_to;
-            m->insert_board(new_line(), t, c, x_ptr->replace_piece(q.xy(), promoted));
+            if(promotions == promotion_options::NONE)
+            {
+                dprint(" ... branching brawn promotion disabled");
+                m->insert_board(new_line(), t, c, x_ptr->replace_piece(q.xy(), pic));
+            }
+            else
+            {
+                dprint(" ... branching brawn promotion");
+                piece_t promoted = player ? to_black(promote_to) : promote_to;
+                m->insert_board(new_line(), t, c, x_ptr->replace_piece(q.xy(), promoted));
+            }
         }
         // normal non_branching move
         else
@@ -345,6 +369,14 @@ std::optional<ext_move> state::normalize_promotion(ext_move move) const
         return move;
     }
 
+    if(promotions == promotion_options::NONE)
+    {
+        if(move.promote_to != NO_PIECE)
+        {
+            return std::nullopt;
+        }
+        return move;
+    }
     if(move.promote_to == NO_PIECE)
     {
         move.promote_to = default_promote_to(promotions);
@@ -843,7 +875,8 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                 dprint("matching", fm);
                 // test if this physical move matches any of them
                 const piece_t promote_to = mv.promote_to
-                    ? static_cast<piece_t>(*mv.promote_to) : QUEEN_W;
+                    ? static_cast<piece_t>(*mv.promote_to)
+                    : default_promote_to(promotions);
                 std::string full_notation = fm.pgn_impl(*this, promote_to, OPTIONS, 0, false);
                 auto full = pgnparser(full_notation).parse_physical_move();
                 assert(full.has_value());
@@ -899,14 +932,16 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                     if(is_relative)
                     {
                         const piece_t promote_to = spm.promote_to
-                            ? static_cast<piece_t>(*spm.promote_to) : QUEEN_W;
+                            ? static_cast<piece_t>(*spm.promote_to)
+                            : default_promote_to(promotions);
                         full_notation = fm.pgn_impl(*this, promote_to,
                             OPTIONS | pgn_options::SHOW_RELATIVE, 0, false);
                     }
                     else
                     {
                         const piece_t promote_to = spm.promote_to
-                            ? static_cast<piece_t>(*spm.promote_to) : QUEEN_W;
+                            ? static_cast<piece_t>(*spm.promote_to)
+                            : default_promote_to(promotions);
                         full_notation = fm.pgn_impl(*this, promote_to, OPTIONS, 0, false);
                     }
                     auto full = pgnparser(full_notation).parse_superphysical_move();
@@ -944,7 +979,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
 
 state::parse_pgn_res state::parse_move(const std::string &move) const
 {
-    auto parsed_move = pgnparser(move).parse_move();
+    auto parsed_move = pgnparser(move).parse_standalone_move();
     if(!parsed_move.has_value())
     {
         return std::make_tuple(std::nullopt, std::nullopt, std::vector<full_move>{});

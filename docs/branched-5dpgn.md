@@ -115,7 +115,9 @@ If `Promotions` is omitted, it defaults to `Q`. Commas and whitespace in its
 value are ignored, so `RBNQ` and `R B N, Q` are equivalent. `*` allows every
 non-pawn, non-brawn, non-royal promotion piece: queen, princess, rook, bishop,
 knight, common king, unicorn, and dragon. The `*` form cannot be combined with
-piece letters.
+piece letters. An empty value, `[Promotions ""]`, disables promotion: a pawn
+or brawn reaching the opposite terminal rank remains a pawn or brawn, and an
+explicit promotion suffix is illegal.
 
 If two or more of the headers within `Event` `Site` `Date` `Round` `White` `Black` `Result` are used, they should appear in this order.
 

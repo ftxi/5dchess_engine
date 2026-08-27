@@ -50,8 +50,10 @@ public:
     std::optional<physical_move> parse_physical_move();
     std::optional<std::monostate> parse_timeline_comment();
     std::optional<superphysical_move> parse_superphysical_move();
-    std::optional<move> parse_move();
+    std::optional<move> parse_move(); /* parses move in a larger context */
+    std::optional<move> parse_standalone_move(); /* parses move followed by END */
 private:
+    std::optional<char> parse_promotion();
     // made private because the return value relies on the lifetime of this->input
     std::vector<std::string_view> parse_comments();
 public:

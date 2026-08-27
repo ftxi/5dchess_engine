@@ -78,15 +78,15 @@ promotion_options parse_promotions(std::string_view value)
         }
         return promotion_options::ALL;
     }
-    if(result == promotion_options::NONE)
-    {
-        throw std::runtime_error("parse_promotions(): Promotion list cannot be empty");
-    }
     return result;
 }
 
 std::string format_promotions(promotion_options options)
 {
+    if(options == promotion_options::NONE)
+    {
+        return "";
+    }
     if(options == promotion_options::ALL)
     {
         return "*";
@@ -98,10 +98,6 @@ std::string format_promotions(promotion_options options)
         {
             result += static_cast<char>(piece);
         }
-    }
-    if(result.empty())
-    {
-        throw std::runtime_error("format_promotions(): Promotion list cannot be empty");
     }
     return result;
 }

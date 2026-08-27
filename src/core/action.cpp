@@ -95,7 +95,8 @@ std::string full_move::lan(const state &s, piece_t promote_to) const
     const bool player = s.get_present().second;
     const piece_t pic = to_white(piece_name(s.get_piece(from, player)));
     std::string result = to_string();
-    if((pic == PAWN_W || pic == BRAWN_W)
+    if(promote_to != NO_PIECE
+        && (pic == PAWN_W || pic == BRAWN_W)
         && to.y() == (player ? 0 : (s.get_board_size().second - 1)))
     {
         result += static_cast<char>(promote_to);
@@ -454,7 +455,8 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
     }
     if(static_cast<bool>(options & pgn_options::SHOW_PROMOTION))
     {
-        if((pic == PAWN_W || pic == BRAWN_W) && (q.y() == (player ? 0 : (s.get_board_size().second - 1))))
+        if(pt != NO_PIECE && (pic == PAWN_W || pic == BRAWN_W)
+            && (q.y() == (player ? 0 : (s.get_board_size().second - 1))))
         {
             oss << "=" << pt;
         }
