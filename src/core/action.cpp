@@ -1,7 +1,10 @@
 #include "action.h"
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdio>
+#include <iterator>
 #include <sstream>
-#include "utils.h"
 #include "state.h"
 
 full_move::full_move(std::string str): from{0,0,0,0}, to{0,0,0,0}
@@ -122,18 +125,26 @@ ext_move::ext_move(std::string s)
     : fm(s.empty() || s.back() < 'A' || s.back() > 'Z'
              ? s : s.substr(0, s.size() - 1)),
       promote_to(s.empty() || s.back() < 'A' || s.back() > 'Z'
-             ? QUEEN_W : static_cast<piece_t>(s.back()))
+             ? NO_PIECE : static_cast<piece_t>(s.back()))
 {
 }
 
 std::string ext_move::to_string() const
 {
-    return fm.to_string() + static_cast<char>(promote_to);
+    std::string result = fm.to_string();
+    if(promote_to != NO_PIECE)
+    {
+        result += static_cast<char>(promote_to);
+    }
+    return result;
 }
 
 std::string ext_move::lan(const state &s) const
 {
-    return fm.lan(s, promote_to);
+    const auto normalized = s.normalize_promotion(*this);
+    return normalized
+        ? fm.lan(s, normalized->promote_to)
+        : "---INVALID MOVE---";
 }
 
 /*********************************/
@@ -176,6 +187,16 @@ action action::from_vector(const std::vector<ext_move> &mvs, const state &s)
 {
     action a{mvs};
     a.branching_index = sort(a.mvs, s);
+    for(ext_move &move : a.mvs)
+    {
+        const auto normalized = s.normalize_promotion(move);
+        if(!normalized)
+        {
+            throw std::runtime_error(
+                "action::from_vector(): Invalid promotion piece");
+        }
+        move = *normalized;
+    }
     return a;
 }
 
@@ -202,8 +223,14 @@ std::string action::lan(const state &initial_state) const
 {
     state s = initial_state;
     std::string result;
-    for(const auto &mv : mvs)
+    for(const auto &raw_move : mvs)
     {
+        const auto normalized = s.normalize_promotion(raw_move);
+        if(!normalized)
+        {
+            return "---INVALID ACTION---";
+        }
+        const ext_move &mv = *normalized;
         result += mv.lan(s) + " ";
         s.apply_move<true>(mv.fm, mv.promote_to);
     }
@@ -447,7 +474,10 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
 
 std::string ext_move::pgn(const state &s, pgn_options options) const
 {
-    return fm.pgn(s, promote_to, options);
+    const auto normalized = s.normalize_promotion(*this);
+    return normalized
+        ? fm.pgn(s, normalized->promote_to, options)
+        : "---INVALID MOVE---";
 }
 
 std::string action::pgn_impl(
@@ -462,7 +492,12 @@ std::string action::pgn_impl(
     bool multimove = mvs.size() > 1;
     for(size_t i = 0; i < mvs.size(); i++)
     {
-        auto [m, pt] = mvs[i];
+        const auto normalized = s.normalize_promotion(mvs[i]);
+        if(!normalized)
+        {
+            return "---INVALID ACTION---";
+        }
+        auto [m, pt] = *normalized;
         pgn += m.pgn_impl(s, pt, options, check_symbols[i], multimove) + " ";
         s.apply_move<true>(m, pt);
     }

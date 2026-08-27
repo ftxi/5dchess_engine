@@ -75,6 +75,11 @@ variant_setup_t derive_variant_setup(const pgnparser_ast::game& g)
 {
     auto& metadata = g.headers;
     auto [size_x, size_y] = get_board_size_from_headers(metadata);
+    promotion_options promotions = promotion_options::QUEEN;
+    if(auto it = metadata.find("promotions"); it != metadata.end())
+    {
+        promotions = parse_promotions(it->second);
+    }
 
     std::vector<std::tuple<std::string, pgnparser_ast::token_t, int, int, bool>> boards = g.boards;
     std::optional<bool> is_even_timelines;
@@ -125,7 +130,7 @@ variant_setup_t derive_variant_setup(const pgnparser_ast::game& g)
         is_even_timelines = even;
     }
 
-    return {size_x, size_y, boards, *is_even_timelines};
+    return {size_x, size_y, boards, *is_even_timelines, promotions};
 }
 
 std::unique_ptr<multiverse> create_multiverse_from_variant_setup(const variant_setup_t& variant_setup)

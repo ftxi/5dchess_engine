@@ -116,7 +116,7 @@ PYBIND11_MODULE(engine, m) {
         .def(py::init<vec4, vec4, piece_t>(),
              py::arg("from"),
              py::arg("to"),
-             py::arg("promote_to") = QUEEN_W)
+             py::arg("promote_to") = NO_PIECE)
         .def("get_from", &ext_move::get_from)
         .def("get_to", &ext_move::get_to)
         .def("get_promote", &ext_move::get_promote)
@@ -166,6 +166,9 @@ PYBIND11_MODULE(engine, m) {
         .def("currently_check", &game::currently_check)
         .def("get_current_checks", &game::get_current_checks)
         .def("get_board_size", &game::get_board_size)
+        .def("get_promotion_options", [](const game &g) {
+            return static_cast<uint8_t>(g.get_promotion_options());
+        })
         .def("suggest_action", &game::suggest_action)
         .def("get_comments", &game::get_comments)
         .def("set_comments", &game::set_comments)

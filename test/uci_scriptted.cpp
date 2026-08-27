@@ -83,15 +83,7 @@ public:
             search_cv.wait_for(lock, std::chrono::milliseconds(10));
         }
 
-        const auto &current_state = get_current_state();
-        if(!current_state.has_value())
-        {
-            return std::nullopt;
-        }
-
-        std::vector<ext_move> moves;
-        moves.emplace_back(full_move("(0T0)a1a1"));
-        return action::from_vector(moves, current_state.value());
+        return std::nullopt;
     }
 
     const std::vector<option_change>& option_changes() const
@@ -189,14 +181,14 @@ int main()
     assert(changes[3].key == "Clear Hash");
     assert(std::holds_alternative<std::monostate>(changes[3].value));
 
-    // Position moves retain the promotion piece encoded by ext_move.
+    // 5DUCI positions use the protocol's default queen promotion.
     auto promotion_io = std::make_unique<scripted_io_handler>(
         std::vector<scripted_io_handler::scripted_line>{});
     dummy_engine promotion_eng(std::move(promotion_io));
     promotion_eng.set_position(
         "size 4x4 odd fen [3k/P3/4/K*3:0:1:w]",
-        "(0T1)a3a4N");
-    assert(promotion_eng.get_current_state()->get_piece(vec4(0, 3, 1, 0), true) == KNIGHT_W);
+        "(0T1)a3a4");
+    assert(promotion_eng.get_current_state()->get_piece(vec4(0, 3, 1, 0), true) == QUEEN_W);
 
     // Invalid position histories report an error without terminating the
     // main loop. A later valid position command must still be accepted.

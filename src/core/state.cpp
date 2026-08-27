@@ -11,7 +11,8 @@
 #include "debug.h"
 
 
-state::state(multiverse &mtv) noexcept : m(mtv.clone())
+state::state(multiverse &mtv, promotion_options promotion_rules) noexcept
+    : m(mtv.clone()), promotions(promotion_rules)
 {
     std::tie(present, player) = m->get_present();
 }
@@ -20,6 +21,7 @@ state::state(const pgnparser_ast::game &g)
 {
     auto variant_setup = derive_variant_setup(g);
     m = create_multiverse_from_variant_setup(variant_setup);
+    promotions = variant_setup.promotions;
     std::tie(present, player) = m->get_present();
     // parse moves
     const pgnparser_ast::gametree *gt = &g.gt;
@@ -182,6 +184,12 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     vec4 d = q - p;
     if constexpr (!UNSAFE)
     {
+        const auto normalized = normalize_promotion(ext_move(fm, promote_to));
+        if(!normalized)
+        {
+            return false;
+        }
+        promote_to = normalized->promote_to;
 #ifndef NDEBUG
         auto te = m->get_timeline_end(p.l());
         assert(std::make_pair(p.t(), player) == te && "moves must be made on an active board");
@@ -309,6 +317,43 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         }
     }
     return true;
+}
+
+std::optional<ext_move> state::normalize_promotion(ext_move move) const
+{
+    const vec4 p = move.fm.from;
+    const vec4 q = move.fm.to;
+    const vec4 d = q - p;
+    const auto &[size_x, size_y] = get_board_size();
+    (void)size_x;
+    const bool last_rank = q.y() == 0 || q.y() == size_y - 1;
+    if(!last_rank)
+    {
+        move.promote_to = NO_PIECE;
+        return move;
+    }
+    const piece_t piece = piece_name(get_piece(p, player));
+    const bool physical_promotion = d.l() == 0 && d.t() == 0
+        && (piece == PAWN_W || piece == PAWN_B || piece == BRAWN_W || piece == BRAWN_B)
+        && last_rank;
+    const bool superphysical_promotion = (d.l() != 0 || d.t() != 0)
+        && (piece == BRAWN_W || piece == BRAWN_B)
+        && last_rank;
+    if(!physical_promotion && !superphysical_promotion)
+    {
+        move.promote_to = NO_PIECE;
+        return move;
+    }
+
+    if(move.promote_to == NO_PIECE)
+    {
+        move.promote_to = default_promote_to(promotions);
+    }
+    if(!can_promote_to(promotions, move.promote_to))
+    {
+        return std::nullopt;
+    }
+    return move;
 }
 
 state::move_info state::get_move_info(full_move fm, piece_t pt) const
@@ -797,7 +842,9 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                 full_move fm(p,q);
                 dprint("matching", fm);
                 // test if this physical move matches any of them
-                std::string full_notation = fm.pgn_impl(*this, QUEEN_W, OPTIONS, 0, false);
+                const piece_t promote_to = mv.promote_to
+                    ? static_cast<piece_t>(*mv.promote_to) : QUEEN_W;
+                std::string full_notation = fm.pgn_impl(*this, promote_to, OPTIONS, 0, false);
                 auto full = pgnparser(full_notation).parse_physical_move();
                 assert(full.has_value());
                 bool match = pgnparser::match_physical_move(mv, *full);
@@ -851,12 +898,16 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                     std::string full_notation;
                     if(is_relative)
                     {
-                        full_notation = fm.pgn_impl(*this, QUEEN_W,
+                        const piece_t promote_to = spm.promote_to
+                            ? static_cast<piece_t>(*spm.promote_to) : QUEEN_W;
+                        full_notation = fm.pgn_impl(*this, promote_to,
                             OPTIONS | pgn_options::SHOW_RELATIVE, 0, false);
                     }
                     else
                     {
-                        full_notation = fm.pgn_impl(*this, QUEEN_W, OPTIONS, 0, false);
+                        const piece_t promote_to = spm.promote_to
+                            ? static_cast<piece_t>(*spm.promote_to) : QUEEN_W;
+                        full_notation = fm.pgn_impl(*this, promote_to, OPTIONS, 0, false);
                     }
                     auto full = pgnparser(full_notation).parse_superphysical_move();
                     assert(full.has_value());

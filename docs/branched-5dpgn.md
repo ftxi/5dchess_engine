@@ -111,6 +111,12 @@ Here are some other recommended headers:
 + `Promotions`: A list of capital letters, describing which piece pawns/brawns can promote to.
 + `Puzzle`: indicates what kind of puzzle it is (mate in N, aid mate, find the best move, etc.)
 
+If `Promotions` is omitted, it defaults to `Q`. Commas and whitespace in its
+value are ignored, so `RBNQ` and `R B N, Q` are equivalent. `*` allows every
+non-pawn, non-brawn, non-royal promotion piece: queen, princess, rook, bishop,
+knight, common king, unicorn, and dragon. The `*` form cannot be combined with
+piece letters.
+
 If two or more of the headers within `Event` `Site` `Date` `Round` `White` `Black` `Result` are used, they should appear in this order.
 
 ### Default Behavior
@@ -409,7 +415,7 @@ Here is the BNF of Branched 5DPGN:
 <super-physical-move> ::= [<board>] [<piece-name>] [<file>] [<rank>] (<jump-indicator> ['x'] | [<jump-indicator>] ['x'] <board>) <file> <rank> ['=' <promote-to>] [<check-symbol>] [<present-moved-symbol>] [<evaluation-symbol>] <timeline-comment>*
 <board> ::= '(' (['L'] <line> | [['L'] <line>] 'T' <time>) ')'
 <piece-name> ::= 'P' | 'W' | 'K' | 'C' | 'Q' | 'Y' | 'S' | 'N' | 'R' | 'B' | 'U' | 'D'
-<promote-to> ::= 'Q' ;change this if promotion to other pieces is allowed
+<promote-to> ::= a piece symbol enabled by the `Promotions` header
 <jump-indicator> ::= '>' | '>>'
 <file> ::= 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h'
 <rank> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8'
@@ -505,4 +511,3 @@ This example game uses Branched 5DPGN encoding and includes commentary and analy
 18. Bxe7 {Black's Queen cannot capture the bishop, because if it fails to protect the pawn at g6, White will win immediately.}/ Qxe7 
 19. Nxg6# 
 ```
-

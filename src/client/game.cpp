@@ -40,10 +40,12 @@ game game::from_pgn(std::string input)
     pgnparser_ast::gametree &gt_ast = ag->gt;
     variant_setup_t variant_setup = derive_variant_setup(*ag);
     std::unique_ptr<multiverse> m = create_multiverse_from_variant_setup(variant_setup);
-    game g(gnode<comments_t>::create_root(state(*m), ag->comments));
+    game g(gnode<comments_t>::create_root(
+        state(*m, variant_setup.promotions), ag->comments));
     g.metadata = ag->headers;
     g.metadata["timeline"] = variant_setup.is_even_timelines ? "even" : "odd";
     g.metadata["size"] = std::to_string(variant_setup.size_x) + "x" + std::to_string(variant_setup.size_y);
+    g.metadata["promotions"] = format_promotions(variant_setup.promotions);
     gnode<comments_t> *cn = nullptr;
     // parse moves
     std::function<void(gnode<comments_t>*, const pgnparser_ast::gametree&)> dfs;
@@ -63,14 +65,14 @@ game game::from_pgn(std::string input)
                         if(candidates.empty())
                         {
                             std::ostringstream oss;
-                            oss << "state(): Invalid move: " << mv_ast;
+                            oss << "game::from_pgn(): Invalid move: " << mv_ast;
                             
                             throw std::runtime_error(oss.str());
                         }
                         else
                         {
                             std::ostringstream oss;
-                            oss << "state(): Ambiguous move: " << mv_ast << "; candidates: ";
+                            oss << "game::from_pgn(): Ambiguous move: " << mv_ast << "; candidates: ";
                             oss << range_to_string(candidates, "", "");
                             throw std::runtime_error(oss.str());
                         }
@@ -78,29 +80,30 @@ game game::from_pgn(std::string input)
                     else
                     {
                         full_move fm = fm_opt.value();
-                        bool flag;
-                        if(pt_opt.has_value())
+                        const auto normalized = s.normalize_promotion(ext_move(
+                            fm, pt_opt.value_or(NO_PIECE)));
+                        if(!normalized)
                         {
-                            flag = s.apply_move<false>(fm, *pt_opt);
+                            std::ostringstream oss;
+                            oss << "game::from_pgn(): Illegal promotion: " << mv_ast;
+                            throw std::runtime_error(oss.str());
                         }
-                        else
-                        {
-                            flag = s.apply_move<false>(fm);
-                        }
+                        const bool flag = s.apply_move<false>(
+                            normalized->fm, normalized->promote_to);
                         if(!flag)
                         {
                             std::ostringstream oss;
-                            oss << "state(): Illegal move: " << mv_ast << " (parsed as: " << fm << ")";
+                            oss << "game::from_pgn(): Illegal move: " << mv_ast << " (parsed as: " << fm << ")";
                             throw std::runtime_error(oss.str());
                         }
-                        moves.push_back(ext_move(fm, pt_opt.has_value() ? *pt_opt : QUEEN_W));
+                        moves.push_back(*normalized);
                     }
                 }
                 bool flag = s.submit();
                 if(!flag)
                 {
                     std::ostringstream oss;
-                    oss << "state(): Cannot submit after parsing these moves: " << act_ast;
+                    oss << "game::from_pgn(): Cannot submit after parsing these moves: " << act_ast;
                     throw std::runtime_error(oss.str());
                 }
                 action act = action::from_vector(moves, node->get_state());
@@ -295,12 +298,18 @@ bool game::redo()
 
 bool game::apply_move(ext_move m)
 {
-    std::optional<state> ans = now->first.can_apply(m.fm, m.promote_to);
+    const auto normalized = now->first.normalize_promotion(m);
+    if(!normalized)
+    {
+        return false;
+    }
+    std::optional<state> ans = now->first.can_apply(
+        normalized->fm, normalized->promote_to);
     if(ans)
     {
         state new_state = std::move(ans.value());
         cached.erase(now + 1, cached.end());
-        cached.push_back(std::make_pair(new_state, std::make_optional(m)));
+        cached.push_back(std::make_pair(new_state, normalized));
         now = cached.end() - 1;
         return true;
     }
@@ -346,6 +355,11 @@ std::vector<std::pair<vec4, vec4>> game::get_current_checks() const
 std::pair<int, int> game::get_board_size() const
 {
     return get_current_state().get_board_size();
+}
+
+promotion_options game::get_promotion_options() const
+{
+    return gametree->get_stored_state().get_promotion_options();
 }
 
 bool game::suggest_action()
@@ -453,12 +467,18 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
 std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
 {
     std::ostringstream oss;
-    constexpr static std::array<std::string, 10> ordered_keys = {
-        "event", "site", "date", "round", "white", "black", "result", "variant", "timeline", "size"
+    constexpr static std::array<std::string, 11> ordered_keys = {
+        "event", "site", "date", "round", "white", "black", "result",
+        "variant", "size", "timeline", "promotions"
     };
 
     for(const auto &k : ordered_keys)
     {
+        if(k == "promotions")
+        {
+            oss << "[Promotions \"" << format_promotions(get_promotion_options()) << "\"]\n";
+            continue;
+        }
         auto it = metadata.find(k);
         if(it == metadata.end())
         {
