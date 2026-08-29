@@ -102,7 +102,7 @@ std::optional<action> flat_ucb_engine::find_best_move(
                 best_score = score;
             }
         }
-        const rollout_result rollout = rollout(
+        const rollout_result result = rollout(
             children[selected].position,
             rollout_max_actions.load(),
             stop_token,
@@ -111,11 +111,11 @@ std::optional<action> flat_ucb_engine::find_best_move(
         {
             break;
         }
-        if(rollout.end == rollout_result::termination::WHITE_WINS)
+        if(result.end == rollout_result::termination::WHITE_WINS)
         {
             children[selected].sum_reward += winning_score;
         }
-        else if(rollout.end == rollout_result::termination::BLACK_WINS)
+        else if(result.end == rollout_result::termination::BLACK_WINS)
         {
             children[selected].sum_reward -= winning_score;
         }

@@ -7,7 +7,10 @@
 #include <iostream>
 #include <iomanip>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
+#include <limits>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 
@@ -58,12 +61,14 @@ int run_rollout(int argc, const char *argv[])
     using clock = std::chrono::steady_clock;
     clock::duration total_simulation_duration{};
     bool csv_output = false;
+    std::optional<std::uint32_t> seed;
     bool show_help = false;
     bool read_pgn_from_stdin = false;
     auto print_help = [&](std::ostream &out = std::cout) {
         out << "Usage: 5dtools rollout [OPTIONS]\n"
                   << "  -m, --max-actions <n>  limit exploration depth per simulation (default " << MAX_ACTIONS << ")\n"
                   << "  -s, --simulations <n>  number of simulations to run (default " << SIMULATION_NUM << ")\n"
+                  << "  --seed <n>             use an unsigned 32-bit rollout seed\n"
                   << "  -i                     read PGN from stdin until EOF (overrides default position)\n"
                   << "  -csv                   emit CSV with columns simulation,winner,time_ms\n"
                   << "                         (time_ms is the duration of each simulation in milliseconds)\n"
@@ -74,6 +79,34 @@ int run_rollout(int argc, const char *argv[])
         if(std::strcmp(argv[arg], "-csv") == 0)
         {
             csv_output = true;
+            continue;
+        }
+        if(std::strcmp(argv[arg], "--seed") == 0)
+        {
+            if(++arg >= argc)
+            {
+                std::cerr << "Error: missing argument for --seed\n";
+                print_help(std::cerr);
+                return 2;
+            }
+            try
+            {
+                size_t consumed = 0;
+                const unsigned long long parsed
+                    = std::stoull(argv[arg], &consumed);
+                if(consumed != std::strlen(argv[arg])
+                   || parsed > std::numeric_limits<std::uint32_t>::max())
+                {
+                    throw std::out_of_range("rollout seed");
+                }
+                seed = static_cast<std::uint32_t>(parsed);
+            }
+            catch(const std::exception &)
+            {
+                std::cerr << "Error: invalid rollout seed: " << argv[arg] << '\n';
+                print_help(std::cerr);
+                return 2;
+            }
             continue;
         }
         if(std::strcmp(argv[arg], "-h") == 0 || std::strcmp(argv[arg], "--help") == 0)
@@ -170,6 +203,11 @@ int run_rollout(int argc, const char *argv[])
         return 1;
     }
     state &s = *parsed_state;
+    std::optional<std::mt19937> rng;
+    if(seed.has_value())
+    {
+        rng.emplace(*seed);
+    }
     if(csv_output)
     {
         std::cout << "simulation,winner,time_ms\n";
@@ -178,8 +216,9 @@ int run_rollout(int argc, const char *argv[])
     for(int i = 0; i < simulation_num; i++)
     {
         auto start = clock::now();
-        const rollout_result::termination termination
-            = rollout(s, max_actions).end;
+        std::mt19937 *rng_ptr = rng.has_value() ? &*rng : nullptr;
+        const rollout_result result = rollout(s, max_actions, {}, rng_ptr);
+        const rollout_result::termination termination = result.end;
         const char *winner_name
             = termination == rollout_result::termination::WHITE_WINS
             ? "white"
