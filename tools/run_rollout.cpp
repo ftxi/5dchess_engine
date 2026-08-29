@@ -178,14 +178,21 @@ int run_rollout(int argc, const char *argv[])
     for(int i = 0; i < simulation_num; i++)
     {
         auto start = clock::now();
-        const std::optional<bool> winner = rollout(s, max_actions);
+        const rollout_result::termination termination
+            = rollout(s, max_actions).end;
+        const char *winner_name
+            = termination == rollout_result::termination::WHITE_WINS
+            ? "white"
+            : termination == rollout_result::termination::BLACK_WINS
+                ? "black"
+                : "none";
         auto duration = clock::now() - start;
         total_simulation_duration += duration;
         double duration_ms = std::chrono::duration<double, std::milli>(duration).count();
         if(csv_output)
         {
             std::cout << (i + 1) << ','
-                      << (winner.has_value() ? (*winner ? "black" : "white") : "none") << ','
+                      << winner_name << ','
                       << duration_ms << '\n';
         }
         else
@@ -195,17 +202,17 @@ int run_rollout(int argc, const char *argv[])
                       << " ms)   ";
             std::cout.flush();
         }
-        if(!winner.has_value())
+        if(termination == rollout_result::termination::WHITE_WINS)
         {
-            ++no_winner;
+            ++white_wins;
         }
-        else if(*winner)
+        else if(termination == rollout_result::termination::BLACK_WINS)
         {
             ++black_wins;
         }
         else
         {
-            ++white_wins;
+            ++no_winner;
         }
     }
     if(csv_output)

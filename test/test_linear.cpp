@@ -132,23 +132,24 @@ void test_rollout_value_and_inplace_semantics()
     const turn_t initial_turn = original.get_present();
 
     std::mt19937 value_rng(7);
-    const auto value_winner = rollout(original, 1, {}, &value_rng);
-    assert(!value_winner.has_value());
+    const rollout_result value_result
+        = rollout(original, 1, {}, &value_rng);
+    assert(value_result.end == rollout_result::termination::ACTION_LIMIT);
     assert(original.get_present() == initial_turn);
 
     std::mt19937 inplace_rng(7);
-    const auto inplace_winner = rollout_inplace(original, 1, {}, &inplace_rng);
-    assert(!inplace_winner.has_value());
+    const rollout_result inplace_result
+        = rollout_inplace(original, 1, {}, &inplace_rng);
+    assert(inplace_result.end == rollout_result::termination::ACTION_LIMIT);
     assert(original.get_present() == next_turn(initial_turn));
 
     state detailed_position = standard_position();
     std::mt19937 detailed_rng(7);
-    const rollout_result cutoff = rollout_inplace_detailed(
+    const rollout_result cutoff = rollout_inplace(
         detailed_position, 1, {}, &detailed_rng);
-    assert(cutoff.termination == rollout_termination::ACTION_LIMIT);
+    assert(cutoff.end == rollout_result::termination::ACTION_LIMIT);
     assert(!cutoff.is_conclusive());
-    assert(!cutoff.winner.has_value());
-    assert(cutoff.actions == 1);
+    assert(cutoff.num_actions == 1);
 }
 
 void test_stalemate_rollout_termination()
@@ -156,12 +157,32 @@ void test_stalemate_rollout_termination()
     multiverse_odd multiverse({
         {0, 1, true, "k7/2Q5/2K5/8/8/8/8/8"}
     });
-    const rollout_result result = rollout_detailed(state(multiverse), 1);
+    const rollout_result result = rollout(state(multiverse), 1);
 
-    assert(result.termination == rollout_termination::STALEMATE);
+    assert(result.end == rollout_result::termination::STALEMATE);
     assert(result.is_conclusive());
-    assert(!result.winner.has_value());
-    assert(result.actions == 0);
+    assert(result.num_actions == 0);
+}
+
+void test_winner_rollout_termination()
+{
+    multiverse_odd white_win_multiverse({
+        {0, 1, true, "k7/1Q6/2K5/8/8/8/8/8"}
+    });
+    const rollout_result white_win
+        = rollout(state(white_win_multiverse), 1);
+    assert(white_win.end == rollout_result::termination::WHITE_WINS);
+    assert(white_win.is_conclusive());
+    assert(white_win.num_actions == 0);
+
+    multiverse_odd black_win_multiverse({
+        {0, 1, false, "K7/1q6/2k5/8/8/8/8/8"}
+    });
+    const rollout_result black_win
+        = rollout(state(black_win_multiverse), 1);
+    assert(black_win.end == rollout_result::termination::BLACK_WINS);
+    assert(black_win.is_conclusive());
+    assert(black_win.num_actions == 0);
 }
 
 void test_policy_evaluates_final_rollout_state()
@@ -173,7 +194,7 @@ void test_policy_evaluates_final_rollout_state()
 
     std::mt19937 rng(11);
     const default_policy_result result = engine.policy(standard_position(), &rng);
-    assert(result.termination == rollout_termination::ACTION_LIMIT);
+    assert(result.termination == rollout_result::termination::ACTION_LIMIT);
     assert(std::abs(result.score + std::tanh(1.0f)) < 1e-6f);
 }
 
@@ -186,6 +207,7 @@ int main()
     test_builtin_weight_profiles();
     test_rollout_value_and_inplace_semantics();
     test_stalemate_rollout_termination();
+    test_winner_rollout_termination();
     test_policy_evaluates_final_rollout_state();
     return 0;
 }

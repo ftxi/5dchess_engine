@@ -12,7 +12,8 @@ generator<moveseq> iterative_search(
     const HC_info &hc_info,
     search_space search_space,
     Order order,
-    std::stop_token stop_token)
+    std::stop_token stop_token
+)
 {
     while(!search_space.empty())
     {
@@ -43,18 +44,19 @@ generator<moveseq> iterative_search(
 
 } /* anonymous namespace */
 
-rollout_result rollout_inplace_detailed(
+rollout_result rollout_inplace(
     state &s,
     int max_actions,
     std::stop_token stop_token,
-    std::mt19937 *rng)
+    std::mt19937 *rng
+)
 {
-    std::size_t actions = 0;
-    for(int num_actions = 0; num_actions < max_actions; ++num_actions)
+    std::size_t num_actions = 0;
+    for(int action_index = 0; action_index < max_actions; ++action_index)
     {
         if(stop_token.stop_requested())
         {
-            return {rollout_termination::STOPPED, std::nullopt, actions};
+            return {rollout_result::termination::STOPPED, num_actions};
         }
 
         const auto [present, player] = s.get_present();
@@ -74,51 +76,35 @@ rollout_result rollout_inplace_detailed(
                 s.apply_move(move);
             }
             s.submit();
-            ++actions;
+            ++num_actions;
             continue;
         }
 
         if(stop_token.stop_requested())
         {
-            return {rollout_termination::STOPPED, std::nullopt, actions};
+            return {rollout_result::termination::STOPPED, num_actions};
         }
 
         if(s.get_mate_type() == mate_type::STALEMATE)
         {
-            return {rollout_termination::STALEMATE, std::nullopt, actions};
+            return {rollout_result::termination::STALEMATE, num_actions};
         }
         return {
-            rollout_termination::WINNER,
-            std::optional<bool>{!player},
-            actions
+            player
+                ? rollout_result::termination::WHITE_WINS
+                : rollout_result::termination::BLACK_WINS,
+            num_actions
         };
     }
-    return {rollout_termination::ACTION_LIMIT, std::nullopt, actions};
+    return {rollout_result::termination::ACTION_LIMIT, num_actions};
 }
 
-rollout_result rollout_detailed(
+rollout_result rollout(
     state s,
     int max_actions,
     std::stop_token stop_token,
-    std::mt19937 *rng)
+    std::mt19937 *rng
+)
 {
-    return rollout_inplace_detailed(s, max_actions, stop_token, rng);
-}
-
-std::optional<bool> rollout_inplace(
-    state &s,
-    int max_actions,
-    std::stop_token stop_token,
-    std::mt19937 *rng)
-{
-    return rollout_inplace_detailed(s, max_actions, stop_token, rng).winner;
-}
-
-std::optional<bool> rollout(
-    state s,
-    int max_actions,
-    std::stop_token stop_token,
-    std::mt19937 *rng)
-{
-    return rollout_detailed(std::move(s), max_actions, stop_token, rng).winner;
+    return rollout_inplace(s, max_actions, stop_token, rng);
 }

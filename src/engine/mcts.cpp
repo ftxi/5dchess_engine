@@ -209,18 +209,21 @@ default_policy_result mcts_engine::default_policy(
     std::stop_token stop_token,
     std::mt19937 *rng)
 {
-    const rollout_result result = rollout_detailed(
+    const rollout_result result = rollout(
         std::move(position),
         rollout_max_actions.load(),
         stop_token,
         rng);
-    if(!result.winner.has_value())
+    if(result.end != rollout_result::termination::WHITE_WINS
+       && result.end != rollout_result::termination::BLACK_WINS)
     {
-        return {0.0f, result.termination};
+        return {0.0f, result.end};
     }
     return {
-        *result.winner ? -WINNING_SCORE : WINNING_SCORE,
-        result.termination
+        result.end == rollout_result::termination::WHITE_WINS
+            ? WINNING_SCORE
+            : -WINNING_SCORE,
+        result.end
     };
 }
 
@@ -295,7 +298,7 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
         }
         const bool terminal_leaf = node->is_terminal();
         float outcome;
-        std::optional<rollout_termination> rollout_end;
+        std::optional<rollout_result::termination> rollout_end;
         if(terminal_leaf)
         {
             outcome = terminal_outcome(node->get_context()->hc_info.s);
@@ -311,15 +314,16 @@ std::optional<action> mcts_engine::find_best_move(std::optional<int> depth_limit
             rollout_end = result.termination;
         }
         if(stop_token.stop_requested()
-           || rollout_end == rollout_termination::STOPPED)
+           || rollout_end == rollout_result::termination::STOPPED)
         {
             dprint("find_best_move: simulation aborted at iteration", iteration_count);
             break;
         }
         if(!terminal_leaf)
         {
-            if(rollout_end == rollout_termination::WINNER
-               || rollout_end == rollout_termination::STALEMATE)
+            if(rollout_end == rollout_result::termination::WHITE_WINS
+               || rollout_end == rollout_result::termination::BLACK_WINS
+               || rollout_end == rollout_result::termination::STALEMATE)
             {
                 ++conclusive_rollouts;
             }
