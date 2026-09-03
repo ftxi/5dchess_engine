@@ -20,7 +20,7 @@
 <absolute-board> ::= '(' (['L'] <line> | [['L'] <line>] 'T' <time>) ')'
 <relative-board> ::= '$(' (['L'] <difference> | [['L'] <difference>] 'T' <difference>) ')'
 <piece-name> ::= 'P' | 'W' | 'K' | 'C' | 'Q' | 'Y' | 'S' | 'N' | 'R' | 'B' | 'U' | 'D'
-<promote-to> ::= 'Q' ;change this if promotion to other pieces is allowed
+<promote-to> ::= a piece symbol enabled by the Promotions header
 <jump-indicator> ::= '>' | '>>'
 <difference> ::= '=' | '+' <positive-number> | '-' <positive-number>
 <file> ::= 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h'

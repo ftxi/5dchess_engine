@@ -12,6 +12,7 @@
 #include <iostream>
 #include "multiverse.h"
 #include "action.h"
+#include "promotion_header.h"
 #include "generator.h"
 #include "ast.h"
 
@@ -24,6 +25,7 @@ class state
     */
     int present;
     bool player;
+    promotion_options promotions;
     
     template<bool C>
     std::vector<vec4> gen_movable_pieces_impl(const std::vector<int> &lines) const;
@@ -37,13 +39,13 @@ class state
     generator<full_move> find_checks_impl(std::vector<int> lines) const;
 
 public:
-    state(multiverse &mtv) noexcept;
+    state(multiverse &mtv, promotion_options promotions = promotion_options::QUEEN) noexcept;
     state(const pgnparser_ast::game &g);
     virtual ~state() = default;
     
     // standard copy-constructors
     state(const state &other)
-    : m{other.m->clone()}, present{other.present}, player{other.player} {}
+    : m{other.m->clone()}, present{other.present}, player{other.player}, promotions{other.promotions} {}
     state(state&&) noexcept = default;
     state &operator=(state other) noexcept {
         swap(*this, other);
@@ -53,6 +55,7 @@ public:
         std::swap(a.m, b.m);
         std::swap(a.present, b.present);
         std::swap(a.player, b.player);
+        std::swap(a.promotions, b.promotions);
     }
 
 
@@ -60,7 +63,7 @@ public:
      can_apply: Check if the move can be applied to the current state. If yes, return the new state after applying the move; otherwise return std::nullopt.
      Note that this function is different from `apply_move` in that it does not change the current state as a side effect.
     */
-    std::optional<state> can_apply(full_move fm, piece_t promote_to = QUEEN_W) const;
+    std::optional<state> can_apply(full_move fm, piece_t promote_to = NO_PIECE) const;
     std::optional<state> can_apply(const action &act) const;
     std::optional<state> can_submit() const;
     
@@ -69,7 +72,7 @@ public:
      Parameter `UNSAFE=true`: unsafe mode, does not check whether the pending move is pseudolegal. If it is indeed not pseudolegal, the outcome may be unexpected.
      */
     template<bool UNSAFE = false>
-    bool apply_move(full_move fm, piece_t promote_to = QUEEN_W);
+    bool apply_move(full_move fm, piece_t promote_to = NO_PIECE);
     template<bool UNSAFE = false>
     bool submit();
     
@@ -83,7 +86,7 @@ public:
         vec4 new_pos;
         bool checking_opponent;
     };
-    move_info get_move_info(full_move fm, piece_t promote_to = QUEEN_W) const;
+    move_info get_move_info(full_move fm, piece_t promote_to = NO_PIECE) const;
     
     /*
      phantom: state used for deciding whether the current is a checkmate or stalemate
@@ -124,6 +127,8 @@ public:
 
     // wrappers for low-level functions
     std::pair<int, int> get_board_size() const;
+    promotion_options get_promotion_options() const { return promotions; }
+    std::optional<ext_move> normalize_promotion(ext_move move) const;
     turn_t get_present() const;
     turn_t apparent_present() const;
     std::pair<int, int> get_initial_lines_range() const;

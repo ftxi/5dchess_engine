@@ -50,6 +50,7 @@ public:
     }
 
     state get_state();
+    const state &get_stored_state() const { return s.value(); }
     const action &get_action() const { return act; }
     T &get_info() { return info; }
     const T &get_info() const { return info; }

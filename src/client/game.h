@@ -51,6 +51,7 @@ public:
     bool currently_check() const;
     std::vector<std::pair<vec4,vec4>> get_current_checks() const;
     std::pair<int, int> get_board_size() const;
+    promotion_options get_promotion_options() const;
     
     bool suggest_action();
 

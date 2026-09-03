@@ -11,7 +11,8 @@
 #include "debug.h"
 
 
-state::state(multiverse &mtv) noexcept : m(mtv.clone())
+state::state(multiverse &mtv, promotion_options promotion_rules) noexcept
+    : m(mtv.clone()), promotions(promotion_rules)
 {
     std::tie(present, player) = m->get_present();
 }
@@ -20,6 +21,7 @@ state::state(const pgnparser_ast::game &g)
 {
     auto variant_setup = derive_variant_setup(g);
     m = create_multiverse_from_variant_setup(variant_setup);
+    promotions = variant_setup.promotions;
     std::tie(present, player) = m->get_present();
     // parse moves
     const pgnparser_ast::gametree *gt = &g.gt;
@@ -182,6 +184,12 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     vec4 d = q - p;
     if constexpr (!UNSAFE)
     {
+        const auto normalized = normalize_promotion(ext_move(fm, promote_to));
+        if(!normalized)
+        {
+            return false;
+        }
+        promote_to = normalized->promote_to;
 #ifndef NDEBUG
         auto te = m->get_timeline_end(p.l());
         assert(std::make_pair(p.t(), player) == te && "moves must be made on an active board");
@@ -228,11 +236,19 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         // promotion
         else if((b_ptr->lpawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
         {
-            dprint(" ... promotion");
-            piece_t promoted = player ? to_black(promote_to) : promote_to;
-            m->append_board(p.l(), b_ptr
-                            ->replace_piece(p.xy(), NO_PIECE)
-                            ->replace_piece(q.xy(), promoted));
+            if(promotions == promotion_options::NONE)
+            {
+                dprint(" ... promotion disabled");
+                m->append_board(p.l(), b_ptr->move_piece(p.xy(), q.xy()));
+            }
+            else
+            {
+                dprint(" ... promotion");
+                piece_t promoted = player ? to_black(promote_to) : promote_to;
+                m->append_board(p.l(), b_ptr
+                                ->replace_piece(p.xy(), NO_PIECE)
+                                ->replace_piece(q.xy(), promoted));
+            }
         }
         // castling
         else if((b_ptr->king()&z) && abs(d.x()) > 1)
@@ -265,9 +281,17 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         // promotion (only brawns can do)
         if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
         {
-            dprint(" ... nonbranching brawn promotion");
-            piece_t promoted = player ? to_black(promote_to) : promote_to;
-            m->append_board(q.l(), c_ptr->replace_piece(q.xy(), promoted));
+            if(promotions == promotion_options::NONE)
+            {
+                dprint(" ... nonbranching brawn promotion disabled");
+                m->append_board(q.l(), c_ptr->replace_piece(q.xy(), pic));
+            }
+            else
+            {
+                dprint(" ... nonbranching brawn promotion");
+                piece_t promoted = player ? to_black(promote_to) : promote_to;
+                m->append_board(q.l(), c_ptr->replace_piece(q.xy(), promoted));
+            }
         }
         // normal non_branching move
         else
@@ -291,9 +315,17 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         // promotion (only brawns can do)
         if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
         {
-            dprint(" ... branching brawn promotion");
-            piece_t promoted = player ? to_black(promote_to) : promote_to;
-            m->insert_board(new_line(), t, c, x_ptr->replace_piece(q.xy(), promoted));
+            if(promotions == promotion_options::NONE)
+            {
+                dprint(" ... branching brawn promotion disabled");
+                m->insert_board(new_line(), t, c, x_ptr->replace_piece(q.xy(), pic));
+            }
+            else
+            {
+                dprint(" ... branching brawn promotion");
+                piece_t promoted = player ? to_black(promote_to) : promote_to;
+                m->insert_board(new_line(), t, c, x_ptr->replace_piece(q.xy(), promoted));
+            }
         }
         // normal non_branching move
         else
@@ -309,6 +341,51 @@ bool state::apply_move(full_move fm, piece_t promote_to)
         }
     }
     return true;
+}
+
+std::optional<ext_move> state::normalize_promotion(ext_move move) const
+{
+    const vec4 p = move.fm.from;
+    const vec4 q = move.fm.to;
+    const vec4 d = q - p;
+    const auto &[size_x, size_y] = get_board_size();
+    (void)size_x;
+    const bool last_rank = q.y() == 0 || q.y() == size_y - 1;
+    if(!last_rank)
+    {
+        move.promote_to = NO_PIECE;
+        return move;
+    }
+    const piece_t piece = piece_name(get_piece(p, player));
+    const bool physical_promotion = d.l() == 0 && d.t() == 0
+        && (piece == PAWN_W || piece == PAWN_B || piece == BRAWN_W || piece == BRAWN_B)
+        && last_rank;
+    const bool superphysical_promotion = (d.l() != 0 || d.t() != 0)
+        && (piece == BRAWN_W || piece == BRAWN_B)
+        && last_rank;
+    if(!physical_promotion && !superphysical_promotion)
+    {
+        move.promote_to = NO_PIECE;
+        return move;
+    }
+
+    if(promotions == promotion_options::NONE)
+    {
+        if(move.promote_to != NO_PIECE)
+        {
+            return std::nullopt;
+        }
+        return move;
+    }
+    if(move.promote_to == NO_PIECE)
+    {
+        move.promote_to = default_promote_to(promotions);
+    }
+    if(!can_promote_to(promotions, move.promote_to))
+    {
+        return std::nullopt;
+    }
+    return move;
 }
 
 state::move_info state::get_move_info(full_move fm, piece_t pt) const
@@ -797,7 +874,10 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                 full_move fm(p,q);
                 dprint("matching", fm);
                 // test if this physical move matches any of them
-                std::string full_notation = fm.pgn_impl(*this, QUEEN_W, OPTIONS, 0, false);
+                const piece_t promote_to = mv.promote_to
+                    ? static_cast<piece_t>(*mv.promote_to)
+                    : default_promote_to(promotions);
+                std::string full_notation = fm.pgn_impl(*this, promote_to, OPTIONS, 0, false);
                 auto full = pgnparser(full_notation).parse_physical_move();
                 assert(full.has_value());
                 bool match = pgnparser::match_physical_move(mv, *full);
@@ -851,12 +931,18 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
                     std::string full_notation;
                     if(is_relative)
                     {
-                        full_notation = fm.pgn_impl(*this, QUEEN_W,
+                        const piece_t promote_to = spm.promote_to
+                            ? static_cast<piece_t>(*spm.promote_to)
+                            : default_promote_to(promotions);
+                        full_notation = fm.pgn_impl(*this, promote_to,
                             OPTIONS | pgn_options::SHOW_RELATIVE, 0, false);
                     }
                     else
                     {
-                        full_notation = fm.pgn_impl(*this, QUEEN_W, OPTIONS, 0, false);
+                        const piece_t promote_to = spm.promote_to
+                            ? static_cast<piece_t>(*spm.promote_to)
+                            : default_promote_to(promotions);
+                        full_notation = fm.pgn_impl(*this, promote_to, OPTIONS, 0, false);
                     }
                     auto full = pgnparser(full_notation).parse_superphysical_move();
                     assert(full.has_value());
@@ -893,7 +979,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
 
 state::parse_pgn_res state::parse_move(const std::string &move) const
 {
-    auto parsed_move = pgnparser(move).parse_move();
+    auto parsed_move = pgnparser(move).parse_standalone_move();
     if(!parsed_move.has_value())
     {
         return std::make_tuple(std::nullopt, std::nullopt, std::vector<full_move>{});

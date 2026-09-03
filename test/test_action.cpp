@@ -8,7 +8,7 @@ int main()
 {
     const ext_move default_promotion("(0T0)e7e8");
     assert(default_promotion.fm == full_move("(0T0)e7e8"));
-    assert(default_promotion.promote_to == QUEEN_W);
+    assert(default_promotion.promote_to == NO_PIECE);
 
     const ext_move knight_promotion("(0T0)e7e8N");
     assert(knight_promotion.fm == full_move("(0T0)e7e8"));
@@ -17,6 +17,9 @@ int main()
     const ext_move timeline_promotion("(0T0)e7>>(1T1)e8R");
     assert(timeline_promotion.fm == full_move("(0T0)e7>>(1T1)e8"));
     assert(timeline_promotion.promote_to == ROOK_W);
+
+    const ext_move ordinary_move("(0T0)e2e4");
+    assert(ordinary_move.to_string() == "(0T0)e2e4");
 
     const auto game = pgnparser(R"(
 [Size "4x4"]
@@ -30,6 +33,10 @@ int main()
     const auto standard_game = pgnparser("[Board \"Standard\"]").parse_game();
     const state standard(*standard_game);
     const action e4 = action::from_vector({ext_move("(0T1)e2e4")}, standard);
+    const action e4_with_irrelevant_promotion = action::from_vector(
+        {ext_move(full_move("(0T1)e2e4"), QUEEN_W)}, standard);
+    assert(e4 == e4_with_irrelevant_promotion);
+    assert(e4.get_moves()[0].promote_to == NO_PIECE);
     const auto after_e4 = standard.can_apply(e4);
     assert(after_e4.has_value());
     const action e5 = action::from_vector({ext_move("(0T1)e7e5")}, *after_e4);

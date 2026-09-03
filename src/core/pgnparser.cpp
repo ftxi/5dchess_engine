@@ -492,8 +492,28 @@ std::optional<absolute_board> pgnparser::parse_absolute_board()
     return absolute_board{sign, l, t};
 }
 
+std::optional<char> pgnparser::parse_promotion()
+{
+    const bool has_equal = buffer.token == EQUAL;
+    if(has_equal)
+    {
+        next_token();
+    }
+    if(buffer.token == PIECE)
+    {
+        const char result = buffer.piece;
+        next_token();
+        return result;
+    }
+    if(has_equal)
+    {
+        throw parse_error("parse_promotion(): Expect promotion piece after '='");
+    }
+    return std::nullopt;
+}
+
 /*
- <physical-move> ::= [<absolute-board>] ([<piece-name>] [<file>] [<rank>] ['x'] <file> <rank> ['=' <promote-to>] | 'O-O' | 'O-O-O') [<check-symbol>] [<evaluation-symbol>]
+ <physical-move> ::= [<absolute-board>] ([<piece-name>] [<file>] [<rank>] ['x'] <file> <rank> [['='] <promote-to>] | 'O-O' | 'O-O-O') [<check-symbol>] [<evaluation-symbol>]
  <to-board> ::= <absote-board> | <relative-board>
  throw an excption if '=' found in the end but no promotion piece given
 */
@@ -557,14 +577,7 @@ std::optional<physical_move> pgnparser::parse_physical_move()
         to_rank = buffer.number;
         next_token();
     }
-    if(buffer.token == EQUAL)
-    {
-        next_token();
-        if(buffer.token != PIECE)
-            throw parse_error("parse_physical_move(): Expect promotion piece after '=': " + PARSED_MSG);
-        promote_to = buffer.piece;
-        next_token();
-    }
+    promote_to = parse_promotion();
     if(buffer.token == POSITIVE || buffer.token == SOFTMATE || buffer.token == CHECKMATE)
         next_token();
     if(buffer.token == EVALUATION_SYM)
@@ -614,7 +627,7 @@ std::optional<std::monostate> pgnparser::parse_timeline_comment()
 }
 
 /*
- <superphysical-move> ::= [<absolute-board>] [<piece-name>] [<file>] [<rank>] (<jump-indicator> ['x'] | [<jump-indicator>] ['x'] <to-board>) <file> <rank> ['=' <promote-to>] [<check-symbol>] [<present-moved-symbol>] [<evaluation-symbol>] <timeline-comment>*
+ <superphysical-move> ::= [<absolute-board>] [<piece-name>] [<file>] [<rank>] (<jump-indicator> ['x'] | [<jump-indicator>] ['x'] <to-board>) <file> <rank> [['='] <promote-to>] [<check-symbol>] [<present-moved-symbol>] [<evaluation-symbol>] <timeline-comment>*
  <to-board> ::= <absote-board> | <relative-board>
  throw an excption if there parsed through and found one of <jump-indicator> or <to-board>
  but the rest is not <superphysical-move> syntax
@@ -692,14 +705,7 @@ std::optional<superphysical_move> pgnparser::parse_superphysical_move()
         throw parse_error("parse_superphysical_move(): Expect destination rank: " + PARSED_MSG);
     to_rank = buffer.number;
     next_token();
-    if(buffer.token == EQUAL)
-    {
-        next_token();
-        if(buffer.token != PIECE)
-            throw parse_error("parse_superphysical_move(): Expect promotion piece after '=': " + PARSED_MSG);
-        promote_to = buffer.piece;
-        next_token();
-    }
+    promote_to = parse_promotion();
     if(buffer.token == POSITIVE || buffer.token == SOFTMATE || buffer.token == CHECKMATE)
         next_token();
     if(buffer.token == PRESENT_MOVED)
@@ -724,6 +730,16 @@ std::optional<move> pgnparser::parse_move()
         else
             return std::nullopt;
     }
+}
+
+std::optional<move> pgnparser::parse_standalone_move()
+{
+    auto result = parse_move();
+    if(!result || buffer.token != END)
+    {
+        return std::nullopt;
+    }
+    return result;
 }
 
 /*
@@ -896,6 +912,9 @@ std::optional<game> pgnparser::parse_game()
     append_vectors(comments, parse_comments());
     auto gt_opt = parse_gametree();
     if(!gt_opt) PARSE_FAIL;
+    parse_comments();
+    if(buffer.token != END)
+        throw parse_error("parse_game(): Unexpected trailing input: " + PARSED_MSG);
     return game{headers, boards, std::move(*gt_opt), views_to_strings(comments)};
 }
 

@@ -135,7 +135,7 @@ inline action convert_js_to_action(const val& js_action, const state& s)
         val js_mv = js_action[i];
         vec4 from = convert_js_to_vec4(js_mv["from"]);
         vec4 to = convert_js_to_vec4(js_mv["to"]);
-        piece_t promote_to = js_mv.hasOwnProperty("promote") ? static_cast<piece_t>(js_mv["promote"].as<int>()) : QUEEN_W;
+        piece_t promote_to = js_mv.hasOwnProperty("promote") ? static_cast<piece_t>(js_mv["promote"].as<int>()) : NO_PIECE;
         mvs.emplace_back(from, to, promote_to);
     }
     return action::from_vector(mvs, s);
@@ -184,6 +184,9 @@ EMSCRIPTEN_BINDINGS(engine) {
             obj.set("t", t);
             obj.set("c", c);
             return obj;
+        }))
+        .function("get_promotion_options", optional_override([](const game &self) {
+            return static_cast<unsigned>(self.get_promotion_options());
         }))
         .function("get_cached_moves", optional_override([](const game &self) {
             val result = val::array();
@@ -289,7 +292,7 @@ EMSCRIPTEN_BINDINGS(engine) {
         .function("undo", &game::undo)
         .function("redo", &game::redo)
         .function("apply_move", optional_override([](game &g, val obj) {
-            piece_t pt = obj.hasOwnProperty("promote_to") ? static_cast<piece_t>(obj["promote_to"].as<int>()) : QUEEN_W;
+            piece_t pt = obj.hasOwnProperty("promote_to") ? static_cast<piece_t>(obj["promote_to"].as<int>()) : NO_PIECE;
             ext_move m(
                 convert_js_to_vec4(obj["from"]),
                 convert_js_to_vec4(obj["to"]),

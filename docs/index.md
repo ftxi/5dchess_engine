@@ -96,7 +96,7 @@ Moves & Actions
 
 There are altogether three kinds of moves:
 + A `full_move` object (defined in `core/actions.h`) stores two coordinates: where the piece comes from and where it goes to. The name `full_move` is to disambiguate with `std::move()`, a C++ STL function.
-+ An `ext_move` object (defined in `core/actions.h`) stores a `full_move` plus which piece it promotes to. If the move is not a pawn/brawn promotion, the promoting piece recorded is usually `QUEEN_W`.
++ An `ext_move` object (defined in `core/action.h`) stores a `full_move` plus which piece it promotes to. `NO_PIECE` means the choice is unspecified and should be resolved using the state's promotion rules. It remains `NO_PIECE` when promotion is disabled, and canonical non-promotion moves also store `NO_PIECE`.
 + A `semimove` object (defined in `core/hypercuboid.h`) stores partial information about a move on a specific timeline. For physical moves, it stores the physical move itself; whereas for jumps, it stores either the leaving part or the arriving part, but not both. Not to play anything on this timeline is also a valid semimove (a `null_move`).
  
 The moves can be grouped into actions.
