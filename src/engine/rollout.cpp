@@ -43,7 +43,7 @@ bool propagate_problem_adaptively(
     return true;
 }
 
-template<HC_ordering Order>
+template<HCOrdering Order>
 generator<moveseq> mixed_search(
     const HC_info &hc_info,
     search_space space,

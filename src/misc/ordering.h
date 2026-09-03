@@ -20,7 +20,7 @@ The code is written as static polymorphism.
 */
 
 template<typename T>
-concept HC_ordering =
+concept HCOrdering =
     requires(const T &order, index_t n, const integer_set& s)
 {
     order.for_each(n, s, [](index_t) {});
@@ -51,7 +51,7 @@ public:
     }
 };
 
-static_assert(HC_ordering<natural_HC_ordering>);
+static_assert(HCOrdering<natural_HC_ordering>);
 
 namespace detail {
 
@@ -91,7 +91,7 @@ public:
     using base::for_each;
 };
 
-static_assert(HC_ordering<random_HC_ordering>);
+static_assert(HCOrdering<random_HC_ordering>);
 
 /*==========Customizable Orderings==========*/
 
@@ -106,7 +106,7 @@ public:
     using base::for_each;
 };
 
-static_assert(HC_ordering<scored_HC_ordering>);
+static_assert(HCOrdering<scored_HC_ordering>);
 
 class weighted_HC_ordering : private detail::precomputed_HC_ordering<weighted_HC_ordering>
 {
@@ -120,6 +120,6 @@ public:
     using base::for_each;
 };
 
-static_assert(HC_ordering<weighted_HC_ordering>);
+static_assert(HCOrdering<weighted_HC_ordering>);
 
 #endif /* ORDERING_H */

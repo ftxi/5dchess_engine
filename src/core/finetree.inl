@@ -98,18 +98,47 @@ template<typename T>
 inline fine_node<T> *fine_node<T>::get_nearby_ceiling()
 {
     fine_node<T> *current = this;
-    if(current->is_terminal())
+
+    while(!current->is_ceiling())
     {
-        // there is no ceiling because node is already terminal
-        return nullptr;
+        if(current->children.empty())
+        {
+            return nullptr;
+        }
+        current = current->children.front();
     }
-    while (!current->is_ceiling())
-    {
-        // otherwise, our construction gurantees a path to a ceiling node
-        assert(!current->get_children().empty() && "non-terminal node should have witness");
-        current = current->children[0];
-    }
+
     return current;
+}
+
+
+template <typename T>
+    requires std::default_initializable<T>
+template <HCOrdering Order>
+inline bool fine_node<T>::is_terminal(Order order)
+{
+    if(!is_nodal())
+    {
+        // if the node is not nodal, it is not terminal because every temporary node has a valid branch as witness
+        return false;
+    }
+    else if(pocessed_context->verified_terminal)
+    {
+        // if it is already verified to be terminal, return true
+        return true;
+    }
+    if(!get_children().empty())
+    {
+        // if the node already has children, it is not terminal
+        return false;
+    }
+    if(auto i_opt = search(order).first())
+    {
+        // if the node has a valid search result, it is not terminal
+        return false;
+    }
+    pocessed_context->verified_terminal = true;
+    return true;
 }
 
 template<typename T>
@@ -131,7 +160,16 @@ inline bool fine_node<T>::is_terminal()
         // if the node already has children, it is not terminal
         return false;
     }
-    if(auto i_opt = search().first())
+    const HC_info &hc_info = get_context()->hc_info;
+    search_space ss;
+    for(const fine_cell<T> *cell : cells)
+    {
+        for(const HC &hc : cell->subspace)
+        {
+            ss.push_back(hc);
+        }
+    }
+    if(hc_info.search(std::move(ss)).first())
     {
         // if the node has a valid search result, it is not terminal
         return false;
@@ -191,45 +229,23 @@ inline std::string fine_node<T>::print_semimove() const
 
 template<typename T>
     requires std::default_initializable<T>
-inline generator<index_t> fine_node<T>::search()
+template<HCOrdering Order>
+inline generator<index_t> fine_node<T>::search(Order order)
 {
-    fine_node<T> *next_node = expand();
+    fine_node<T> *next_node = expand(order);
     while(next_node)
     {
         co_yield next_node->i;
-        next_node = expand();
+        next_node = expand(order);
     }
 }
 
 template<typename T>
     requires std::default_initializable<T>
-inline bool fine_node<T>::gen_all_children()
+template<HCOrdering Order>
+inline fine_node<T> *fine_node<T>::expand(Order order)
 {
-    if(is_ceiling() && !is_nodal())
-    {
-        ignite();
-    }
-    for(auto i : search())
-    {
-        (void)i; // ignore the value, just generate all children
-    }
-    if(is_nodal())
-    {
-        bool is_terminal = get_children().empty();
-        pocessed_context->verified_terminal = is_terminal;
-        return !is_terminal;
-    }
-    else
-    {
-        return false;
-    }
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline fine_node<T> *fine_node<T>::expand()
-{
-    auto ans = explore();
+    auto ans = explore(order);
     if(!ans)
     {
         return nullptr;
@@ -242,7 +258,8 @@ inline fine_node<T> *fine_node<T>::expand()
 
 template<typename T>
     requires std::default_initializable<T>
-inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore()
+template<HCOrdering Order>
+inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore(Order order)
 {
     HC_info &hc_info = get_context()->hc_info;
     std::size_t consecutive_empty_cells = 0;
@@ -264,7 +281,7 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
         consecutive_empty_cells = 0;
 
         HC &hc = cell->subspace.back();
-        auto pt_opt = hc_info.take_point(hc);
+        auto pt_opt = hc_info.take_point(hc, order);
         if(!pt_opt)
         {
             cell->subspace.pop_back();
@@ -289,7 +306,8 @@ template<typename T>
 inline void fine_node<T>::remove_from_cell(
     const slice &s,
     fine_cell<T> *cell,
-    bool force_back_removal)
+    bool force_back_removal
+)
 {
     if(cell->space.intersects(s))
     {
@@ -303,7 +321,8 @@ inline void fine_node<T>::remove_from_node(
     const slice &s,
     fine_node<T> *node,
     fine_cell<T> *critical_cell,
-    bool force_critical_removal)
+    bool force_critical_removal
+)
 {
     remove_from_cell(s, critical_cell, force_critical_removal);
     for(fine_cell<T> *cell : node->cells)
@@ -317,9 +336,7 @@ inline void fine_node<T>::remove_from_node(
 
 template<typename T>
     requires std::default_initializable<T>
-inline void fine_node<T>::remove_problem(
-    const slice &s,
-    fine_cell<T> *origin_cell)
+inline void fine_node<T>::remove_problem(const slice &s, fine_cell<T> *origin_cell)
 {
     nodal_pocession<T> *problem_context = get_context();
     // Process only the cells owned by the current node and its ancestors.

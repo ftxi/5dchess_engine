@@ -4,7 +4,7 @@
 #include <vector>
 #include "ordering.h"
 
-template<HC_ordering Order>
+template<HCOrdering Order>
 std::vector<index_t> collect(
     const Order &order,
     index_t axis,

@@ -157,7 +157,7 @@ int replay_log(int argc, const char *argv[])
               << std::flush;
 
     started = clock_type::now();
-    auto first = root->search().first();
+    auto first = root->search(natural_HC_ordering{}).first();
     std::cout << "root search.first " << seconds_since(started) << " s, result=";
     if(first)
     {

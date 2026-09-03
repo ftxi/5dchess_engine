@@ -64,7 +64,8 @@ node_t *expand(node_t *node, std::stop_token stop_token)
     }
     // search out another branch
     dprint("expand: calling search()");
-    if(auto i_opt = node->search().first())
+    random_HC_ordering order(node->get_context()->hc_info.universe);
+    if(auto i_opt = node->search(std::move(order)).first())
     {
         node_t *child = node->get_child(*i_opt);
         assert(child != nullptr);

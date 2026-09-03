@@ -147,7 +147,7 @@ public:
      non-const reference)
      */
     std::optional<point> take_point(HC &hc) const;
-    template<HC_ordering Order>
+    template<HCOrdering Order>
     std::optional<point> take_point(HC &hc, const Order &order) const;
     
     /*
@@ -165,10 +165,10 @@ public:
     moveseq to_action(const point &p) const;
     static std::tuple<HC_info, search_space> build_HC(const state &s);
     generator<moveseq> search(search_space ss) const;
-    template<HC_ordering Order>
+    template<HCOrdering Order>
     generator<moveseq> search(search_space ss, Order order) const;
     generator<moveseq> iterative_search(search_space ss) const;
-    template<HC_ordering Order>
+    template<HCOrdering Order>
     generator<moveseq> iterative_search(search_space ss, Order order) const;
     generator<moveseq> stable_search(search_space ss) const;
     generator<moveseq> mixed_search(search_space ss) const;
