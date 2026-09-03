@@ -24,7 +24,8 @@ struct command
 // under tools/; CMake discovers it automatically.
 constexpr std::array commands{
     command{"print", "[--at turn]", "print a selected state of a 5DPGN game", run_print},
-    command{"count", "[--at turn] [policy] [max]", "count available actions", run_count},
+    command{"stats", "[--at turn] [--format text|json]", "print basic position statistics", run_stats},
+    command{"count", "[--at turn] [--format text|json] [policy] [max]", "count available actions", run_count},
     command{"all", "[--at turn] [policy] [max]", "print available actions", run_all},
     command{"checkmate", "[--at turn] [policy]", "detect checkmate or stalemate", run_checkmate},
     command{"diff", "[--at turn]", "compare balanced and naive searches", run_diff},
@@ -48,7 +49,7 @@ void print_help()
     std::cout
         << "\nRun '5dtools <command> --help' for detailed command usage.\n"
         << "\nSearch policies: balanced, naive, stable, iterative, mixed\n"
-        << "The print, count, all, checkmate, diff, and perftest commands read 5DPGN from stdin.\n";
+        << "The print, stats, count, all, checkmate, diff, and perftest commands read 5DPGN from stdin.\n";
 }
 }
 

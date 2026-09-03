@@ -48,18 +48,22 @@ The flag `-DCMAKE_BUILD_TYPE=Release` above is used to enable optimizations.
 
 
 The engine is built as `build/5dchess`, and the general command-line utility is built as `build/5dtools`. For commands that consume a game, provide 5DPGN on standard input and press Control-D to complete it. Current utility commands include:
--  `print`: print the final state of the game
--  `count [--at <turn>] [<policy>] [<max>]`: display number of available moves capped by `<max>`
+-  `print [--at <turn>]`: print the selected state of the game
+-  `stats [--at <turn>] [--format text|json]`: display position, timeline, and HC-volume statistics
+-  `count [--at <turn>] [--format text|json] [<policy>] [<max>]`: display number of available moves capped by `<max>`
 -  `all [--at <turn>] [<policy>] [<max>]`: display all legal moves capped by `<max>`
 -  `checkmate [--at <turn>] [<policy>]`: determine whether the selected state is checkmate/stalemate
--  `diff`: compare the output of two algorithms.
+-  `diff [--at <turn>]`: compare the output of two algorithms
 -  `perftest [<policy>]`: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
 -  `rollout [options]`: run and report random rollout simulations
 -  `replay-log <log> [seed]`: replay and time a protocol failure log
 
-For `print`, `count`, `all`, and `diff`, `--at 0` selects the initial
+For `print`, `stats`, `count`, `all`, `checkmate`, and `diff`, `--at 0` and
+`--at 0b` select the initial
 position. A value such as `--at 16b` selects the state immediately after
-turn `16b` is submitted.
+turn `16b` is submitted. A count equal to its maximum is the cap sentinel;
+for example, `max=10001` and a result of `10001` means 10,000 or more
+actions.
 
 Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, `TEST`, `PYMODULE`, or `EMMODULE` enabled, CMake builds only the core C++ library.
 

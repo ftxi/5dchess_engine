@@ -2,6 +2,7 @@
 #define POSITION_TOOLS_H
 
 int run_print(int argc, const char *argv[]);
+int run_stats(int argc, const char *argv[]);
 int run_count(int argc, const char *argv[]);
 int run_all(int argc, const char *argv[]);
 int run_checkmate(int argc, const char *argv[]);
