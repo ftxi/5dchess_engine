@@ -41,6 +41,40 @@ int main()
     assert(after_e4.has_value());
     const action e5 = action::from_vector({ext_move("(0T1)e7e5")}, *after_e4);
 
+    const state::move_info quiet_info = standard.get_move_info(
+        full_move("(0T1)e2e4"));
+    assert(quiet_info.new_state);
+    assert(quiet_info.moved_piece == PAWN_W);
+    assert(quiet_info.captured_piece == NO_PIECE);
+    assert(quiet_info.special_move == special_move_t::NONE);
+    assert(quiet_info.check_type == check_type_t::NONE);
+
+    state capture_position = standard;
+    assert(capture_position.apply_move(full_move("(0T1)e2e4")));
+    assert(capture_position.submit());
+    assert(capture_position.apply_move(full_move("(0T1)d7d5")));
+    assert(capture_position.submit());
+    const state::move_info capture_info = capture_position.get_move_info(
+        full_move("(0T2)e4d5"));
+    assert(capture_info.moved_piece == PAWN_W);
+    assert(capture_info.captured_piece == PAWN_B);
+    assert(static_cast<bool>(capture_info.special_move & special_move_t::CAPTURE));
+
+    const state::move_info promotion_info = s.get_move_info(
+        full_move("(0T1)a2a4"), KNIGHT_W);
+    assert(static_cast<bool>(promotion_info.special_move & special_move_t::PROMOTION));
+
+    const auto checking_game = pgnparser(R"(
+[Size "4x4"]
+[Board "custom"]
+[3k/4/4/R2K:0:1:w]
+)").parse_game();
+    const state checking_position(*checking_game);
+    const state::move_info check_info = checking_position.get_move_info(
+        full_move("(0T1)a1a4"));
+    assert(static_cast<bool>(check_info.check_type & check_type_t::PHYSICAL_CHECK));
+    assert(static_cast<bool>(check_info.check_type));
+
     assert(e4.pgn(standard, pgn_options::SHOW_OUTCOME)
         == e4.pgn(standard, pgn_options::SHOW_NOTHING));
     const auto basic = e4.pgn_advanced(standard, pgn_options::SHOW_NOTHING, e5);

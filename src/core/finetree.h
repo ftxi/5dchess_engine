@@ -14,6 +14,7 @@
 #include "hypercuboid.h"
 #include "integer_set.h"
 #include "generator.h"
+#include "ordering.h"
 
 template<typename T = std::monostate>
     requires std::default_initializable<T>
@@ -78,8 +79,10 @@ class fine_node
     // -- internal tree-building helpers -- //
     fine_cell<T> *add_cell(fine_cell<T> &&cell);
     fine_node<T> *add_child(index_t n, index_t i);
-    fine_node<T> *expand();
-    std::optional<std::tuple<point, fine_cell<T>*, HC*>> explore();
+    template<HCOrdering Order>
+    fine_node<T> *expand(Order order);
+    template<HCOrdering Order>
+    std::optional<std::tuple<point, fine_cell<T>*, HC*>> explore(Order order);
     void remove_problem(const slice&, fine_cell<T>* origin_cell);
     void remove_from_cell(const slice&, fine_cell<T>*, bool force_back_removal);
     void remove_from_node(const slice&, fine_node<T>*, fine_cell<T>* critical_cell, bool force_critical_removal);
@@ -117,18 +120,19 @@ public:
     nodal_pocession<T> *get_context() const; /* returns the newer context */
     std::string print_semimove() const;
     fine_node<T> *get_nearby_ceiling();
-    bool is_terminal(); /* non-const because it may add children found during the check */
+    bool is_terminal();
+    template<HCOrdering Order>
+    bool is_terminal(Order order); /* non-const because it may add children found during the check */
     index_t get_n() const { return n; }
     index_t get_i() const { return i; }
 
     // -- expansion -- //
-    generator<index_t> search();
+    template<HCOrdering Order>
+    generator<index_t> search(Order order);
     void ignite(); /* make a ceiling node also a nodal node */
     moveseq to_action(); /* only avialible for ceiling nodes */
-    /* gen_all_children: ignite if needed, then search all children
-    returns true if the node is not terminal
-     */
-    bool gen_all_children();
+
+    // -- debug -- //
     std::string to_string() const;
 };
 

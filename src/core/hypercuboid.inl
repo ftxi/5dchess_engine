@@ -3,7 +3,7 @@
 #include <limits>
 #include "graph.h"
 
-template<HC_ordering Order>
+template<HCOrdering Order>
 std::optional<point> HC_info::take_point(HC &hc, const Order &order) const
 {
     assert(hc.dimension() == dimension);
@@ -93,7 +93,7 @@ std::optional<point> HC_info::take_point(HC &hc, const Order &order) const
     return result;
 }
 
-template<HC_ordering Order>
+template<HCOrdering Order>
 generator<moveseq> HC_info::iterative_search(search_space ss, Order order) const
 {
     while(!ss.empty())
@@ -120,7 +120,7 @@ generator<moveseq> HC_info::iterative_search(search_space ss, Order order) const
     }
 }
 
-template<HC_ordering Order>
+template<HCOrdering Order>
 generator<moveseq> HC_info::search(search_space ss, Order order) const
 {
     while(!ss.empty())
