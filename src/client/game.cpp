@@ -45,7 +45,10 @@ game game::from_pgn(std::string input)
     g.metadata = ag->headers;
     g.metadata["timeline"] = variant_setup.is_even_timelines ? "even" : "odd";
     g.metadata["size"] = std::to_string(variant_setup.size_x) + "x" + std::to_string(variant_setup.size_y);
-    g.metadata["promotions"] = format_promotions(variant_setup.promotions);
+    if(g.metadata.contains("promotions"))
+    {
+        g.metadata["promotions"] = format_promotions(variant_setup.promotions);
+    }
     gnode<comments_t> *cn = nullptr;
     // parse moves
     std::function<void(gnode<comments_t>*, const pgnparser_ast::gametree&)> dfs;
@@ -476,7 +479,12 @@ std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
     {
         if(k == "promotions")
         {
-            oss << "[Promotions \"" << format_promotions(get_promotion_options()) << "\"]\n";
+            const promotion_options promotions = get_promotion_options();
+            if(promotions != promotion_options::QUEEN
+                || metadata.contains("promotions"))
+            {
+                oss << "[Promotions \"" << format_promotions(promotions) << "\"]\n";
+            }
             continue;
         }
         auto it = metadata.find(k);

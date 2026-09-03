@@ -21,7 +21,7 @@ constexpr float WINNING_SCORE = 1.0f;
 struct default_policy_result
 {
     float score;
-    rollout_termination termination;
+    rollout_result::termination termination;
 };
 
 struct mcts_node_info
@@ -76,7 +76,7 @@ public:
         std::stop_token,
         std::mt19937 *) override
     {
-        return {0.0f, rollout_termination::ACTION_LIMIT};
+        return {0.0f, rollout_result::termination::ACTION_LIMIT};
     }
 };
 

@@ -146,25 +146,28 @@ default_policy_result linear_engine::default_policy(
     std::stop_token stop_token,
     std::mt19937 *rng)
 {
-    const rollout_result result = rollout_inplace_detailed(
+    const rollout_result result = rollout_inplace(
         position,
         rollout_max_actions.load(),
         stop_token,
         rng);
     if(stop_token.stop_requested())
     {
-        return {0.0f, rollout_termination::STOPPED};
+        return {0.0f, rollout_result::termination::STOPPED};
     }
-    if(result.winner.has_value())
+    if(result.end == rollout_result::termination::WHITE_WINS
+       || result.end == rollout_result::termination::BLACK_WINS)
     {
         return {
-            *result.winner ? -WINNING_SCORE : WINNING_SCORE,
-            result.termination
+            result.end == rollout_result::termination::WHITE_WINS
+                ? WINNING_SCORE
+                : -WINNING_SCORE,
+            result.end
         };
     }
-    if(result.termination == rollout_termination::STALEMATE)
+    if(result.end == rollout_result::termination::STALEMATE)
     {
-        return {0.0f, result.termination};
+        return {0.0f, result.end};
     }
-    return {evaluate(position), result.termination};
+    return {evaluate(position), result.end};
 }

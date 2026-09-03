@@ -39,7 +39,7 @@ int main()
 
     // First branch: consume one expansion via search, then navigate to its child
     std::cout << "First branch of root:\n";
-    for(index_t i : node->search())
+    for(index_t i : node->search(natural_HC_ordering{}))
     {
         std::cout << i << ' ';
         node = node->get_child(i);
@@ -50,7 +50,7 @@ int main()
 
     // Remaining expansions on root
     std::cout << "Other children of root:\n";
-    for(index_t i : root->search())
+    for(index_t i : root->search(natural_HC_ordering{}))
     {
         std::cout << i << ' ';
     }
@@ -58,7 +58,7 @@ int main()
 
     // Search within the first child for more expansions
     std::cout << "Other children of first node:\n";
-    for(index_t i : node->search())
+    for(index_t i : node->search(natural_HC_ordering{}))
     {
         std::cout << i << ' ';
     }
@@ -71,12 +71,12 @@ int main()
     print_range("Got action: ", node->to_action());
     node->ignite();
 
-    node->search();  // expand the ignited node
+    node->search(natural_HC_ordering{}).first();  // expand the ignited node
     node = goto_next_nodal(node);
     print_range("Got action: ", node->to_action());
     node->ignite();
 
-    node->search();
+    node->search(natural_HC_ordering{}).first();
     // Navigate to celling by following the first child chain
     {
         auto children = node->get_children();

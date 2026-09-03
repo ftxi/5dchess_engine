@@ -105,7 +105,12 @@ int main()
 
     game default_game = game::from_pgn(promotion_game("", 'Q'));
     assert(default_game.get_promotion_options() == promotion_options::QUEEN);
-    assert(default_game.show_pgn().contains("[Promotions \"Q\"]"));
+    assert(!default_game.metadata.contains("promotions"));
+    assert(!default_game.show_pgn().contains("[Promotions"));
+
+    game explicit_default_game = game::from_pgn(promotion_game("Q", 'Q'));
+    assert(explicit_default_game.metadata.contains("promotions"));
+    assert(explicit_default_game.show_pgn().contains("[Promotions \"Q\"]"));
 
     const std::string before_promotion = R"(
 [Promotions "Q"]
