@@ -1,0 +1,121 @@
+#ifndef DEFAULT_POLICY_H
+#define DEFAULT_POLICY_H
+
+#include <cstdint>
+#include <random>
+
+#include "mcts.h"
+#include "ordering.h"
+
+constexpr float WINNING_SCORE = 1.0f;
+
+template<class AS>
+concept ActionSelection = requires(
+    AS &as,
+    const state &s,
+    std::stop_token stop_token,
+    std::mt19937 *rng)
+{
+    {
+        as(s, stop_token, rng)
+    } -> std::same_as<std::optional<moveseq>>;
+};
+
+template<class CE, typename T>
+concept CutoffEvaluation = requires(
+    CE &ce,
+    state s,
+    std::stop_token stop_token,
+    std::mt19937 *rng,
+    std::size_t rollout_length,
+    std::optional<bool> winner
+)
+{
+    {
+        ce.cutoff_reward(std::move(s), rollout_length, stop_token, rng)
+    } -> std::same_as<std::optional<reward_t<T>>>;
+    {
+        ce.mate_reward(winner, rollout_length)
+    } -> std::same_as<reward_t<T>>;
+};
+
+template<typename T, ActionSelection AS, CutoffEvaluation<T> CE>
+class default_policy_t
+{
+    [[no_unique_address]] AS action_selection;
+    [[no_unique_address]] CE cutoff_evaluation;
+    std::size_t rollout_max_actions;
+    std::optional<std::mt19937> rng;
+
+    std::mt19937 *rng_pointer()
+    {
+        return rng.has_value() ? &*rng : nullptr;
+    }
+
+public:
+    default_policy_t(
+        AS as,
+        CE ce,
+        std::size_t rollout_max_actions = 120,
+        std::optional<std::uint32_t> seed = std::nullopt
+    ):  action_selection{std::move(as)},
+        cutoff_evaluation{std::move(ce)},
+        rollout_max_actions{rollout_max_actions},
+        rng {}
+    {
+        if(seed.has_value())
+        {
+            rng.emplace(*seed);
+        }
+    }
+    
+    using result_type = reward_t<T>;
+
+    template<class Observer>
+    std::optional<result_type> evaluate(
+        state s,
+        std::stop_token stop_token,
+        Observer &)
+    {
+        std::size_t num_actions = 0;
+        while(num_actions < rollout_max_actions)
+        {
+            if(stop_token.stop_requested())
+            {
+                return std::nullopt;
+            }
+
+            std::optional<moveseq> action = action_selection(
+                s,
+                stop_token,
+                rng_pointer());
+            if(stop_token.stop_requested())
+            {
+                return std::nullopt;
+            }
+            if(!action.has_value())
+            {
+                bool player = s.get_present().second;
+                std::optional<bool> winner = std::nullopt;
+                if(s.get_mate_type() == mate_type::CHECKMATE)
+                {
+                    winner = !player;
+                }
+                return cutoff_evaluation.mate_reward(winner, num_actions);
+            }
+            for(full_move mv : *action)
+            {
+                s.apply_move<true>(mv);
+            }
+            s.submit<true>();
+            num_actions++;
+        }
+        return cutoff_evaluation.cutoff_reward(
+            std::move(s),
+            num_actions,
+            stop_token,
+            rng_pointer());
+    }
+};
+
+#endif /* DEFAULT_POLICY_H */

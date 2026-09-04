@@ -7,7 +7,8 @@ float uct(
     float sum_reward,
     std::size_t visits,
     std::size_t parent_visits,
-    bool maximizing_player)
+    bool maximizing_player
+)
 {
     if(visits == 0)
     {
