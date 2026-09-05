@@ -1,4 +1,5 @@
 #undef NDEBUG
+#include <algorithm>
 #include <cassert>
 #include <set>
 #include "mcts_engines.h"
@@ -50,6 +51,40 @@ void test_rollout()
     stopped.request_stop();
     assert(!cutoff.evaluate(standard_position(), stopped.get_token(), obs));
     assert(!zero_default_policy{}.evaluate(standard_position(), stopped.get_token(), obs));
+}
+
+void test_weighted_action_selection()
+{
+    multiverse_odd boards({{0, 1, false, "3k/4/1p2/KR2"}});
+    const state position(boards);
+
+    move_info_weights weights{};
+    weights.values[move_info_weights::PAWN_CAPTURE] = 20.0f;
+    const weighted_action_selection selector(weights, 1.0f);
+
+    std::mt19937 first_rng(1234), second_rng(1234);
+    const auto first = selector(position, {}, &first_rng);
+    const auto second = selector(position, {}, &second_rng);
+    assert(first && first == second);
+
+    int capture_count = 0;
+    for(unsigned int seed = 0; seed < 100; ++seed)
+    {
+        std::mt19937 rng(seed);
+        const auto selected = selector(position, {}, &rng);
+        assert(selected);
+        const action legal_action = action::from_moveseq(*selected, position);
+        assert(position.can_apply(legal_action));
+        capture_count += std::ranges::any_of(*selected, [&](const full_move &move) {
+            return static_cast<bool>(position.get_move_info(move).special_move
+                                     & special_move_t::CAPTURE);
+        });
+    }
+    assert(capture_count >= 99);
+
+    std::stop_source stopped;
+    stopped.request_stop();
+    assert(!selector(position, stopped.get_token(), nullptr));
 }
 
 void test_completion()
@@ -223,10 +258,12 @@ void test_engine()
 int main()
 {
     test_rollout();
+    test_weighted_action_selection();
     test_promotion_paths();
     test_completion();
     test_multiple_semimoves();
     test_interrupted_action_selection();
     test_engine<mcts_engine>();
+    test_engine<mcts_weighted_engine>();
     test_engine<zero_engine>();
 }

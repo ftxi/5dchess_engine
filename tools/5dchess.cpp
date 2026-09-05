@@ -24,7 +24,18 @@ struct command_line_options
 
 void print_usage(std::ostream &out)
 {
-    out << "Usage: 5dchess <mcts|zero|linear|linear-trained|flat-ucb|monkey> [options]\n"
+    out << "Usage: 5dchess <engine> [options]\n"
+        << "\nEngines:\n"
+        << "  mcts               Monte Carlo tree search with randomized rollouts\n"
+        << "  mcts-weighted      MCTS with move-info-weighted rollouts\n"
+        << "  zero               MCTS with no rollout and zero cutoff evaluation\n"
+        << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
+        << "  linear-trained     linear with a frozen experimental cutoff profile\n"
+        << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
+        << "  flat-ucb           flat upper-confidence-bound search with random rollouts\n"
+        << "  flat-ucb-weighted  flat UCB search with weighted rollouts\n"
+        << "  monkey             uniformly select one legal action\n"
+        << "\nOptions:\n"
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
         << "  -r, --rollout-max-actions <n>   search rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
@@ -67,9 +78,10 @@ command_line_options parse_options(
         }
         else if(option == "-r" || option == "--rollout-max-actions")
         {
-            if((engine_name != "mcts" && engine_name != "linear"
+            if((engine_name != "mcts" && engine_name != "mcts-weighted"
+                && engine_name != "linear" && engine_name != "linear-weighted"
                 && engine_name != "linear-trained"
-                && engine_name != "flat-ucb")
+                && engine_name != "flat-ucb" && engine_name != "flat-ucb-weighted")
                || rollout_limit_seen || ++i >= argc)
             {
                 throw std::invalid_argument("invalid rollout limit option");
@@ -107,9 +119,11 @@ int main(int argc, const char *argv[])
     }
 
     const std::string engine_name = argv[1];
-    if(engine_name != "mcts" && engine_name != "zero" && engine_name != "linear"
-       && engine_name != "linear-trained"
-       && engine_name != "flat-ucb" && engine_name != "monkey")
+    if(engine_name != "mcts" && engine_name != "mcts-weighted"
+       && engine_name != "zero" && engine_name != "linear"
+       && engine_name != "linear-trained" && engine_name != "linear-weighted"
+       && engine_name != "flat-ucb" && engine_name != "flat-ucb-weighted"
+       && engine_name != "monkey")
     {
         std::cerr << "Unknown engine: " << engine_name << "\n";
         print_usage(std::cerr);
@@ -135,23 +149,45 @@ int main(int argc, const char *argv[])
             std::make_unique<stdio_handler>(), options.seed,
             options.rollout_max_actions);
     }
+    else if(engine_name == "mcts-weighted")
+    {
+        selected_engine = std::make_unique<mcts_weighted_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.rollout_max_actions);
+    }
     else if(engine_name == "zero")
     {
         selected_engine = std::make_unique<zero_engine>(
             std::make_unique<stdio_handler>(), options.seed);
     }
-    else if(engine_name == "linear" || engine_name == "linear-trained")
+    else if(engine_name == "linear" || engine_name == "linear-trained"
+            || engine_name == "linear-weighted")
     {
-        const auto weights = engine_name == "linear"
-            ? linear_cutoff_evaluation::default_weights()
-            : linear_cutoff_evaluation::trained_weights();
-        selected_engine = std::make_unique<linear_engine>(
-            std::make_unique<stdio_handler>(), options.seed,
-            options.rollout_max_actions, weights);
+        const auto weights = engine_name == "linear-trained"
+            ? linear_cutoff_evaluation::trained_weights()
+            : linear_cutoff_evaluation::default_weights();
+        if(engine_name == "linear-weighted")
+        {
+            selected_engine = std::make_unique<linear_weighted_engine>(
+                std::make_unique<stdio_handler>(), options.seed,
+                options.rollout_max_actions, weights);
+        }
+        else
+        {
+            selected_engine = std::make_unique<linear_engine>(
+                std::make_unique<stdio_handler>(), options.seed,
+                options.rollout_max_actions, weights);
+        }
     }
     else if(engine_name == "flat-ucb")
     {
         selected_engine = std::make_unique<flat_ucb_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.rollout_max_actions);
+    }
+    else if(engine_name == "flat-ucb-weighted")
+    {
+        selected_engine = std::make_unique<flat_ucb_weighted_engine>(
             std::make_unique<stdio_handler>(), options.seed,
             options.rollout_max_actions);
     }

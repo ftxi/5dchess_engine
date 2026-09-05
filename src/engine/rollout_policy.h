@@ -1,7 +1,10 @@
 #ifndef ROLLOUT_POLICY_H
 #define ROLLOUT_POLICY_H
 
+#include <utility>
+
 #include "default_policy.h"
+#include "move_info_evaluation.h"
 
 struct rollout_details
 {
@@ -12,6 +15,20 @@ struct rollout_details
 
 struct random_action_selection
 {
+    std::optional<moveseq> operator()(
+        const state &, std::stop_token, std::mt19937 *) const;
+};
+
+struct weighted_action_selection
+{
+    move_info_weights weights;
+    float temperature;
+
+    weighted_action_selection(
+        move_info_weights weights = default_move_info_weights,
+        float temperature = default_move_info_temperature)
+        : weights{std::move(weights)}, temperature{temperature} {}
+
     std::optional<moveseq> operator()(
         const state &, std::stop_token, std::mt19937 *) const;
 };
@@ -36,6 +53,8 @@ struct rollout_cutoff_evaluation
 
 using rollout_default_policy = default_policy_t<rollout_details,
     random_action_selection, rollout_cutoff_evaluation>;
+using weighted_rollout_default_policy = default_policy_t<rollout_details,
+    weighted_action_selection, rollout_cutoff_evaluation>;
 
 // No simulated actions, but terminal positions retain their actual outcome.
 struct zero_default_policy
@@ -59,6 +78,7 @@ struct zero_default_policy
 };
 
 static_assert(ActionSelection<random_action_selection>);
+static_assert(ActionSelection<weighted_action_selection>);
 static_assert(CutoffEvaluation<rollout_cutoff_evaluation, rollout_details>);
 
 #endif

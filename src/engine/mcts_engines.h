@@ -76,6 +76,13 @@ using zero_mcts_engine = basic_mcts_engine<
     most_visited_selection,
     mcts_observer
 >;
+using weighted_rollout_mcts_engine = basic_mcts_engine<
+    uct_tree_policy,
+    weighted_rollout_default_policy,
+    sum_backpropagation,
+    most_visited_selection,
+    mcts_observer
+>;
 
 class mcts_engine final : public rollout_mcts_engine
 {
@@ -98,8 +105,23 @@ public:
         : zero_mcts_engine({}, uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
 };
 
+class mcts_weighted_engine final : public weighted_rollout_mcts_engine
+{
+public:
+    mcts_weighted_engine(
+        std::unique_ptr<io_handler> io,
+        std::optional<std::uint32_t> seed = std::nullopt,
+        int max_actions = default_mcts_rollout_max_actions)
+        : weighted_rollout_mcts_engine(
+            weighted_rollout_default_policy{
+                weighted_action_selection{}, rollout_cutoff_evaluation{},
+                static_cast<std::size_t>(std::max(0, max_actions)), seed},
+            uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
+};
+
 static_assert(TreePolicy<uct_tree_policy, mcts_observer>);
 static_assert(DefaultPolicy<rollout_default_policy, mcts_observer>);
+static_assert(DefaultPolicy<weighted_rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<zero_default_policy, mcts_observer>);
 
 #endif

@@ -67,7 +67,38 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are six engines: `mcts`, `zero`, `linear`, `linear-trained`, `flat-ucb`, and `monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `zero` is MCTS with a constant-zero default policy. The two Linear engines evaluate inconclusive rollout positions with the same bounded 64-feature model: `linear` uses hand-written weights and `linear-trained` uses a frozen experimental profile. See [Linear evaluation features](docs/linear-features.md). `flat-ucb` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCB rule, without expanding a search tree. Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-ucb --seed 1234`. MCTS, both Linear engines, and flat-UCB also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess linear --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout position instead. Setting the limit to zero disables rollout entirely. The shared confidence-bound scoring implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are nine engines: `mcts`, `mcts-weighted`, `zero`, `linear`,
+`linear-trained`, `linear-weighted`, `flat-ucb`, `flat-ucb-weighted`, and
+`monkey`. They communicate using the [5DUCI protocol](docs/5duci.md).
+
+The three `*-weighted` engines use move metadata to bias rollout selection
+toward tactically promising moves. `zero` is MCTS with a constant-zero default
+policy.
+
+The Linear engines evaluate inconclusive rollout positions with the same
+bounded 64-feature model. `linear` and `linear-weighted` use hand-written
+weights, while `linear-trained` uses a frozen experimental profile. See
+[Linear evaluation features](docs/linear-features.md).
+
+The two flat-UCB engines evaluate each legal root action with repeated rollouts
+and choose with the adversarial UCB rule, without expanding a search tree.
+Weighting affects their rollout moves, not root UCB selection.
+
+Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`.
+For example, use `5dchess flat-ucb-weighted --seed 1234`. MCTS, Linear, and
+flat-UCB engines also accept `--rollout-max-actions` (or `-r`) to shorten each
+default-policy rollout from its default limit of 200 actions. For example, use
+`5dchess linear-weighted --rollout-max-actions 40`.
+
+The same limit can be changed through 5DUCI with
+`setoption name rollout-max-actions value 40`. A rollout that reaches the limit
+is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
+position instead. Setting the limit to zero disables rollout entirely.
+
+The shared confidence-bound scoring implementation is in `src/engine/uct.h`
+and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in
+`src/engine/uci.h`. Implement `initialize()` and `find_best_move()`, then start
+its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
@@ -161,7 +192,7 @@ For more details on the structure of this repository, please read [this page](do
 
 ### TODOs
 - [x] Modularize Monte Carlo tree search
-- [ ] Move weighting for default policy
+- [x] Move weighting for default policy
 - [ ] Move ordering for tree policy
 - [ ] Progressive widening
 - [x] Learned weights for the linear engine

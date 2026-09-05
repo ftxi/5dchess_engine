@@ -25,7 +25,9 @@ struct flat_child
 struct flat_ucb_observer {};
 } /* anonymous namespace */
 
-void flat_ucb_engine::on_option_changed(const std::string &key, const option_value_t &value)
+template<class DefaultPolicy>
+void basic_flat_ucb_engine<DefaultPolicy>::on_option_changed(
+    const std::string &key, const option_value_t &value)
 {
     if(key == rollout_max_actions_option)
     {
@@ -39,7 +41,8 @@ void flat_ucb_engine::on_option_changed(const std::string &key, const option_val
     engine::on_option_changed(key, value);
 }
 
-std::optional<action> flat_ucb_engine::find_best_move(
+template<class DefaultPolicy>
+std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
     std::optional<int> depth_limit,
     std::optional<int> time_limit_ms,
     std::stop_token stop_token)
@@ -136,3 +139,6 @@ std::optional<action> flat_ucb_engine::find_best_move(
     send_info(score_info.str());
     return action::from_moveseq(best->moves, root);
 }
+
+template class basic_flat_ucb_engine<rollout_default_policy>;
+template class basic_flat_ucb_engine<weighted_rollout_default_policy>;

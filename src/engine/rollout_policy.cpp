@@ -1,5 +1,6 @@
 #include "rollout_policy.h"
 #include "hypercuboid.h"
+#include "utils.h"
 
 namespace
 {
@@ -115,5 +116,44 @@ std::optional<moveseq> random_action_selection::operator()(
     auto [info, space] = HC_info::build_HC(s);
     auto order = rng ? random_HC_ordering(info.universe, *rng)
                      : random_HC_ordering(info.universe);
+    return mixed_search(info, std::move(space), std::move(order), stop).first();
+}
+
+std::optional<moveseq> weighted_action_selection::operator()(
+    const state &s, std::stop_token stop, std::mt19937 *rng) const
+{
+    if(stop.stop_requested()) return std::nullopt;
+    auto [info, space] = HC_info::build_HC(s);
+    std::vector<std::vector<float>> coordinate_weights(info.universe.dimension());
+    for(index_t axis = 0; axis < info.universe.dimension(); ++axis)
+    {
+        auto &axis_weights = coordinate_weights[axis];
+        axis_weights.reserve(info.universe[axis].size());
+        for(index_t coordinate : info.universe[axis])
+        {
+            if(stop.stop_requested()) return std::nullopt;
+            const semimove move = info.get_semimove(axis, coordinate);
+            axis_weights.push_back(move.visit(overloads{
+                [&](const physical_move &physical) {
+                    return move_info_weight(
+                        s.get_move_info(physical.m), weights, temperature);
+                },
+                [&](const arriving_move &arriving) {
+                    // An arrival retains the complete superphysical move. Its
+                    // paired departure stays neutral so the move is weighted
+                    // exactly once.
+                    return move_info_weight(
+                        s.get_move_info(arriving.m), weights, temperature);
+                },
+                [](const departing_move &) { return 1.0f; },
+                [](const null_move &) { return 1.0f; },
+            }));
+        }
+    }
+    auto order = rng
+        ? weighted_HC_ordering(
+            info.universe, std::move(coordinate_weights), *rng)
+        : weighted_HC_ordering(
+            info.universe, std::move(coordinate_weights));
     return mixed_search(info, std::move(space), std::move(order), stop).first();
 }

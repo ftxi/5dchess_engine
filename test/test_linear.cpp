@@ -12,6 +12,8 @@ namespace
 {
 
 static_assert(std::is_base_of_v<linear_mcts_engine, linear_engine>);
+static_assert(std::is_base_of_v<
+    weighted_linear_mcts_engine, linear_weighted_engine>);
 
 struct observer {};
 
