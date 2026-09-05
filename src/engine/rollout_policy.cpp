@@ -2,6 +2,9 @@
 #include "hypercuboid.h"
 #include "utils.h"
 
+#include <cmath>
+#include <stdexcept>
+
 namespace
 {
 bool propagate_problem_adaptively(
@@ -119,11 +122,22 @@ std::optional<moveseq> random_action_selection::operator()(
     return mixed_search(info, std::move(space), std::move(order), stop).first();
 }
 
+void weighted_action_selection::set_temperature(float value)
+{
+    if(!(value > 0.0f) || !std::isfinite(value))
+    {
+        throw std::invalid_argument(
+            "rollout weighting temperature must be positive and finite");
+    }
+    temperature->store(value);
+}
+
 std::optional<moveseq> weighted_action_selection::operator()(
     const state &s, std::stop_token stop, std::mt19937 *rng) const
 {
     if(stop.stop_requested()) return std::nullopt;
     auto [info, space] = HC_info::build_HC(s);
+    const float weight_temperature = get_temperature();
     std::vector<std::vector<float>> coordinate_weights(info.universe.dimension());
     for(index_t axis = 0; axis < info.universe.dimension(); ++axis)
     {
@@ -136,14 +150,14 @@ std::optional<moveseq> weighted_action_selection::operator()(
             axis_weights.push_back(move.visit(overloads{
                 [&](const physical_move &physical) {
                     return move_info_weight(
-                        s.get_move_info(physical.m), weights, temperature);
+                        s.get_move_info(physical.m), weights, weight_temperature);
                 },
                 [&](const arriving_move &arriving) {
                     // An arrival retains the complete superphysical move. Its
                     // paired departure stays neutral so the move is weighted
                     // exactly once.
                     return move_info_weight(
-                        s.get_move_info(arriving.m), weights, temperature);
+                        s.get_move_info(arriving.m), weights, weight_temperature);
                 },
                 [](const departing_move &) { return 1.0f; },
                 [](const null_move &) { return 1.0f; },

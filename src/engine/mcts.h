@@ -11,6 +11,7 @@
 #include <stop_token>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -27,6 +28,83 @@ A MCTS-based engine can be constructed by providing the following components:
 - Backpropagation policy: a class that implements the BackPropagation concept. It is responsible for backpropagating the reward from a ceiling node to the root node.
 - Selection policy: a class that implements the SelectionPolicy concept. It is responsible for selecting the bestmove.
  */
+template <typename T, typename Variant>
+inline constexpr bool is_alternative_v = false;
+
+template <typename T, typename... Ts>
+inline constexpr bool is_alternative_v<T, std::variant<Ts...>> =
+    (std::is_same_v<T, Ts> || ...);
+
+// The concept
+template <typename T, typename Variant>
+concept is_variant_of = is_alternative_v<T, Variant>;
+
+template<typename Policy, typename T>
+    requires is_variant_of<T, engine::option_value_t>
+struct policy_option
+{
+    using value_type = T;
+    std::string_view key;
+    void (Policy::*setter)(T);
+};
+
+template<typename Policy, typename T>
+policy_option(std::string_view, void (Policy::*)(T))
+    -> policy_option<Policy, T>;
+
+struct option_dispatch_result
+{
+    std::size_t matched = 0;
+    std::size_t dispatched = 0;
+
+    option_dispatch_result &operator+=(const option_dispatch_result &other)
+    {
+        matched += other.matched;
+        dispatched += other.dispatched;
+        return *this;
+    }
+};
+
+template<class Policy>
+option_dispatch_result dispatch_watched_option(
+    Policy &policy,
+    std::string_view key,
+    const engine::option_value_t &value)
+{
+    option_dispatch_result result;
+    if constexpr(requires { policy.watched_options; })
+    {
+        std::apply([&](const auto &... option) {
+            if constexpr(sizeof...(option) != 0)
+            {
+                auto dispatch = [&](const auto &candidate) {
+                    if(candidate.key != key) return;
+                    ++result.matched;
+                    using option_t = std::remove_cvref_t<decltype(candidate)>;
+                    if(const auto *typed
+                       = std::get_if<typename option_t::value_type>(&value))
+                    {
+                        (policy.*candidate.setter)(*typed);
+                        ++result.dispatched;
+                    }
+                };
+                (dispatch(option), ...);
+            }
+        }, policy.watched_options);
+    }
+    return result;
+}
+
+template<class... Policies>
+option_dispatch_result dispatch_watched_options(
+    std::string_view key,
+    const engine::option_value_t &value,
+    Policies &... policies)
+{
+    option_dispatch_result result;
+    ((result += dispatch_watched_option(policies, key, value)), ...);
+    return result;
+}
 
 template<typename Details = std::monostate>
 struct reward_t
@@ -220,14 +298,16 @@ private:
 protected:
     void on_option_changed(const std::string &key, const option_value_t &value) override
     {
-        if constexpr(requires(DP &policy) { policy.set_max_actions(std::size_t{}); })
+        const auto result = dispatch_watched_options(
+            key, value, tree_policy, default_policy, backpropagation_policy,
+            selection_policy, observer);
+        if(result.matched != 0)
         {
-            if(key == "rollout-max-actions")
+            if(result.dispatched != result.matched)
             {
-                if(const auto *limit = std::get_if<int>(&value))
-                    default_policy.set_max_actions(static_cast<std::size_t>(std::max(0, *limit)));
-                return;
+                send_debug_info("option type mismatch: " + key);
             }
+            return;
         }
         engine::on_option_changed(key, value);
     }

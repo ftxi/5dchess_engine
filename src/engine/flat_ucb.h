@@ -60,11 +60,14 @@ public:
     flat_ucb_weighted_engine(
         std::unique_ptr<io_handler> io_handler,
         std::optional<std::uint32_t> seed = std::nullopt,
-        int max_rollout_actions = default_flat_ucb_rollout_max_actions)
+        int max_rollout_actions = default_flat_ucb_rollout_max_actions,
+        float weight_temperature = default_move_info_temperature)
         : basic_flat_ucb_engine(
             std::move(io_handler),
             weighted_rollout_default_policy{
-                weighted_action_selection{}, rollout_cutoff_evaluation{},
+                weighted_action_selection{
+                    default_move_info_weights, weight_temperature},
+                rollout_cutoff_evaluation{},
                 static_cast<std::size_t>(std::max(0, max_rollout_actions)),
                 seed}) {}
 };

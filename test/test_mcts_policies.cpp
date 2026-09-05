@@ -1,6 +1,7 @@
 #undef NDEBUG
 #include <algorithm>
 #include <cassert>
+#include <limits>
 #include <set>
 #include "mcts_engines.h"
 #include "pgnparser.h"
@@ -60,7 +61,8 @@ void test_weighted_action_selection()
 
     move_info_weights weights{};
     weights.values[move_info_weights::PAWN_CAPTURE] = 20.0f;
-    const weighted_action_selection selector(weights, 1.0f);
+    weighted_action_selection selector(weights, 1.0f);
+    assert(selector.get_temperature() == 1.0f);
 
     std::mt19937 first_rng(1234), second_rng(1234);
     const auto first = selector(position, {}, &first_rng);
@@ -81,6 +83,28 @@ void test_weighted_action_selection()
         });
     }
     assert(capture_count >= 99);
+
+    selector.set_temperature(600.0f);
+    assert(selector.get_temperature() == 600.0f);
+    for(float invalid : {
+        0.0f,
+        -1.0f,
+        std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN(),
+    })
+    {
+        bool threw = false;
+        try
+        {
+            selector.set_temperature(invalid);
+        }
+        catch(const std::invalid_argument &)
+        {
+            threw = true;
+        }
+        assert(threw);
+        assert(selector.get_temperature() == 600.0f);
+    }
 
     std::stop_source stopped;
     stopped.request_stop();

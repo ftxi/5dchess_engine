@@ -3,8 +3,11 @@
 
 #include <cstdint>
 #include <atomic>
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <random>
+#include <tuple>
 
 #include "mcts.h"
 #include "ordering.h"
@@ -72,6 +75,50 @@ public:
     }
     
     void set_max_actions(std::size_t limit) { rollout_max_actions->store(limit); }
+
+    void set_weight_temperature(float temperature)
+        requires requires(AS &selection) { selection.set_temperature(temperature); }
+    {
+        action_selection.set_temperature(temperature);
+    }
+
+    void set_rollout_max_actions_option(int limit)
+    {
+        set_max_actions(static_cast<std::size_t>(std::max(0, limit)));
+    }
+
+    void set_weight_temperature_option(double temperature)
+        requires requires(AS &selection) { selection.set_temperature(float{}); }
+    {
+        if(temperature > 0.0 && std::isfinite(temperature)
+           && temperature <= std::numeric_limits<float>::max())
+        {
+            set_weight_temperature(static_cast<float>(temperature));
+        }
+    }
+
+private:
+    static consteval auto make_watched_options()
+    {
+        auto common = std::tuple{policy_option{
+            "rollout-max-actions",
+            &default_policy_t::set_rollout_max_actions_option
+        }};
+        if constexpr(requires(AS &selection) { selection.set_temperature(float{}); })
+        {
+            return std::tuple_cat(common, std::tuple{policy_option{
+                "weight-temperature",
+                &default_policy_t::set_weight_temperature_option
+            }});
+        }
+        else
+        {
+            return common;
+        }
+    }
+
+public:
+    inline constexpr static auto watched_options = make_watched_options();
 
     using result_type = reward_t<T>;
 

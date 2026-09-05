@@ -1,6 +1,7 @@
 // Accessing the 5dchess engines
 
 #include <cstdint>
+#include <cmath>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -20,7 +21,20 @@ struct command_line_options
 {
     std::optional<std::uint32_t> seed;
     int rollout_max_actions = default_mcts_rollout_max_actions;
+    float weight_temperature = default_move_info_temperature;
 };
+
+bool is_weighted_engine(std::string_view name)
+{
+    return name == "mcts-weighted" || name == "linear-weighted"
+        || name == "flat-ucb-weighted";
+}
+
+bool supports_rollout_limit(std::string_view name)
+{
+    return name == "mcts" || name == "linear" || name == "linear-trained"
+        || name == "flat-ucb" || is_weighted_engine(name);
+}
 
 void print_usage(std::ostream &out)
 {
@@ -39,6 +53,8 @@ void print_usage(std::ostream &out)
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
         << "  -r, --rollout-max-actions <n>   search rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
+        << "  -wt, --weight-temperature <n>   weighted rollout temperature (default "
+        << default_move_info_temperature << ")\n"
         << "  -h, --help                      display this help text and exit\n";
 }
 
@@ -53,12 +69,24 @@ unsigned long long parse_unsigned(const std::string &value)
     return parsed;
 }
 
+float parse_positive_float(const std::string &value)
+{
+    std::size_t consumed = 0;
+    const float parsed = std::stof(value, &consumed);
+    if(consumed != value.size() || !(parsed > 0.0f) || !std::isfinite(parsed))
+    {
+        throw std::invalid_argument("not a positive finite number");
+    }
+    return parsed;
+}
+
 command_line_options parse_options(
     int argc, const char *argv[], const std::string &engine_name)
 {
     command_line_options options;
     bool seed_seen = false;
     bool rollout_limit_seen = false;
+    bool weight_temperature_seen = false;
     for(int i = 2; i < argc; ++i)
     {
         const std::string option = argv[i];
@@ -78,11 +106,8 @@ command_line_options parse_options(
         }
         else if(option == "-r" || option == "--rollout-max-actions")
         {
-            if((engine_name != "mcts" && engine_name != "mcts-weighted"
-                && engine_name != "linear" && engine_name != "linear-weighted"
-                && engine_name != "linear-trained"
-                && engine_name != "flat-ucb" && engine_name != "flat-ucb-weighted")
-               || rollout_limit_seen || ++i >= argc)
+            if(!supports_rollout_limit(engine_name) || rollout_limit_seen
+               || ++i >= argc)
             {
                 throw std::invalid_argument("invalid rollout limit option");
             }
@@ -93,6 +118,16 @@ command_line_options parse_options(
             }
             options.rollout_max_actions = static_cast<int>(parsed);
             rollout_limit_seen = true;
+        }
+        else if(option == "-wt" || option == "--weight-temperature")
+        {
+            if(!is_weighted_engine(engine_name) || weight_temperature_seen
+               || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid weight temperature option");
+            }
+            options.weight_temperature = parse_positive_float(argv[i]);
+            weight_temperature_seen = true;
         }
         else
         {
@@ -153,7 +188,7 @@ int main(int argc, const char *argv[])
     {
         selected_engine = std::make_unique<mcts_weighted_engine>(
             std::make_unique<stdio_handler>(), options.seed,
-            options.rollout_max_actions);
+            options.rollout_max_actions, options.weight_temperature);
     }
     else if(engine_name == "zero")
     {
@@ -170,7 +205,8 @@ int main(int argc, const char *argv[])
         {
             selected_engine = std::make_unique<linear_weighted_engine>(
                 std::make_unique<stdio_handler>(), options.seed,
-                options.rollout_max_actions, weights);
+                options.rollout_max_actions, weights,
+                options.weight_temperature);
         }
         else
         {
@@ -189,7 +225,7 @@ int main(int argc, const char *argv[])
     {
         selected_engine = std::make_unique<flat_ucb_weighted_engine>(
             std::make_unique<stdio_handler>(), options.seed,
-            options.rollout_max_actions);
+            options.rollout_max_actions, options.weight_temperature);
     }
     else if(engine_name == "monkey")
     {

@@ -4,7 +4,6 @@
 #include <limits>
 #include <iomanip>
 #include <sstream>
-#include <string_view>
 
 #include "hypercuboid.h"
 #include "uct.h"
@@ -12,7 +11,6 @@
 namespace
 {
 constexpr int depth_to_iteration_multiplier = 10;
-constexpr std::string_view rollout_max_actions_option = "rollout-max-actions";
 
 struct flat_child
 {
@@ -29,12 +27,12 @@ template<class DefaultPolicy>
 void basic_flat_ucb_engine<DefaultPolicy>::on_option_changed(
     const std::string &key, const option_value_t &value)
 {
-    if(key == rollout_max_actions_option)
+    const auto result = dispatch_watched_option(default_policy, key, value);
+    if(result.matched != 0)
     {
-        if(const auto *max_actions = std::get_if<int>(&value))
+        if(result.dispatched != result.matched)
         {
-            default_policy.set_max_actions(
-                static_cast<std::size_t>(std::max(0, *max_actions)));
+            send_debug_info("option type mismatch: " + key);
         }
         return;
     }

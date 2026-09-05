@@ -19,15 +19,24 @@ struct random_action_selection
         const state &, std::stop_token, std::mt19937 *) const;
 };
 
-struct weighted_action_selection
+class weighted_action_selection
 {
     move_info_weights weights;
-    float temperature;
+    std::unique_ptr<std::atomic<float>> temperature;
 
+public:
     weighted_action_selection(
         move_info_weights weights = default_move_info_weights,
-        float temperature = default_move_info_temperature)
-        : weights{std::move(weights)}, temperature{temperature} {}
+        float temperature_value = default_move_info_temperature)
+        : weights{std::move(weights)},
+          temperature{std::make_unique<std::atomic<float>>(
+              default_move_info_temperature)}
+    {
+        set_temperature(temperature_value);
+    }
+
+    void set_temperature(float value);
+    float get_temperature() const { return temperature->load(); }
 
     std::optional<moveseq> operator()(
         const state &, std::stop_token, std::mt19937 *) const;

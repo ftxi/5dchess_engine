@@ -90,7 +90,13 @@ flat-UCB engines also accept `--rollout-max-actions` (or `-r`) to shorten each
 default-policy rollout from its default limit of 200 actions. For example, use
 `5dchess linear-weighted --rollout-max-actions 40`.
 
-The same limit can be changed through 5DUCI with
+Weighted engines accept `--weight-temperature` (or `-wt`) to control how
+strongly move weights bias their rollouts. Lower positive values increase the
+bias; higher values approach randomized selection. The default is `1200`. The
+same value can be changed through 5DUCI with
+`setoption name weight-temperature value 600.0`.
+
+The rollout action limit can be changed through 5DUCI with
 `setoption name rollout-max-actions value 40`. A rollout that reaches the limit
 is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
 position instead. Setting the limit to zero disables rollout entirely.

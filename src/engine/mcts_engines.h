@@ -111,10 +111,13 @@ public:
     mcts_weighted_engine(
         std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed = std::nullopt,
-        int max_actions = default_mcts_rollout_max_actions)
+        int max_actions = default_mcts_rollout_max_actions,
+        float weight_temperature = default_move_info_temperature)
         : weighted_rollout_mcts_engine(
             weighted_rollout_default_policy{
-                weighted_action_selection{}, rollout_cutoff_evaluation{},
+                weighted_action_selection{
+                    default_move_info_weights, weight_temperature},
+                rollout_cutoff_evaluation{},
                 static_cast<std::size_t>(std::max(0, max_actions)), seed},
             uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
 };
