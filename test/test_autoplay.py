@@ -19,6 +19,17 @@ class FakeGame:
         self.comments = list(comments)
 
 
+class ParsePromotionTest(unittest.TestCase):
+    def test_omission_is_preserved_for_state_normalization(self):
+        rules = SimpleNamespace(
+            Piece=SimpleNamespace(NO_PIECE=0, KNIGHT_W=78),
+            vec4=lambda *coordinates: coordinates,
+            ext_move=lambda source, target, piece: (source, target, piece),
+        )
+        self.assertEqual(autoplay.parse_move(rules, "(0T1)a7a8")[2], 0)
+        self.assertEqual(autoplay.parse_move(rules, "(0T1)a7a8N")[2], 78)
+
+
 class AutoplayMetadataTest(unittest.TestCase):
     def setUp(self) -> None:
         self.arguments = SimpleNamespace(

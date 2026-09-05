@@ -137,7 +137,7 @@ float linear_engine::evaluate(const state &position) const
         features.end(),
         weight_vector.begin(),
         0.0f);
-    const float player_score = WINNING_SCORE * std::tanh(linear_score);
+    const float player_score = legacy::WINNING_SCORE * std::tanh(linear_score);
     return position.get_present().second ? -player_score : player_score;
 }
 
@@ -160,8 +160,8 @@ default_policy_result linear_engine::default_policy(
     {
         return {
             result.end == rollout_result::termination::WHITE_WINS
-                ? WINNING_SCORE
-                : -WINNING_SCORE,
+                ? legacy::WINNING_SCORE
+                : -legacy::WINNING_SCORE,
             result.end
         };
     }

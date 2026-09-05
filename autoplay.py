@@ -344,10 +344,12 @@ def parse_move(rules, text: str):
         "U": "UNICORN_W", "D": "DRAGON_W", "W": "BRAWN_W",
         "S": "PRINCESS_W", "Y": "ROYAL_QUEEN_W", "C": "COMMON_KING_W",
     }
-    symbol = (promotion or "Q").upper()
-    if symbol not in piece_names:
-        raise ValueError(f"unknown promotion piece {symbol!r}")
-    piece = getattr(rules.Piece, piece_names[symbol])
+    piece = rules.Piece.NO_PIECE
+    if promotion:
+        symbol = promotion.upper()
+        if symbol not in piece_names:
+            raise ValueError(f"unknown promotion piece {symbol!r}")
+        piece = getattr(rules.Piece, piece_names[symbol])
     return rules.ext_move(source, target, piece)
 
 

@@ -69,16 +69,22 @@ public:
     
     /*
      apply_move: Apply move to the current state as a side effect. Return true if it is successfull.
-     Parameter `UNSAFE=true`: unsafe mode, does not check whether the pending move is pseudolegal. If it is indeed not pseudolegal, the outcome may be unexpected.
+     The full_move overload resolves the configured promotion before applying
+     the move in either safety mode. The ext_move overload expects an explicit,
+     normalized promotion choice; NO_PIECE means no promotion, not the default.
+     UNSAFE=true skips validation and trusts the supplied move's legality.
      */
     template<bool UNSAFE = false>
-    bool apply_move(full_move fm, piece_t promote_to = NO_PIECE);
+    bool apply_move(full_move fm);
+    template<bool UNSAFE = false>
+    bool apply_move(ext_move mv);
     template<bool UNSAFE = false>
     bool submit();
     
     /*
      move_info: given a generated move, apply it and describe the result.
      get_move_info assumes that the move is pseudolegal and applies it in unsafe mode.
+     An omitted promotion is resolved against this state; an explicit choice is trusted.
      In a castling move, it is considered a check if either moved piece checks an
      opponent royal piece.
      */

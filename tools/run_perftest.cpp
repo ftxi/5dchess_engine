@@ -124,7 +124,7 @@ int run_perftest(int argc, const char *argv[])
                             if(pt_opt.has_value())
                             {
                                 piece_t pt = to_white(*pt_opt);
-                                flag = current_state.apply_move<false>(fm, pt);
+                                flag = current_state.apply_move<false>(ext_move(fm, pt));
                             }
                             else
                             {

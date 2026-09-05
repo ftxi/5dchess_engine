@@ -116,7 +116,7 @@ PYBIND11_MODULE(engine, m) {
         .def(py::init<vec4, vec4, piece_t>(),
              py::arg("from"),
              py::arg("to"),
-             py::arg("promote_to") = NO_PIECE)
+             py::arg("promote_to"))
         .def("get_from", &ext_move::get_from)
         .def("get_to", &ext_move::get_to)
         .def("get_promote", &ext_move::get_promote)

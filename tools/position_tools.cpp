@@ -145,7 +145,7 @@ void apply_action(state &current, const pgnparser_ast::actions &act)
             throw std::runtime_error(message.str());
         }
         const bool applied = promotion
-            ? current.apply_move(*fm, to_white(*promotion))
+            ? current.apply_move(ext_move(*fm, to_white(*promotion)))
             : current.apply_move(*fm);
         if(!applied)
         {

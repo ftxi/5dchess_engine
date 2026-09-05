@@ -4,29 +4,18 @@
 #include <limits>
 #include <type_traits>
 
-#include "mcts.h"
+#include "mcts_engines.h"
 
 int main()
 {
-    // Fine-tree child payloads are default-constructed and initialized when
-    // MCTS adopts them; search statistics must never be copied.
-    static_assert(!std::is_copy_constructible_v<mcts_node_info>);
-    static_assert(!std::is_copy_assignable_v<mcts_node_info>);
     static_assert(std::has_virtual_destructor_v<zero_engine>);
-    mcts_node_info parent;
-    parent.is_included = true;
-    parent.all_children_included = true;
-    parent.fully_expanded = true;
-    parent.sum_reward = 42.0f;
-    parent.visits = 7;
-
-    mcts_node_info child;
-    // Turn ownership belongs to fine_node's state, not MCTS metadata. Search
-    // statistics and expansion bookkeeping are node-local and must not be
-    // copied from the parent, otherwise the new child appears explored.
-    assert(!child.is_included);
-    assert(!child.all_children_included);
-    assert(!child.fully_expanded);
+    using info_t = mcts_node_info<uct_tree_policy::node_data>;
+    static_assert(!std::is_copy_constructible_v<info_t>);
+    static_assert(!std::is_copy_assignable_v<info_t>);
+    info_t child;
+    assert(!child.registered);
+    assert(!child.tree_policy_data.all_children_included);
+    assert(!child.tree_policy_data.fully_expanded);
     assert(child.sum_reward == 0.0f);
     assert(child.visits == 0);
 

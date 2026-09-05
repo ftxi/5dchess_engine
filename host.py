@@ -57,7 +57,7 @@ def handle_click(data):
     # print(f"present: t={present_t}, c={present_c}")
     # print(pos, qs, pos in qs)
     if pos in qs:
-        fm = engine.ext_move(p0, pos)
+        fm = engine.ext_move(p0, pos, engine.Piece.NO_PIECE)
         print("applying", fm)
         flag = g.apply_move(fm)
         print("finished", flag)

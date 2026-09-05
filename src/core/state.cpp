@@ -68,7 +68,7 @@ state::state(const pgnparser_ast::game &g)
                 if(pt_opt.has_value())
                 {
                     piece_t pt = to_white(*pt_opt);
-                    flag = apply_move<false>(fm, pt);
+                    flag = apply_move<false>(ext_move(fm, pt));
                 }
                 else
                 {
@@ -145,7 +145,9 @@ std::optional<state> state::can_submit() const
 std::optional<state> state::can_apply(full_move fm, piece_t promote_to) const
 {
     state new_state = *this;
-    bool flag = new_state.apply_move<false>(fm, promote_to);
+    const auto normalized = normalize_promotion(ext_move(fm, promote_to));
+    if(!normalized) return std::nullopt;
+    bool flag = new_state.apply_move<false>(*normalized);
     if(flag)
     {
         return std::make_optional<state>(new_state);
@@ -161,7 +163,7 @@ std::optional<state> state::can_apply(const action &act) const
     state new_state = *this;
     for(const auto& em : act.get_moves())
     {
-        bool flag = new_state.apply_move<false>(em.fm, em.promote_to);
+        bool flag = new_state.apply_move<false>(em);
         if(!flag)
         {
             return std::nullopt;
@@ -176,8 +178,17 @@ std::optional<state> state::can_apply(const action &act) const
 }
 
 template<bool UNSAFE>
-bool state::apply_move(full_move fm, piece_t promote_to)
+bool state::apply_move(full_move fm)
 {
+    const auto normalized = normalize_promotion(ext_move(fm, NO_PIECE));
+    if(!normalized) return false;
+    return apply_move<UNSAFE>(*normalized);
+}
+
+template<bool UNSAFE>
+bool state::apply_move(ext_move mv)
+{
+    const auto [fm, promote_to] = mv;
     dprint("applying move", fm);
     vec4 p = fm.from;
     vec4 q = fm.to;
@@ -185,11 +196,10 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     if constexpr (!UNSAFE)
     {
         const auto normalized = normalize_promotion(ext_move(fm, promote_to));
-        if(!normalized)
+        if(!normalized || *normalized != mv)
         {
             return false;
         }
-        promote_to = normalized->promote_to;
 #ifndef NDEBUG
         auto te = m->get_timeline_end(p.l());
         assert(std::make_pair(p.t(), player) == te && "moves must be made on an active board");
@@ -399,8 +409,12 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
     const piece_t moved_piece = m->get_piece(p, player);
     piece_t captured_piece = NO_PIECE;
 
+    // Like other unchecked callers, an explicit promotion is trusted. Only
+    // an omitted choice needs state-dependent preparation.
+    const ext_move prepared = pt == NO_PIECE ? ext_move(fm, *this) : ext_move(fm, pt);
+    pt = prepared.promote_to;
     auto new_state = std::make_unique<state>(*this);
-    [[maybe_unused]] const bool applied = new_state->apply_move<true>(fm, pt);
+    [[maybe_unused]] const bool applied = new_state->apply_move<true>(prepared);
     assert(applied);
     vec4 new_pos(0,0,0,0);
     check_type_t check_type = check_type_t::NONE;
@@ -1112,8 +1126,10 @@ state::parse_pgn_res state::parse_move(const std::string &move) const
     return parse_move(*parsed_move);
 }
 
-template bool state::apply_move<false>(full_move, piece_t);
-template bool state::apply_move<true>(full_move, piece_t);
+template bool state::apply_move<false>(full_move);
+template bool state::apply_move<true>(full_move);
+template bool state::apply_move<false>(ext_move);
+template bool state::apply_move<true>(ext_move);
 template bool state::submit<false>();
 template bool state::submit<true>();
 

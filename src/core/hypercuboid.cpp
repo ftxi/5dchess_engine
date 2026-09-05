@@ -660,7 +660,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         // !!do use flag SHOW_MATE (or expect explosion)!!
         mvsstr += mv.lan(s) + " ";
 #endif
-        [[maybe_unused]] bool flag = newstate.apply_move(mv);
+        [[maybe_unused]] bool flag = newstate.apply_move<true>(mv);
         assert(flag && "failed to apply move here");
     }
     [[maybe_unused]] bool flag = newstate.submit();

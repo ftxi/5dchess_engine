@@ -91,8 +91,12 @@ struct ext_move
 {
     full_move fm;
     piece_t promote_to;
-    ext_move(full_move fm, piece_t promote_to=NO_PIECE) : fm(fm), promote_to(promote_to) {}
-    ext_move(vec4 from, vec4 to, piece_t promote_to=NO_PIECE) : fm{from, to}, promote_to(promote_to) {}
+    ext_move(full_move fm, piece_t promote_to) : fm(fm), promote_to(promote_to) {}
+    ext_move(vec4 from, vec4 to, piece_t promote_to) : fm{from, to}, promote_to(promote_to) {}
+    // Resolve the configured promotion in the supplied position.
+    ext_move(full_move fm, const state &s);
+    // Parsing may leave promotion unspecified; normalize against a state
+    // before passing a parsed move to unchecked application.
     ext_move(std::string);
     vec4 get_from() const { return fm.from; }
     vec4 get_to() const { return fm.to; }

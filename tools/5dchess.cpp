@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-#include "mcts.h"
+#include "mcts_engines.h"
 #include "linear.h"
 #include "monkey.h"
 #include "flat_ucb.h"

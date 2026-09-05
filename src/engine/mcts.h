@@ -4,10 +4,12 @@
 #include <cassert>
 #include <chrono>
 #include <concepts>
+#include <stdexcept>
 #include <cstddef>
 #include <memory>
 #include <optional>
 #include <stop_token>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -15,6 +17,16 @@
 
 #include "finetree.h"
 #include "uci.h"
+
+/*
+This files define the behavioral boundaries for components of Monte Carlo tree search (MCTS).
+
+A MCTS-based engine can be constructed by providing the following components:
+- Tree policy: a class that implements the TreePolicy concept. It is responsible for selecting a node in the fine tree to expand and completing it to a ceiling node.
+- Default policy: a class that implements the DefaultPolicy concept. It is responsible for evaluating a state at a ceiling node and returning a reward.
+- Backpropagation policy: a class that implements the BackPropagation concept. It is responsible for backpropagating the reward from a ceiling node to the root node.
+- Selection policy: a class that implements the SelectionPolicy concept. It is responsible for selecting the bestmove.
+ */
 
 template<typename Details = std::monostate>
 struct reward_t
@@ -192,7 +204,7 @@ template<class TP, class DP, class BP, class SP, class Observer>
         && DefaultPolicy<DP, Observer>
         && BackPropagation<BP, tree_node_t<TP>, typename DP::result_type, Observer>
         && SelectionPolicy<SP, tree_node_t<TP>, Observer>
-class basic_mcts_engine final: public engine
+class basic_mcts_engine: public engine
 {
 public:
     using node_info = mcts_node_info<typename TP::node_data>;
@@ -205,6 +217,20 @@ private:
     [[no_unique_address]] SP selection_policy;
     [[no_unique_address]] Observer observer;
     std::unique_ptr<node_t> root;
+protected:
+    void on_option_changed(const std::string &key, const option_value_t &value) override
+    {
+        if constexpr(requires(DP &policy) { policy.set_max_actions(std::size_t{}); })
+        {
+            if(key == "rollout-max-actions")
+            {
+                if(const auto *limit = std::get_if<int>(&value))
+                    default_policy.set_max_actions(static_cast<std::size_t>(std::max(0, *limit)));
+                return;
+            }
+        }
+        engine::on_option_changed(key, value);
+    }
 public:
     basic_mcts_engine(
         DP default_policy,

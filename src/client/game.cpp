@@ -91,8 +91,7 @@ game game::from_pgn(std::string input)
                             oss << "game::from_pgn(): Illegal promotion: " << mv_ast;
                             throw std::runtime_error(oss.str());
                         }
-                        const bool flag = s.apply_move<false>(
-                            normalized->fm, normalized->promote_to);
+                        const bool flag = s.apply_move<false>(*normalized);
                         if(!flag)
                         {
                             std::ostringstream oss;
@@ -372,8 +371,8 @@ bool game::suggest_action()
     for(moveseq mvs : w.search(ss))
     {
         std::vector<ext_move> emvs;
-        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
-            return ext_move(m);
+        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [&s](full_move m){
+            return ext_move(m, s);
         });
         action act = action::from_vector(emvs, s);
         if(!current_node->find_child(act))

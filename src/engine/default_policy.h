@@ -2,6 +2,8 @@
 #define DEFAULT_POLICY_H
 
 #include <cstdint>
+#include <atomic>
+#include <memory>
 #include <random>
 
 #include "mcts.h"
@@ -44,7 +46,7 @@ class default_policy_t
 {
     [[no_unique_address]] AS action_selection;
     [[no_unique_address]] CE cutoff_evaluation;
-    std::size_t rollout_max_actions;
+    std::unique_ptr<std::atomic<std::size_t>> rollout_max_actions;
     std::optional<std::mt19937> rng;
 
     std::mt19937 *rng_pointer()
@@ -60,7 +62,7 @@ public:
         std::optional<std::uint32_t> seed = std::nullopt
     ):  action_selection{std::move(as)},
         cutoff_evaluation{std::move(ce)},
-        rollout_max_actions{rollout_max_actions},
+        rollout_max_actions{std::make_unique<std::atomic<std::size_t>>(rollout_max_actions)},
         rng {}
     {
         if(seed.has_value())
@@ -69,6 +71,8 @@ public:
         }
     }
     
+    void set_max_actions(std::size_t limit) { rollout_max_actions->store(limit); }
+
     using result_type = reward_t<T>;
 
     template<class Observer>
@@ -78,7 +82,7 @@ public:
         Observer &)
     {
         std::size_t num_actions = 0;
-        while(num_actions < rollout_max_actions)
+        while(num_actions < rollout_max_actions->load())
         {
             if(stop_token.stop_requested())
             {
@@ -105,7 +109,8 @@ public:
             }
             for(full_move mv : *action)
             {
-                s.apply_move<true>(mv);
+                [[maybe_unused]] const bool applied = s.apply_move<true>(mv);
+                assert(applied);
             }
             s.submit<true>();
             num_actions++;

@@ -22,6 +22,10 @@ void engine::launch_async_task(task_state task, std::function<void(std::stop_tok
         {
             work(st);
         }
+        catch(const std::exception &error)
+        {
+            write_line(std::string("info engine task failed: ") + error.what());
+        }
         catch(...)
         {
             write_line("info engine task failed");
@@ -189,7 +193,7 @@ void engine::mainloop()
                         {
                             best_move_str += ' ';
                             best_move_str += ext_mv.lan(output_state);
-                            output_state.apply_move(ext_mv.fm, ext_mv.promote_to);
+                            output_state.apply_move(ext_mv);
                         }
                         write_line(best_move_str);
                     }
@@ -439,7 +443,8 @@ void engine::set_position(const std::string &position, const std::string &moves)
             try
             {
                 const ext_move move{move_str};
-                if(!candidate->apply_move(move.fm, move.promote_to))
+                const auto normalized = candidate->normalize_promotion(move);
+                if(!normalized || !candidate->apply_move(*normalized))
                 {
                     send_info("position error: cannot apply move " + move_str);
                     return;

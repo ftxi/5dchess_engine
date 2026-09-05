@@ -1,13 +1,8 @@
-#include "rollout.h"
-
-#include <optional>
-#include <utility>
-
+#include "rollout_policy.h"
 #include "hypercuboid.h"
 
 namespace
 {
-
 bool propagate_problem_adaptively(
     search_space &space,
     const HC &selected_hc,
@@ -111,81 +106,14 @@ generator<moveseq> mixed_search(
     }
 }
 
-rollout_result rollout_inplace_impl(
-    state &s,
-    int max_actions,
-    std::stop_token stop_token,
-    std::mt19937 *rng
-)
-{
-    std::size_t num_actions = 0;
-    for(int action_index = 0; action_index < max_actions; ++action_index)
-    {
-        if(stop_token.stop_requested())
-        {
-            return {rollout_result::termination::STOPPED, num_actions};
-        }
-
-        const auto [present, player] = s.get_present();
-        (void)present;
-        auto [hc_info, search_space] = HC_info::build_HC(s);
-        random_HC_ordering order = rng != nullptr
-            ? random_HC_ordering(hc_info.universe, *rng)
-            : random_HC_ordering(hc_info.universe);
-        std::optional<moveseq> moves = mixed_search(
-            hc_info,
-            std::move(search_space),
-            std::move(order),
-            stop_token).first();
-        if(moves)
-        {
-            for(const full_move &move : *moves)
-            {
-                s.apply_move<true>(move);
-            }
-            s.submit();
-            ++num_actions;
-            continue;
-        }
-
-        if(stop_token.stop_requested())
-        {
-            return {rollout_result::termination::STOPPED, num_actions};
-        }
-
-        if(s.get_mate_type() == mate_type::STALEMATE)
-        {
-            return {rollout_result::termination::STALEMATE, num_actions};
-        }
-        return {
-            player
-                ? rollout_result::termination::WHITE_WINS
-                : rollout_result::termination::BLACK_WINS,
-            num_actions
-        };
-    }
-    return {rollout_result::termination::ACTION_LIMIT, num_actions};
 }
 
-} /* anonymous namespace */
-
-rollout_result rollout_inplace(
-    state &s,
-    int max_actions,
-    std::stop_token stop_token,
-    std::mt19937 *rng
-)
+std::optional<moveseq> random_action_selection::operator()(
+    const state &s, std::stop_token stop, std::mt19937 *rng) const
 {
-    return rollout_inplace_impl(
-        s, max_actions, stop_token, rng);
-}
-
-rollout_result rollout(
-    state s,
-    int max_actions,
-    std::stop_token stop_token,
-    std::mt19937 *rng
-)
-{
-    return rollout_inplace(s, max_actions, stop_token, rng);
+    if(stop.stop_requested()) return std::nullopt;
+    auto [info, space] = HC_info::build_HC(s);
+    auto order = rng ? random_HC_ordering(info.universe, *rng)
+                     : random_HC_ordering(info.universe);
+    return mixed_search(info, std::move(space), std::move(order), stop).first();
 }

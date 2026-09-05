@@ -469,7 +469,8 @@ inline void fine_node<T>::ignite()
     moveseq mvs = to_action();
     for(full_move mv : mvs)
     {
-        s.apply_move<true>(mv);
+        [[maybe_unused]] const bool applied = s.apply_move<true>(mv);
+        assert(applied);
     }
     s.submit<true>();
     auto [hc_info, ss] = HC_info::build_HC(s);

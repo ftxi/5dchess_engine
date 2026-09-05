@@ -10,10 +10,12 @@
 #include <stop_token>
 #include <utility>
 
-#include "mcts.h"
+#include "mcts1.h"
+
+using default_policy_result = legacy::default_policy_result;
 #include "statistics.h"
 
-class linear_engine : public mcts_engine
+class linear_engine : public legacy::mcts_engine
 {
 public:
     static constexpr std::size_t material_feature_count
@@ -68,9 +70,9 @@ public:
     linear_engine(
         std::unique_ptr<io_handler> io_handler,
         std::optional<std::uint32_t> seed = std::nullopt,
-        int max_rollout_actions = default_mcts_rollout_max_actions,
+        int max_rollout_actions = legacy::default_mcts_rollout_max_actions,
         weight_vector_t weights = default_weights())
-    : mcts_engine(std::move(io_handler), seed, max_rollout_actions),
+    : legacy::mcts_engine(std::move(io_handler), seed, max_rollout_actions),
       weight_vector(std::move(weights)) {}
 
     static feature_vector_t extract_features(const state &position);

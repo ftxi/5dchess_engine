@@ -21,7 +21,7 @@ int main()
 {
     game g = game::from_pgn(very_small_open);
     std::cout << g.get_match_status() << "\n";
-    g.apply_move(full_move("(0T3)e1d2"));
+    g.apply_move(ext_move(full_move("(0T3)e1d2"), g.get_current_state()));
     
     std::cout << g.get_current_state().to_string();
     for(auto [p,q] :g.get_current_checks())

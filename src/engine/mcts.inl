@@ -14,7 +14,8 @@ state state_at_ceiling(Node &node)
     state result = node.get_context()->hc_info.s;
     for(full_move move : node.to_action())
     {
-        result.apply_move<true>(move);
+        [[maybe_unused]] const bool applied = result.apply_move<true>(move);
+        assert(applied);
     }
     result.submit<true>();
     return result;
@@ -65,6 +66,7 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
         iteration_limit = static_cast<std::size_t>(depth_limit.value()) * DEPTH_TO_ITERATION_MULTIPLIER;
     }
 
+    if constexpr(requires { observer.reset(); }) observer.reset();
     root = node_t::make_root(*get_current_state());
     std::size_t iteration_count = 0;
     while(true)
@@ -168,6 +170,12 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
         .duration = std::chrono::steady_clock::now() - time_search_start,
         .selected_ceiling = best_node
     });
+    if constexpr(requires { observer.report(); })
+    {
+        std::istringstream report(observer.report());
+        for(std::string line; std::getline(report, line);)
+            if(!line.empty()) send_info(line);
+    }
     if(best_node == nullptr)
     {
         return std::nullopt; // No best node found

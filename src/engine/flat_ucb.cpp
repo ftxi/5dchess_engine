@@ -53,7 +53,7 @@ std::optional<action> flat_ucb_engine::find_best_move(
         state position = root;
         for(const full_move &move : moves)
         {
-            position.apply_move(move);
+            position.apply_move<true>(move);
         }
         position.submit();
         children.push_back({moves, std::move(position)});
