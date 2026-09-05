@@ -6,14 +6,12 @@
 #include <numeric>
 #include <utility>
 
-#include "rollout.h"
-
 namespace
 {
 
 template<timelines_status Status>
 void append_material_features(
-    linear_engine::feature_vector_t &features,
+    linear_cutoff_evaluation::feature_vector_t &features,
     std::size_t sum_offset,
     std::size_t diff_offset,
     const state &position)
@@ -26,9 +24,9 @@ void append_material_features(
 
 } /* anonymous namespace */
 
-static_assert(linear_engine::features_count == 64);
+static_assert(linear_cutoff_evaluation::features_count == 64);
 
-linear_engine::weight_vector_t linear_engine::default_weights()
+linear_cutoff_evaluation::weight_vector_t linear_cutoff_evaluation::default_weights()
 {
     weight_vector_t weights{};
     constexpr std::array<float, material_feature_count> material_weights{
@@ -56,7 +54,7 @@ linear_engine::weight_vector_t linear_engine::default_weights()
     return weights;
 }
 
-linear_engine::weight_vector_t linear_engine::trained_weights()
+linear_cutoff_evaluation::weight_vector_t linear_cutoff_evaluation::trained_weights()
 {
     // Projection of the frozen r=40 checkpoint onto the retained 64-feature
     // schema.  The removed royal-safety coefficients are deliberately absent.
@@ -80,7 +78,7 @@ linear_engine::weight_vector_t linear_engine::trained_weights()
     };
 }
 
-linear_engine::feature_vector_t linear_engine::extract_features(
+linear_cutoff_evaluation::feature_vector_t linear_cutoff_evaluation::extract_features(
     const state &position)
 {
     feature_vector_t features{};
@@ -129,45 +127,34 @@ linear_engine::feature_vector_t linear_engine::extract_features(
     return features;
 }
 
-float linear_engine::evaluate(const state &position) const
+float linear_cutoff_evaluation::evaluate(const state &position) const
 {
     const feature_vector_t features = extract_features(position);
     const float linear_score = std::inner_product(
         features.begin(),
         features.end(),
-        weight_vector.begin(),
+        weights.begin(),
         0.0f);
-    const float player_score = legacy::WINNING_SCORE * std::tanh(linear_score);
+    const float player_score = WINNING_SCORE * std::tanh(linear_score);
     return position.get_present().second ? -player_score : player_score;
 }
 
-default_policy_result linear_engine::default_policy(
-    state position,
-    std::stop_token stop_token,
-    std::mt19937 *rng)
+linear_cutoff_evaluation::result_type linear_cutoff_evaluation::mate_reward(
+    std::optional<bool> winner,
+    std::size_t length) const
 {
-    const rollout_result result = rollout_inplace(
-        position,
-        rollout_max_actions.load(),
-        stop_token,
-        rng);
-    if(stop_token.stop_requested())
-    {
-        return {0.0f, rollout_result::termination::STOPPED};
-    }
-    if(result.end == rollout_result::termination::WHITE_WINS
-       || result.end == rollout_result::termination::BLACK_WINS)
-    {
-        return {
-            result.end == rollout_result::termination::WHITE_WINS
-                ? legacy::WINNING_SCORE
-                : -legacy::WINNING_SCORE,
-            result.end
-        };
-    }
-    if(result.end == rollout_result::termination::STALEMATE)
-    {
-        return {0.0f, result.end};
-    }
-    return {evaluate(position), result.end};
+    return rollout_cutoff_evaluation{}.mate_reward(winner, length);
+}
+
+std::optional<linear_cutoff_evaluation::result_type>
+linear_cutoff_evaluation::cutoff_reward(
+    state position,
+    std::size_t length,
+    std::stop_token stop_token,
+    std::mt19937 *) const
+{
+    if(stop_token.stop_requested()) return std::nullopt;
+    return result_type{
+        evaluate(position),
+        {rollout_details::termination::ACTION_LIMIT, length}};
 }

@@ -2,19 +2,16 @@
 
 #include <chrono>
 #include <limits>
-#include <random>
 #include <iomanip>
 #include <sstream>
 #include <string_view>
 
 #include "hypercuboid.h"
-#include "rollout.h"
 #include "uct.h"
 
 namespace
 {
 constexpr int depth_to_iteration_multiplier = 10;
-constexpr float winning_score = 1.0f;
 constexpr std::string_view rollout_max_actions_option = "rollout-max-actions";
 
 struct flat_child
@@ -24,6 +21,8 @@ struct flat_child
     float sum_reward = 0.0f;
     std::size_t visits = 0;
 };
+
+struct flat_ucb_observer {};
 } /* anonymous namespace */
 
 void flat_ucb_engine::on_option_changed(const std::string &key, const option_value_t &value)
@@ -32,7 +31,8 @@ void flat_ucb_engine::on_option_changed(const std::string &key, const option_val
     {
         if(const auto *max_actions = std::get_if<int>(&value))
         {
-            rollout_max_actions.store(*max_actions);
+            default_policy.set_max_actions(
+                static_cast<std::size_t>(std::max(0, *max_actions)));
         }
         return;
     }
@@ -76,11 +76,7 @@ std::optional<action> flat_ucb_engine::find_best_move(
             + std::chrono::milliseconds(*time_limit_ms);
     }
 
-    std::optional<std::mt19937> rollout_rng;
-    if(rollout_seed.has_value())
-    {
-        rollout_rng.emplace(*rollout_seed);
-    }
+    flat_ucb_observer observer;
     const bool maximizing_player = !root.get_present().second;
     std::size_t total_visits = 0;
     while(!stop_token.stop_requested()
@@ -102,23 +98,15 @@ std::optional<action> flat_ucb_engine::find_best_move(
                 best_score = score;
             }
         }
-        const rollout_result result = rollout(
+        const auto result = default_policy.evaluate(
             children[selected].position,
-            rollout_max_actions.load(),
             stop_token,
-            rollout_rng.has_value() ? &*rollout_rng : nullptr);
-        if(stop_token.stop_requested())
+            observer);
+        if(!result)
         {
             break;
         }
-        if(result.end == rollout_result::termination::WHITE_WINS)
-        {
-            children[selected].sum_reward += winning_score;
-        }
-        else if(result.end == rollout_result::termination::BLACK_WINS)
-        {
-            children[selected].sum_reward -= winning_score;
-        }
+        children[selected].sum_reward += result->score;
         ++children[selected].visits;
         ++total_visits;
     }
@@ -138,13 +126,13 @@ std::optional<action> flat_ucb_engine::find_best_move(
         std::chrono::steady_clock::now() - search_started).count();
     std::ostringstream stats_info;
     stats_info << std::setprecision(17)
-               << "flat_uct_stats elapsed_seconds=" << elapsed_seconds
+               << "flat_ucb_stats elapsed_seconds=" << elapsed_seconds
                << " iterations=" << total_visits
                << " ips=" << (elapsed_seconds > 0.0
                    ? static_cast<double>(total_visits) / elapsed_seconds : 0.0);
     send_info(stats_info.str());
     std::ostringstream score_info;
-    score_info << std::setprecision(9) << "flat_uct_score score=" << selected_score;
+    score_info << std::setprecision(9) << "flat_ucb_score score=" << selected_score;
     send_info(score_info.str());
     return action::from_moveseq(best->moves, root);
 }

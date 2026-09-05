@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import unittest
 from types import SimpleNamespace
@@ -90,13 +91,34 @@ class AutoplayMetadataTest(unittest.TestCase):
         )
 
     def test_protocol_comment_identifies_engine_and_failure(self) -> None:
-        player = autoplay.EngineProcess("flat-uct", "engine flat-uct", 100)
+        player = autoplay.EngineProcess("flat-ucb", "engine flat-ucb", 100)
         comment = autoplay.protocol_termination_comment(
             player,
             1,
             autoplay.ProtocolError("black: exited with 9"),
         )
-        self.assertEqual(comment, "Black [flat-uct] crashed.")
+        self.assertEqual(comment, "Black [flat-ucb] crashed.")
+
+
+class AutoplayMetricsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_flat_ucb_metrics_are_captured(self) -> None:
+        output = asyncio.StreamReader()
+        output.feed_data(
+            b"info flat_ucb_stats elapsed_seconds=0.02 iterations=12 ips=600\n"
+            b"info flat_ucb_score score=0.25\n"
+            b"bestmove (0T1)a2a3\n"
+        )
+        output.feed_eof()
+        player = autoplay.EngineProcess("flat-ucb", "engine flat-ucb", 100)
+        player.process = SimpleNamespace(stdout=output, returncode=None)
+
+        response = await player.wait_for("bestmove", 0.1)
+
+        self.assertEqual(response, "bestmove (0T1)a2a3")
+        self.assertEqual(player.last_engine_stats["iterations"], "12")
+        self.assertEqual(player.last_engine_stats["ips"], "600")
+        self.assertEqual(player.last_engine_score, "0.25")
+        self.assertEqual(player.last_engine_scores, "")
 
 
 if __name__ == "__main__":

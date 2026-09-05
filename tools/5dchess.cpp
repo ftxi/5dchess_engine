@@ -24,7 +24,7 @@ struct command_line_options
 
 void print_usage(std::ostream &out)
 {
-    out << "Usage: 5dchess <mcts|zero|linear|linear-trained|flat-uct|monkey> [options]\n"
+    out << "Usage: 5dchess <mcts|zero|linear|linear-trained|flat-ucb|monkey> [options]\n"
         << "  -s, --seed <seed>               optional unsigned 32-bit random seed\n"
         << "  -r, --rollout-max-actions <n>   search rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
@@ -69,7 +69,7 @@ command_line_options parse_options(
         {
             if((engine_name != "mcts" && engine_name != "linear"
                 && engine_name != "linear-trained"
-                && engine_name != "flat-uct")
+                && engine_name != "flat-ucb")
                || rollout_limit_seen || ++i >= argc)
             {
                 throw std::invalid_argument("invalid rollout limit option");
@@ -109,7 +109,7 @@ int main(int argc, const char *argv[])
     const std::string engine_name = argv[1];
     if(engine_name != "mcts" && engine_name != "zero" && engine_name != "linear"
        && engine_name != "linear-trained"
-       && engine_name != "flat-uct" && engine_name != "monkey")
+       && engine_name != "flat-ucb" && engine_name != "monkey")
     {
         std::cerr << "Unknown engine: " << engine_name << "\n";
         print_usage(std::cerr);
@@ -143,13 +143,13 @@ int main(int argc, const char *argv[])
     else if(engine_name == "linear" || engine_name == "linear-trained")
     {
         const auto weights = engine_name == "linear"
-            ? linear_engine::default_weights()
-            : linear_engine::trained_weights();
+            ? linear_cutoff_evaluation::default_weights()
+            : linear_cutoff_evaluation::trained_weights();
         selected_engine = std::make_unique<linear_engine>(
             std::make_unique<stdio_handler>(), options.seed,
             options.rollout_max_actions, weights);
     }
-    else if(engine_name == "flat-uct")
+    else if(engine_name == "flat-ucb")
     {
         selected_engine = std::make_unique<flat_ucb_engine>(
             std::make_unique<stdio_handler>(), options.seed,

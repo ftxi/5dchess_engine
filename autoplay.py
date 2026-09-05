@@ -117,7 +117,7 @@ class EngineProcess:
                     raise ProtocolError(f"{self.name}: exited with {code}; {self.diagnostic()}")
                 line = raw.decode(errors="replace").strip()
                 self._record("<", line)
-                if line.startswith("info mcts_stats ") or line.startswith("info flat_uct_stats "):
+                if line.startswith("info mcts_stats ") or line.startswith("info flat_ucb_stats "):
                     self.last_engine_stats = dict(
                         token.split("=", 1)
                         for token in line.split()[2:]
@@ -127,7 +127,7 @@ class EngineProcess:
                     stats = dict(token.split("=", 1) for token in line.split()[2:] if "=" in token)
                     self.last_engine_score = stats.get("average", "")
                     self.last_engine_scores = stats.get("detailed", "")
-                elif line.startswith("info flat_uct_score "):
+                elif line.startswith("info flat_ucb_score "):
                     stats = dict(token.split("=", 1) for token in line.split()[2:] if "=" in token)
                     self.last_engine_score = stats.get("score", "")
                     self.last_engine_scores = ""

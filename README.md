@@ -67,7 +67,7 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are six engines: `mcts`, `zero`, `linear`, `linear-trained`, `flat-uct`, and `monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `zero` is MCTS with a constant-zero default policy. The two Linear engines evaluate inconclusive rollout positions with the same bounded 64-feature model: `linear` uses hand-written weights and `linear-trained` uses a frozen experimental profile. See [Linear evaluation features](docs/linear-features.md). `flat-uct` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCT rule, without expanding a search tree. Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-uct --seed 1234`. MCTS, both Linear engines, and flat-UCT also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess linear --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw by MCTS and flat-UCT; Linear evaluates the final rollout position instead. Setting the limit to zero disables rollout entirely. The shared UCT implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are six engines: `mcts`, `zero`, `linear`, `linear-trained`, `flat-ucb`, and `monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `zero` is MCTS with a constant-zero default policy. The two Linear engines evaluate inconclusive rollout positions with the same bounded 64-feature model: `linear` uses hand-written weights and `linear-trained` uses a frozen experimental profile. See [Linear evaluation features](docs/linear-features.md). `flat-ucb` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCB rule, without expanding a search tree. Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-ucb --seed 1234`. MCTS, both Linear engines, and flat-UCB also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess linear --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout position instead. Setting the limit to zero disables rollout entirely. The shared confidence-bound scoring implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
@@ -77,11 +77,11 @@ Autoplay records standard PGN match headers. Use `--event` and `--site` to
 name a standalone run; both default to `Autoplay` and `Local`. In a series,
 `Round` is the one-based game number.
 
-For a compact 10-game flat-UCT/MCTS protocol smoke test, use:
+For a compact 10-game flat-UCB/MCTS protocol smoke test, use:
 ```sh
-python autoplay.py --white "./build/5dchess flat-uct --seed 11 --rollout-max-actions 2" --black "./build/5dchess mcts --seed 29 --rollout-max-actions 2" --movetime 20 --max-actions 2 --games 10
+python autoplay.py --white "./build/5dchess flat-ucb --seed 11 --rollout-max-actions 2" --black "./build/5dchess mcts --seed 29 --rollout-max-actions 2" --movetime 20 --max-actions 2 --games 10
 ```
-Autoplay metrics include `engine_score`: flat-UCT's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
+Autoplay metrics include `engine_score`: flat-UCB's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
 Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
 
 For persistent Elo ratings across many registered engines, manual result
@@ -160,7 +160,7 @@ All resources inside this project are either open source online or created by my
 For more details on the structure of this repository, please read [this page](docs/index.md).
 
 ### TODOs
-- [ ] Modularize Monte Carlo tree search
+- [x] Modularize Monte Carlo tree search
 - [ ] Move weighting for default policy
 - [ ] Move ordering for tree policy
 - [ ] Progressive widening

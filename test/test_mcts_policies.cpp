@@ -3,7 +3,6 @@
 #include <set>
 #include "mcts_engines.h"
 #include "pgnparser.h"
-#include "rollout.h"
 
 struct observer {};
 
@@ -17,13 +16,16 @@ void test_rollout()
     observer obs;
     for(unsigned seed : {1u, 7u, 91u})
     {
-        std::mt19937 rng(seed);
-        auto expected = rollout(standard_position(), 2, {}, &rng);
-        rollout_default_policy policy({}, {}, 2, seed);
-        auto result = policy.evaluate(standard_position(), {}, obs);
-        assert(result);
-        assert(result->data.num_actions == expected.num_actions);
-        assert(static_cast<int>(result->data.end) == static_cast<int>(expected.end));
+        rollout_default_policy first({}, {}, 2, seed);
+        rollout_default_policy second({}, {}, 2, seed);
+        auto result = first.evaluate(standard_position(), {}, obs);
+        auto repeated = second.evaluate(standard_position(), {}, obs);
+        assert(result && repeated);
+        assert(result->data.num_actions == 2);
+        assert(result->data.end == rollout_details::termination::ACTION_LIMIT);
+        assert(result->score == repeated->score);
+        assert(result->data.num_actions == repeated->data.num_actions);
+        assert(result->data.end == repeated->data.end);
     }
     for(const auto &[player, fen, score] : {
         std::tuple{true, "k7/1Q6/2K5/8/8/8/8/8", 1.0f},

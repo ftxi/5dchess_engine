@@ -1,21 +1,20 @@
 #ifndef FLAT_UCB_H
 #define FLAT_UCB_H
 
-#include <atomic>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <stop_token>
 #include <vector>
 
-#include "uci.h"
+#include "rollout_policy.h"
 
 constexpr int default_flat_ucb_rollout_max_actions = 200;
 
 class flat_ucb_engine : public engine
 {
-    std::optional<std::uint32_t> rollout_seed;
-    std::atomic<int> rollout_max_actions;
+    rollout_default_policy default_policy;
 
 protected:
     void on_option_changed(const std::string &key, const option_value_t &value) override;
@@ -26,8 +25,11 @@ public:
         std::optional<std::uint32_t> seed = std::nullopt,
         int max_rollout_actions = default_flat_ucb_rollout_max_actions)
     : engine(std::move(io_handler)),
-      rollout_seed(seed),
-      rollout_max_actions(max_rollout_actions) {}
+      default_policy(
+          random_action_selection{},
+          rollout_cutoff_evaluation{},
+          static_cast<std::size_t>(std::max(0, max_rollout_actions)),
+          seed) {}
 
     void initialize() override {}
     std::optional<action> find_best_move(
