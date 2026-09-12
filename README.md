@@ -203,3 +203,4 @@ For more details on the structure of this repository, please read [this page](do
 - [ ] Progressive widening
 - [x] Learned weights for the linear engine
 - [ ] UCT/PUCT switch
+- [ ] Increase performance of find_checks
