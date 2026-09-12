@@ -1,8 +1,86 @@
+#undef NDEBUG
+#include <cassert>
 #include <iostream>
 #include <vector>
 #include "pgnparser.h"
 #include "utils.h"
 #include "state.h"
+#include "vec4.h"
+#include "variants.h"
+
+void test_board_coordinate_limits()
+{
+    const std::string fen = "8/8/8/8/8/8/8/8";
+    auto parse = [&](const std::string &coordinates) {
+        return pgnparser::parse_board_fen_metadata(fen + coordinates);
+    };
+    auto rejected = [&](const std::string &coordinates) {
+        try
+        {
+            parse(coordinates);
+            return false;
+        }
+        catch(const parse_error &)
+        {
+            return true;
+        }
+    };
+
+    assert(std::get<3>(parse(":0:" + std::to_string(vec4::T_MAX) + ":w"))
+           == vec4::T_MAX);
+    assert(rejected(":0:" + std::to_string(vec4::T_MAX + 1) + ":w"));
+    assert(rejected(":0:-1:w"));
+    assert(std::get<2>(parse(":" + std::to_string(vec4::L_MAX) + ":0:w"))
+           == vec4::L_MAX);
+    assert(std::get<1>(parse(":-" + std::to_string(vec4::L_MAX) + ":0:w"))
+           == pgnparser_ast::NEGATIVE);
+    assert(rejected(":" + std::to_string(vec4::L_MAX + 1) + ":0:w"));
+    assert(rejected(":-" + std::to_string(vec4::L_MAX + 1) + ":0:w"));
+    assert(rejected(":0:5000:w"));
+}
+
+void test_short_board_rejected()
+{
+    const std::string input = R"(
+[Size "8x8"]
+[Board "Custom"]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*:0:0:w]
+
+1-0
+)";
+    try
+    {
+        state(*pgnparser(input).parse_game());
+        assert(false);
+    }
+    catch(const parse_error &)
+    {
+    }
+}
+
+void test_timeline_header()
+{
+    const std::string boards = R"(
+[Board "Custom"]
+[Size "8x8"]
+[8/8/8/8/8/8/8/K6k:0:0:w]
+)";
+    auto setup = [&](const std::string &value) {
+        auto game = pgnparser("[Timeline \"" + value + "\"]\n" + boards).parse_game();
+        return derive_variant_setup(*game);
+    };
+
+    assert(setup("Even").is_even_timelines);
+    assert(!setup("odd").is_even_timelines);
+    try
+    {
+        setup("Sideways");
+        assert(false);
+    }
+    catch(const parse_error &)
+    {
+    }
+}
 
 void test_actions()
 {
@@ -69,7 +147,9 @@ int main()
     //test_actions();
     //test_gametree();
     test_game();
+    test_board_coordinate_limits();
+    test_short_board_rejected();
+    test_timeline_header();
     std::cout << "---= parse_game.cpp: all tests passed =---" <<std::endl;
     return 0;
 }
-

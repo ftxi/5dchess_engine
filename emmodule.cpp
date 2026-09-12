@@ -373,11 +373,8 @@ EMSCRIPTEN_BINDINGS(engine) {
             action act = convert_js_to_action(js_action, g.get_unmoved_state());
             return g.visit_child(act);
         }))
-        .function("show_pgn", optional_override([](game &g, uint16_t options) {
-            return g.show_pgn(static_cast<pgn_options>(options), true);
-        }))
-        .function("show_pgn_with_scope", optional_override([](game &g, uint16_t options, bool complete_game_tree) {
-            return g.show_pgn(static_cast<pgn_options>(options), complete_game_tree);
+        .function("show_pgn", optional_override([](game &g, uint16_t options, bool complete_game_tree, bool standard_metadata_only) {
+            return g.show_pgn(static_cast<pgn_options>(options), complete_game_tree, standard_metadata_only);
         }));
     constant("SHOW_NOTHING", static_cast<uint16_t>(pgn_options::SHOW_NOTHING));
     constant("SHOW_RELATIVE", static_cast<uint16_t>(pgn_options::SHOW_RELATIVE));

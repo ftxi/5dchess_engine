@@ -70,7 +70,8 @@ public:
     
     std::string show_pgn(
         pgn_options show_flags = pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION | pgn_options::SHOW_MATE,
-        bool complete_game_tree = true
+        bool complete_game_tree = true,
+        bool standard_metadata_only = false
     );
 };
 

@@ -1,5 +1,7 @@
 #include "pgnparser.h"
 #include "utils.h"
+#include "vec4.h"
+#include <charconv>
 #include <sstream>
 
 //#define DEBUGMSG
@@ -167,17 +169,24 @@ void pgnparser::next_token()
         case '7':
         case '8':
         case '9':
-            buffer.number = 0;
+        {
+            const std::size_t begin = buffer.current - input.begin();
             while(buffer.current != input.end() && '0' <= *buffer.current && *buffer.current <= '9')
             {
-                buffer.number = buffer.number*10 + (*buffer.current-'0');
                 buffer.current++;
             }
+            const std::size_t end = buffer.current - input.begin();
+            const auto result = std::from_chars(
+                input.data() + begin, input.data() + end, buffer.number);
+            if(result.ec == std::errc::result_out_of_range)
+                throw parse_error("next_token(): Integer literal is out of range");
             if(buffer.current!=input.end()
                && (*buffer.current == 'w' || *buffer.current == 'b')
                && (buffer.current+1 != input.end())
                && (*(buffer.current+1) == '.'))
             {
+                if(buffer.number > static_cast<unsigned>(vec4::T_MAX))
+                    throw parse_error("next_token(): Turn number exceeds the supported range");
                 bool c = *buffer.current == 'b';
                 buffer.current++;
                 turn_t newturn = std::make_pair(buffer.number, c);
@@ -197,6 +206,8 @@ void pgnparser::next_token()
             }
             else if(buffer.current!=input.end() && *buffer.current == '.')
             {
+                 if(buffer.number > static_cast<unsigned>(vec4::T_MAX))
+                     throw parse_error("next_token(): Turn number exceeds the supported range");
                  const bool c = false;
                  turn_t newturn = {static_cast<int>(buffer.number), c};
                  if(check_turn_number && newturn != next_turn(buffer.turn))
@@ -219,6 +230,7 @@ void pgnparser::next_token()
                 buffer.token = POSITIVE_NUMBER;
             }
             break;
+        }
         case '/':
             buffer.turn = next_turn(buffer.turn);
             dprint("token:TURN /", buffer.turn.first, buffer.turn.second?"b":"w");
@@ -962,6 +974,12 @@ std::tuple<std::string, pgnparser_ast::token_t, int, int, bool> pgnparser::parse
     {
         throw parse_error("parse_game(): Expect number after ':': " + s + "\n" + e.what());
     }
+    catch(const std::out_of_range& e)
+    {
+        throw parse_error("parse_game(): Number out of range in board string: " + s + "\n" + e.what());
+    }
+    if(l < 0 || l > vec4::L_MAX || t < 0 || t > vec4::T_MAX)
+        throw parse_error("parse_game(): Board coordinate out of range: " + s);
     now++;
     if(now == len)
         throw parse_error("parse_game(): Expect color in board string:" + s);

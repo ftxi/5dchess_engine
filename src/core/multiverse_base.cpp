@@ -1,6 +1,7 @@
 #include "multiverse_base.h"
 #include "utils.h"
 #include "magic.h"
+#include <bit>
 #include <regex>
 #include <sstream>
 #include <algorithm>
@@ -19,14 +20,16 @@ x -> ~(x>>1)
 constexpr static int l_to_u(int l)
 {
     if(l >= 0)
-        return l << 1;
+        return static_cast<int>(static_cast<unsigned int>(l) << 1);
     else
-        return ~(l << 1);
+        return static_cast<int>(~(static_cast<unsigned int>(l) << 1));
 }
 
 constexpr static int tc_to_v(int t, bool c)
 {
-    return t << 1 | static_cast<int>(c);
+    const unsigned int encoded = static_cast<unsigned int>(t) << 1
+                               | static_cast<unsigned int>(c);
+    return std::bit_cast<int>(encoded);
 }
 
 constexpr static int u_to_l(int u)
@@ -130,6 +133,8 @@ void multiverse::append_board(int l, const std::shared_ptr<board>& b_ptr)
 
 void multiverse::insert_board_impl(int l, int t, bool c, const std::shared_ptr<board>& b_ptr)
 {
+    assert(vec4::L_MIN <= l && l <= vec4::L_MAX);
+    assert(0 <= t && t <= vec4::T_MAX);
     int u = l_to_u(l);
     int v = tc_to_v(t, c);
 
@@ -1149,4 +1154,3 @@ template movegen_t multiverse::gen_moves<false>(vec4 p) const;
 
 template std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards<true>() const;
 template std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards<false>() const;
-

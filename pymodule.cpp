@@ -182,12 +182,15 @@ PYBIND11_MODULE(engine, m) {
              },
              py::arg("action")
         )
-        .def("show_pgn", [](game &g, uint16_t options) {
-            return g.show_pgn(static_cast<pgn_options>(options));
-        })
-        .def("show_pgn_with_scope", [](game &g, uint16_t options, bool complete_game_tree) {
-            return g.show_pgn(static_cast<pgn_options>(options), complete_game_tree);
-        });
+        .def("show_pgn", [](game &g, uint16_t options, bool complete_game_tree, bool standard_metadata_only) {
+            return g.show_pgn(
+                static_cast<pgn_options>(options),
+                complete_game_tree,
+                standard_metadata_only);
+        },
+            py::arg("options"),
+            py::arg("complete_game_tree") = true,
+            py::arg("standard_metadata_only") = false);
 
     m.attr("SHOW_NOTHING") = static_cast<uint16_t>(pgn_options::SHOW_NOTHING);
     m.attr("SHOW_RELATIVE") = static_cast<uint16_t>(pgn_options::SHOW_RELATIVE);

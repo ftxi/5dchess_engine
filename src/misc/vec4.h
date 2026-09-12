@@ -17,10 +17,20 @@
 static_assert(-(1) == ~0, "two's complement required");
 
 typedef std::uint32_t vec4_t;
-constexpr vec4_t L_BITS = 12, T_BITS = 12, Y_BITS = 4, X_BITS = 4;
-static_assert(L_BITS + T_BITS + Y_BITS + X_BITS == sizeof(vec4_t) * 8, "sum of bits must equal size of vec4_t");
 
-class vec4 {
+class vec4
+{
+public:
+    // The fixed quota for each components.
+    constexpr static vec4_t L_BITS = 12, T_BITS = 12, Y_BITS = 4, X_BITS = 4;
+
+    static_assert(L_BITS + T_BITS + Y_BITS + X_BITS == sizeof(vec4_t) * 8, "sum of bits must equal size of vec4_t");
+    static constexpr int T_MIN = -static_cast<int>(1U << (T_BITS - 1));
+    static constexpr int T_MAX = static_cast<int>((1U << (T_BITS - 1)) - 1);
+    static constexpr int L_MIN = -static_cast<int>(1U << (L_BITS - 1));
+    static constexpr int L_MAX = static_cast<int>((1U << (L_BITS - 1)) - 1);
+
+private:
     vec4_t value;
     
     constexpr vec4(vec4_t v) : value(v) {}
@@ -34,6 +44,7 @@ class vec4 {
     constexpr static vec4_t mask_lower = ~mask_top;
     constexpr static int mask_x = 0b111, mask_y = 0b111000, y_shift = X_BITS-3;
 public:
+
     constexpr vec4(int x, int y, int t, int l)
     {
         unsigned int l0 = static_cast<unsigned int>(l);

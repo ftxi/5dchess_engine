@@ -466,7 +466,10 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
     return false;
 }
 
-std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
+std::string game::show_pgn(
+    pgn_options show_flags,
+    bool complete_game_tree,
+    bool standard_metadata_only)
 {
     std::ostringstream oss;
     constexpr static std::array<std::string, 11> ordered_keys = {
@@ -476,6 +479,17 @@ std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
 
     for(const auto &k : ordered_keys)
     {
+        if(k == "variant")
+        {
+            auto it = metadata.find("board");
+            const bool legacy_board = it != metadata.end();
+            if(!legacy_board)
+                it = metadata.find("variant");
+            if(it != metadata.end())
+                oss << '[' << (legacy_board && !standard_metadata_only ? "Board" : "Variant")
+                    << " \"" << it->second << "\"]\n";
+            continue;
+        }
         if(k == "promotions")
         {
             const promotion_options promotions = get_promotion_options();
@@ -499,18 +513,22 @@ std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
         }
         oss << "[" << key << " \"" << it->second << "\"]\n";
     }
-    for(const auto &[k, v] : metadata)
+    if(!standard_metadata_only)
     {
-        if(std::find(ordered_keys.begin(), ordered_keys.end(), k) != ordered_keys.end())
+        for(const auto &[k, v] : metadata)
         {
-            continue;
+            if(k == "board"
+               || std::find(ordered_keys.begin(), ordered_keys.end(), k) != ordered_keys.end())
+            {
+                continue;
+            }
+            std::string key = k;
+            if(!key.empty())
+            {
+                key[0] = toupper(key[0]);
+            }
+            oss << "[" << key << " \"" << v << "\"]\n";
         }
-        std::string key = k;
-        if(!key.empty())
-        {
-            key[0] = toupper(key[0]);
-        }
-        oss << "[" << key << " \"" << v << "\"]\n";
     }
     oss << gametree->get_state().show_fen();
     if(complete_game_tree)

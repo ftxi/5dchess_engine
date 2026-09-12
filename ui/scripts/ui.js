@@ -496,12 +496,14 @@ export const UI = (() => {
     const exportShortNotationCheckbox = document.getElementById('exportShortNotation');
     const exportRelativeNotationCheckbox = document.getElementById('exportRelativeNotation');
     const exportOutcomeCheckbox = document.getElementById('exportOutcome');
+    const exportStandardMetadataOnlyCheckbox = document.getElementById('exportStandardMetadataOnly');
     const exportCompleteGameTreeRadio = document.getElementById('exportCompleteGameTree');
     const exportGameHistoryRadio = document.getElementById('exportGameHistory');
     const EXPORT_MATE_KEY = 'export-mate';
     const EXPORT_SHORT_NOTATION_KEY = 'export-short-notation';
     const EXPORT_RELATIVE_NOTATION_KEY = 'export-relative-notation';
     const EXPORT_OUTCOME_KEY = 'export-outcome';
+    const EXPORT_STANDARD_METADATA_ONLY_KEY = 'export-standard-metadata-only';
     const EXPORT_COMPLETE_TREE_KEY = 'export-complete-game-tree';
     let appliedExportSettings = null;
 
@@ -510,6 +512,7 @@ export const UI = (() => {
         exportShortNotation: exportShortNotationCheckbox.checked,
         exportRelativeNotation: exportRelativeNotationCheckbox.checked,
         exportOutcome: exportOutcomeCheckbox.checked,
+        exportStandardMetadataOnly: exportStandardMetadataOnlyCheckbox.checked,
         exportCompleteGameTree: exportCompleteGameTreeRadio.checked
     });
 
@@ -518,6 +521,7 @@ export const UI = (() => {
         exportShortNotationCheckbox.checked = settings.exportShortNotation;
         exportRelativeNotationCheckbox.checked = settings.exportRelativeNotation;
         exportOutcomeCheckbox.checked = settings.exportOutcome;
+        exportStandardMetadataOnlyCheckbox.checked = settings.exportStandardMetadataOnly;
         exportCompleteGameTreeRadio.checked = settings.exportCompleteGameTree;
         exportGameHistoryRadio.checked = !settings.exportCompleteGameTree;
     };
@@ -529,6 +533,7 @@ export const UI = (() => {
             localStorage.setItem(EXPORT_SHORT_NOTATION_KEY, settings.exportShortNotation.toString());
             localStorage.setItem(EXPORT_RELATIVE_NOTATION_KEY, settings.exportRelativeNotation.toString());
             localStorage.setItem(EXPORT_OUTCOME_KEY, settings.exportOutcome.toString());
+            localStorage.setItem(EXPORT_STANDARD_METADATA_ONLY_KEY, settings.exportStandardMetadataOnly.toString());
             localStorage.setItem(EXPORT_COMPLETE_TREE_KEY, settings.exportCompleteGameTree.toString());
         } catch {
             // Ignore storage errors
@@ -544,11 +549,13 @@ export const UI = (() => {
         const storedShortNotation = localStorage.getItem(EXPORT_SHORT_NOTATION_KEY);
         const storedRelativeNotation = localStorage.getItem(EXPORT_RELATIVE_NOTATION_KEY);
         const storedOutcome = localStorage.getItem(EXPORT_OUTCOME_KEY);
+        const storedStandardMetadataOnly = localStorage.getItem(EXPORT_STANDARD_METADATA_ONLY_KEY);
         const storedCompleteTree = localStorage.getItem(EXPORT_COMPLETE_TREE_KEY);
         exportMateCheckbox.checked = storedMate !== null ? storedMate === 'true' : true;
         exportShortNotationCheckbox.checked = storedShortNotation !== null ? storedShortNotation === 'true' : false;
         exportRelativeNotationCheckbox.checked = storedRelativeNotation !== null ? storedRelativeNotation === 'true' : false;
         exportOutcomeCheckbox.checked = storedOutcome !== null ? storedOutcome === 'true' : false;
+        exportStandardMetadataOnlyCheckbox.checked = storedStandardMetadataOnly !== null ? storedStandardMetadataOnly === 'true' : false;
         exportCompleteGameTreeRadio.checked = storedCompleteTree !== 'false';
         exportGameHistoryRadio.checked = storedCompleteTree === 'false';
     } catch {
@@ -557,6 +564,7 @@ export const UI = (() => {
         exportShortNotationCheckbox.checked = false;
         exportRelativeNotationCheckbox.checked = false;
         exportOutcomeCheckbox.checked = false;
+        exportStandardMetadataOnlyCheckbox.checked = false;
         exportCompleteGameTreeRadio.checked = true;
         exportGameHistoryRadio.checked = false;
     }
@@ -1183,10 +1191,7 @@ export const UI = (() => {
          * @returns {Object} Object with exportMate and exportShortNotation boolean values
          */
         getSettings() {
-            return {
-                exportMate: exportMateCheckbox.checked,
-                exportShortNotation: exportShortNotationCheckbox.checked
-            };
+            return getExportSettings();
         }
     };
 })();

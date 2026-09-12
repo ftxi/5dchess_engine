@@ -1,5 +1,6 @@
 #include "variants.h"
 #include <algorithm>
+#include <cctype>
 #include <optional>
 #include <stdexcept>
 #include "multiverse.h"
@@ -84,6 +85,8 @@ variant_setup_t derive_variant_setup(const pgnparser_ast::game& g)
     std::vector<std::tuple<std::string, pgnparser_ast::token_t, int, int, bool>> boards = g.boards;
     std::optional<bool> is_even_timelines;
     auto it = metadata.find("board");
+    if(it == metadata.end())
+        it = metadata.find("variant");
     if(it != metadata.end())
     {
         std::string board_str = it->second;
@@ -111,9 +114,29 @@ variant_setup_t derive_variant_setup(const pgnparser_ast::game& g)
             }
         }
     }
+    if(auto timeline = metadata.find("timeline"); timeline != metadata.end())
+    {
+        std::string value = timeline->second;
+        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+        if(value == "even")
+            is_even_timelines = true;
+        else if(value == "odd")
+            is_even_timelines = false;
+        else
+            throw parse_error("derive_variant_setup(): Invalid Timeline value: " + timeline->second);
+    }
     if(boards.empty())
     {
         throw std::runtime_error("derive_variant_setup(): Variant is unspecific: no Board header or 5DFEN given");
+    }
+    for(const auto& board_info : boards)
+    {
+        const auto& fen = std::get<0>(board_info);
+        if(static_cast<int>(std::count(fen.begin(), fen.end(), '/')) + 1 != size_y)
+            throw parse_error("derive_variant_setup(): FEN does not contain exactly "
+                              + std::to_string(size_y) + " rows: " + fen);
     }
     if(!is_even_timelines.has_value())
     {
