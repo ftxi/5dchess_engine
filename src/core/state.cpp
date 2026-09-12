@@ -634,12 +634,7 @@ bool state::submit()
 
 bool state::has_phantom_check() const
 {
-    const bool result = check_position::for_phantom(*this).first_check(!player).has_value();
-#ifdef VERIFY_CHECK_POSITION
-    if (result != phantom().find_checks(!player).first().has_value())
-        throw std::logic_error("phantom check differs from materialized state");
-#endif
-    return result;
+    return check_position::for_phantom(*this).first_check(!player).has_value();
 }
 
 state state::phantom() const

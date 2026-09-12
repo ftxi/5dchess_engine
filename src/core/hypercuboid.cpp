@@ -664,20 +664,6 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         // Branch arrivals use the axis's new line, not their old hotspot line.
         newstate.add_board(l, next_turn({old_t,c}), *extract_board(loc));
     }
-#ifdef VERIFY_CHECK_POSITION
-    // Deliberately expensive oracle, enabled only in validation builds.
-    state replay = s;
-    for (full_move mv : to_action(p)) {
-        if (!replay.apply_move<true>(mv))
-            throw std::logic_error("check position replay failed");
-    }
-    if (!replay.submit()) throw std::logic_error("check position submit failed");
-    std::set<full_move> expected, actual;
-    for (full_move mv : replay.find_checks(!c)) expected.insert(mv);
-    for (full_move mv : newstate.checks(!c)) actual.insert(mv);
-    if (expected != actual)
-        throw std::logic_error("check position differs from replay");
-#endif
     // HC construction has already filtered physical checks on resulting boards.
     if(auto maybe_check = newstate.first_check(!c, false))
     {

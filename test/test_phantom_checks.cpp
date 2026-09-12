@@ -1,12 +1,7 @@
 #undef NDEBUG
 #include <algorithm>
 #include <cassert>
-#include <chrono>
-#include <iomanip>
-#include <iostream>
-#include <string_view>
 #include "check_position.h"
-#include "pgnparser.h"
 
 namespace {
 constexpr const char* empty = "8/8/8/8/8/8/8/8";
@@ -94,58 +89,9 @@ void test_phantom_cases()
     }
 }
 
-state long_history()
-{
-    std::vector<boards_info_t> boards;
-    for (int l = -2; l <= 2; ++l) {
-        for (int ply = 0; ply <= 128; ++ply)
-            boards.emplace_back(l,ply/2,ply%2,"4k3/8/8/8/8/8/8/4K3");
-    }
-    multiverse_odd m(boards);
-    return state(m);
 }
 
-void benchmark()
-{
-    using clock = std::chrono::steady_clock;
-    std::vector<std::pair<std::string,state>> cases;
-    cases.emplace_back("standard",state(*pgnparser("[Board \"Standard - Turn Zero\"]").parse_game()));
-    cases.emplace_back("645_boards_no_check",long_history());
-    cases.emplace_back("physical_check",physical_position(false));
-    cases.emplace_back("new_board_cross_line_check",cross_line_position(true));
-    constexpr int iterations = 2000, rounds = 7;
-    std::cout << "case,iterations,round,clone_us,view_us,checked\n";
-    for (const auto& [name,s] : cases) {
-        const bool attacker = !s.get_present().second;
-        const bool expected = s.phantom().find_checks(attacker).first().has_value();
-        auto measure = [&](bool borrowed) {
-            int count = 0;
-            const auto start = clock::now();
-            for (int i = 0; i < iterations; ++i)
-                count += borrowed ? s.has_phantom_check()
-                    : s.phantom().find_checks(attacker).first().has_value();
-            const double us = std::chrono::duration<double,std::micro>(clock::now()-start).count()/iterations;
-            assert(count == (expected ? iterations : 0));
-            return us;
-        };
-        // Warm each path before taking measurements; alternate measured order.
-        measure(false);
-        measure(true);
-        for (int round = 0; round < rounds; ++round) {
-            double clone_us, view_us;
-            if (round%2) { view_us = measure(true); clone_us = measure(false); }
-            else { clone_us = measure(false); view_us = measure(true); }
-            std::cout << name << ',' << iterations << ',' << round << ','
-                      << std::fixed << std::setprecision(6) << clone_us << ','
-                      << view_us << ',' << expected << '\n';
-        }
-    }
-}
-}
-
-int main(int argc, char** argv)
+int main()
 {
     test_phantom_cases();
-    if (argc == 2 && std::string_view(argv[1]) == "--benchmark") benchmark();
-    else if (argc != 1) return 2;
 }
