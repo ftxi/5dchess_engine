@@ -102,6 +102,9 @@ public:
      phantom: state used for deciding whether the current is a checkmate or stalemate
      */
     state phantom() const;
+    // Equivalent to phantom().find_checks(!get_present().second).first(),
+    // tested for presence, without cloning the multiverse. Includes physical checks.
+    bool has_phantom_check() const;
 
     /*
      new_line(): return the index of a new line to be created by this->player.
@@ -148,6 +151,9 @@ public:
     turn_t get_timeline_end(int l) const;
     piece_t get_piece(vec4 p, bool color) const;
     std::shared_ptr<board> get_board(int l, int t, bool c) const;
+    const board* get_board_ptr(int l, int t, bool c) const {
+        return m->get_board_ptr(l,t,c);
+    }
     std::vector<std::tuple<int,int,bool,std::string>> get_boards() const;
     generator<vec4> gen_piece_move(vec4 p) const;
     generator<vec4> gen_piece_move(vec4 p, bool c) const;

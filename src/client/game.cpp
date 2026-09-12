@@ -225,7 +225,7 @@ match_status_t game::get_match_status() const
         return match_status_t::PLAYING;
     }
     auto [t, c] = s.get_present();
-    if(s.phantom().find_checks(!c).first().has_value())
+    if(s.has_phantom_check())
     {
         return c ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;
     }

@@ -1,4 +1,5 @@
 #include "state.h"
+#include "check_position.h"
 #include <algorithm>
 #include <cassert>
 #include <functional>
@@ -631,6 +632,11 @@ bool state::submit()
     return true;
 }
 
+bool state::has_phantom_check() const
+{
+    return check_position::for_phantom(*this).first_check(!player).has_value();
+}
+
 state state::phantom() const
 {
     const auto [l_min, l_max] = get_lines_range();
@@ -862,7 +868,7 @@ mate_type state::get_mate_type_impl(bool legal_action_witness) const
     }
     if(legal_action_witness)
     {
-        if(phantom().find_checks(!player).first().has_value())
+        if(has_phantom_check())
         {
             dprint("softmate (legal action witnessed)");
             return mate_type::SOFTMATE;
@@ -872,7 +878,7 @@ mate_type state::get_mate_type_impl(bool legal_action_witness) const
     }
     if(w.search(ss).first())
     {
-        if(phantom().find_checks(!player).first().has_value())
+        if(has_phantom_check())
         {
             dprint("softmate");
             return mate_type::SOFTMATE;
@@ -885,7 +891,7 @@ mate_type state::get_mate_type_impl(bool legal_action_witness) const
     }
     else
     {
-        if(phantom().find_checks(!player).first().has_value())
+        if(has_phantom_check())
         {
             dprint("checkmate");
             return mate_type::CHECKMATE;
