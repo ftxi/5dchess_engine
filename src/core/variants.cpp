@@ -60,6 +60,16 @@ const std::map<std::string, variant_setup_t> default_variants = {
         }
     },
     {
+        "Standard - Reversed Royalty",
+        {
+            8,8,
+            {
+                std::make_tuple("r*nbycbnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBYCBNR*", pgnparser_ast::NIL, 0, 1, false)
+            },
+            false
+        }
+    },
+    {
         "Very Small - Open",
         {
             4,4,

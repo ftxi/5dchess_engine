@@ -1,7 +1,9 @@
 #include "multiverse_base.h"
 #include "utils.h"
 #include "magic.h"
+#include "move_geometry.h"
 #include <regex>
+#include <span>
 #include <sstream>
 #include <algorithm>
 #include <limits>
@@ -301,6 +303,8 @@ bitboard_t multiverse::gen_physical_moves(vec4 p) const
         GENERATE_MOVES_CASE(BISHOP_B)
         GENERATE_MOVES_CASE(QUEEN_W)
         GENERATE_MOVES_CASE(QUEEN_B)
+        GENERATE_MOVES_CASE(ROYAL_QUEEN_W)
+        GENERATE_MOVES_CASE(ROYAL_QUEEN_B)
         GENERATE_MOVES_CASE(PRINCESS_W)
         GENERATE_MOVES_CASE(PRINCESS_B)
         GENERATE_MOVES_CASE(PAWN_W)
@@ -319,7 +323,7 @@ bitboard_t multiverse::gen_physical_moves(vec4 p) const
         GENERATE_MOVES_CASE(DRAGON_B)
 #undef GENERATE_MOVES_CASE
     default:
-        throw std::runtime_error("gen_superphysical_moves: Unknown piece " + std::string({ (char)piece_name(p_piece) }) + (p_piece & 0x80 ? "*" : "") + "\n");
+        throw std::runtime_error("gen_physical_moves: Unknown piece " + std::string({ (char)piece_name(p_piece) }) + (p_piece & 0x80 ? "*" : "") + "\n");
         break;
     }
 }
@@ -446,42 +450,13 @@ generator<vec4> multiverse::gen_piece_move(vec4 p, bool board_color) const
     }
 }
 
-constexpr std::initializer_list<vec4> orthogonal_dtls = {
-    vec4(0, 0, 0, 1),
-    vec4(0, 0, 0, -1),
-    vec4(0, 0, -1, 0)
-};
-
-constexpr std::initializer_list<vec4> diagonal_dtls = {
-    vec4(0, 0, 1, 1),
-    vec4(0, 0, 1, -1),
-    vec4(0, 0, -1, 1),
-    vec4(0, 0, -1, -1)
-};
-
-constexpr std::initializer_list<vec4> both_dtls = {
-    vec4(0, 0, 0, 1),
-    vec4(0, 0, 0, -1),
-    vec4(0, 0, -1, 0),
-    vec4(0, 0, 1, 1),
-    vec4(0, 0, 1, -1),
-    vec4(0, 0, -1, 1),
-    vec4(0, 0, -1, -1)
-};
-
-constexpr std::initializer_list<vec4> double_dtls = {
-    vec4(0, 0, 0, 2),
-    vec4(0, 0, 0, -2),
-    vec4(0, 0, -2, 0)
-};
-
 template<bool C>
 std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_rook_moves(vec4 p0) const
 {
     std::vector<std::pair<vec4, bitboard_t>> result;
     std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t lrook = b0_ptr->lrook() & b0_ptr->friendly<C>();
-    for(auto d : orthogonal_dtls)
+    for(auto d : orthogonal_tl_directions)
     {
         bitboard_t remaining = lrook;
         for(vec4 p1 = p0 + d; remaining && inbound(p1, C); p1 = p1 + d)
@@ -506,7 +481,7 @@ std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_bishop_moves(
     std::vector<std::pair<vec4, bitboard_t>> result;
     std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t lbishop = b0_ptr->lbishop() & b0_ptr->friendly<C>();
-    for(auto d : diagonal_dtls)
+    for(auto d : diagonal_tl_directions)
     {
         bitboard_t remaining = lbishop;
         for(vec4 p1 = p0 + d; remaining && inbound(p1, C); p1 = p1 + d)
@@ -531,9 +506,7 @@ std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_knight_moves(
     std::vector<std::pair<vec4, bitboard_t>> result;
     std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
     bitboard_t lknight = b0_ptr->lknight() & b0_ptr->friendly<C>();
-    const static std::vector<vec4> knight_pure_sp_delta = {vec4(0, 0, 2, 1), vec4(0, 0, 1, 2), vec4(0, 0, -2, 1), vec4(0, 0, 1, -2),
-        vec4(0, 0, 2, -1), vec4(0, 0, -1, 2), vec4(0, 0, -2, -1), vec4(0, 0, -1, -2)};
-    for(vec4 delta : knight_pure_sp_delta)
+    for(vec4 delta : purely_superphysical_knight_directions)
     {
         vec4 p1 = p0 + delta;
         if(inbound(p1, C))
@@ -686,7 +659,10 @@ void multiverse::gen_compound_moves(vec4 p, std::map<vec4, bitboard_t>& result) 
     bitboard_t occ, fri;
     bitboard_t copy_mask;
     
-    constexpr auto deltas = (TL==multiverse::axesmode::ORTHOGONAL) ? orthogonal_dtls : (TL==multiverse::axesmode::DIAGONAL) ? diagonal_dtls : both_dtls;
+    const std::span<const vec4> deltas =
+        (TL == multiverse::axesmode::ORTHOGONAL) ? std::span<const vec4>(orthogonal_tl_directions) :
+        (TL == multiverse::axesmode::DIAGONAL) ? std::span<const vec4>(diagonal_tl_directions) :
+        std::span<const vec4>(both_tl_directions);
     
     constexpr auto copy_mask_fn = (XY==multiverse::axesmode::ORTHOGONAL) ? rook_copy_mask : (XY==multiverse::axesmode::DIAGONAL) ? bishop_copy_mask : queen_copy_mask;
 
@@ -758,7 +734,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
     }
     if constexpr (P == KING_W || P == KING_B || P == COMMON_KING_W || P == COMMON_KING_B || P == KING_UW || P == KING_UB)
     {
-        for(auto d : both_dtls)
+        for(auto d : both_tl_directions)
         {
             vec4 q = p+d;
             if(inbound(q, C))
@@ -1006,7 +982,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                 co_yield std::make_pair(index.tl(), bb1);
             }
         }
-        for(auto d : orthogonal_dtls)
+        for(auto d : orthogonal_tl_directions)
         {
             vec4 q = p+d;
             if(inbound(q, C))
@@ -1019,7 +995,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                 }
             }
         }
-        for(auto d : double_dtls)
+        for(auto d : double_orthogonal_tl_directions)
         {
             vec4 q = p+d;
             if(inbound(q, C))
@@ -1154,4 +1130,3 @@ template movegen_t multiverse::gen_moves<false>(vec4 p) const;
 
 template std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards<true>() const;
 template std::vector<std::tuple<int,int,bool,std::string>> multiverse::get_boards<false>() const;
-
