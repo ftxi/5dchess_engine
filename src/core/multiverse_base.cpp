@@ -121,6 +121,11 @@ std::shared_ptr<board> multiverse::get_board(int l, int t, bool c) const
     }
 }
 
+const board* multiverse::get_board_ptr(int l, int t, bool c) const
+{
+    return boards.at(l_to_u(l)).at(tc_to_v(t,c)).get();
+}
+
 void multiverse::append_board(int l, const std::shared_ptr<board>& b_ptr)
 {
     int u = l_to_u(l);

@@ -88,7 +88,6 @@ int run_perftest(int argc, const char *argv[])
                 break;
             }
         }
-        auto [t,c] = current_state.get_present();
         if(mvs)
         {
             std::cout << '1' << std::flush;
@@ -189,7 +188,7 @@ int run_perftest(int argc, const char *argv[])
         else
         {
             std::cout << "0\n";
-            if(current_state.phantom().find_checks(!c).first())
+            if(current_state.has_phantom_check())
             {
                 std::cout << "Turn " << show_turn(turn) << ": Checkmate";
             }

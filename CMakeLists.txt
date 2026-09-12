@@ -114,6 +114,11 @@ add_library(5dchess_core STATIC ${CORE_SOURCES})
 add_library(5dchess_client STATIC EXCLUDE_FROM_ALL ${CLIENT_SOURCES})
 add_library(5dchess_engine STATIC EXCLUDE_FROM_ALL ${ENGINE_SOURCES})
 
+option(VERIFY_CHECK_POSITION "Compare HC and phantom check detection against materialized states" OFF)
+if(VERIFY_CHECK_POSITION)
+    target_compile_definitions(5dchess_core PRIVATE VERIFY_CHECK_POSITION)
+endif()
+
 target_link_libraries(5dchess_client PUBLIC 5dchess_core)
 target_link_libraries(5dchess_engine PUBLIC 5dchess_core)
 

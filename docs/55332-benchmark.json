@@ -1,0 +1,44 @@
+{
+  "platform": "macOS-15.7.9-arm64-arm-64bit-Mach-O",
+  "binaries": {
+    "baseline": "/private/tmp/55332-baseline",
+    "candidate": "/private/tmp/5dchess-check-bench/test/55332"
+  },
+  "warmup_seconds": {
+    "baseline": 0.8276899589691311,
+    "candidate": 0.40507270907983184
+  },
+  "seconds": {
+    "baseline": [
+      0.8177720000967383,
+      0.8168268329463899,
+      0.8450736249797046,
+      0.8386078330222517,
+      0.8035430000163615,
+      0.8574061250546947,
+      0.7957234170753509,
+      0.7966266659786925
+    ],
+    "candidate": [
+      0.37484829197637737,
+      0.40117233293130994,
+      0.37415962503291667,
+      0.3773679999867454,
+      0.3839902919717133,
+      0.3845166249666363,
+      0.39347108302172273,
+      0.368438542005606
+    ]
+  },
+  "median_seconds": {
+    "baseline": 0.8172994165215641,
+    "candidate": 0.38067914597922936
+  },
+  "speedup": 2.1469508512718942,
+  "date": "2026-09-12",
+  "baseline_commit": "50ab68280ac44bf9d8340b399bf8baa7a02542d9",
+  "compiler": "AppleClang 17.0.0.17000603",
+  "build_type": "Release",
+  "core_lto": true,
+  "expected_actions": 55332
+}

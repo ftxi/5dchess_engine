@@ -1,5 +1,6 @@
 
 #include "hypercuboid.h"
+#include "check_position.h"
 
 #include <algorithm>
 #include <cassert>
@@ -56,10 +57,10 @@ semimove HC_info::get_semimove(index_t n, index_t i) const
  - sliding_type = 4 : dragon move
  the endpoints are excluded in checking path
  */
-std::tuple<std::vector<vec4>, int> get_move_path(const state &s, full_move fm, int c)
+std::tuple<std::vector<vec4>, int> get_move_path(const check_position &s, full_move fm, int c)
 {
     const vec4 p = fm.from, q = fm.to, d = q - p;
-    std::shared_ptr<board> b_ptr = s.get_board(p.l(), p.t(), c);
+    const board* b_ptr = s.board_at(p.l(), p.t(), c);
     if(b_ptr->sliding() & pmask(p.xy()))
     {
         // this piece is sliding, makes sense to talk about path
@@ -649,27 +650,36 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
 {
     dprint("HC_info::find_checks()");
     auto [t, c] = s.get_present();
-    moveseq mvs = to_action(p);
-    state newstate = s;
-#ifdef DEBUGMSG
-    std::string mvsstr;
-#endif
-    for(full_move mv : mvs)
-    {
-#ifdef DEBUGMSG
-        // !!do use flag SHOW_MATE (or expect explosion)!!
-        mvsstr += mv.lan(s) + " ";
-#endif
-        [[maybe_unused]] bool flag = newstate.apply_move<true>(mv);
-        assert(flag && "failed to apply move here");
+    auto [lo, hi] = s.get_lines_range();
+    if (!line_to_axis.empty()) {
+        lo = std::min(lo, line_to_axis.begin()->first);
+        hi = std::max(hi, line_to_axis.rbegin()->first);
     }
-    [[maybe_unused]] bool flag = newstate.submit();
-    assert(flag && "failed to submit here");
-    //dprint("after applying moves:", mvsstr, newstate.to_string());
-    dprint("applied moves:", mvsstr);
-    dprint("c=", c);
-    auto gen = newstate.find_checks(!c);
-    if(auto maybe_check = gen.first())
+    check_position newstate(s, lo, hi);
+    for (const auto& [l, axis] : line_to_axis) {
+        const entry& loc = axis_coords[axis][p[axis]];
+        if (std::holds_alternative<null_entry>(loc)) continue;
+        const auto [old_t, old_l] = extract_tl(loc);
+        (void)old_l;
+        // Branch arrivals use the axis's new line, not their old hotspot line.
+        newstate.add_board(l, next_turn({old_t,c}), *extract_board(loc));
+    }
+#ifdef VERIFY_CHECK_POSITION
+    // Deliberately expensive oracle, enabled only in validation builds.
+    state replay = s;
+    for (full_move mv : to_action(p)) {
+        if (!replay.apply_move<true>(mv))
+            throw std::logic_error("check position replay failed");
+    }
+    if (!replay.submit()) throw std::logic_error("check position submit failed");
+    std::set<full_move> expected, actual;
+    for (full_move mv : replay.find_checks(!c)) expected.insert(mv);
+    for (full_move mv : newstate.checks(!c)) actual.insert(mv);
+    if (expected != actual)
+        throw std::logic_error("check position differs from replay");
+#endif
+    // HC construction has already filtered physical checks on resulting boards.
+    if(auto maybe_check = newstate.first_check(!c, false))
     {
         // there is a check
         // the slice to remove is a product of coordinates on certain axes
