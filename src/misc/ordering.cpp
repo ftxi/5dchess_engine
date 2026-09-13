@@ -25,6 +25,14 @@ scored_HC_ordering::scored_HC_ordering(const HC &hc, const std::vector<std::vect
     }
 }
 
+std::size_t scored_HC_ordering::rank(index_t n, index_t i) const
+{
+    const auto &ordering = orderings.at(n);
+    const auto found = std::find(ordering.begin(), ordering.end(), i);
+    assert(found != ordering.end());
+    return static_cast<std::size_t>(found - ordering.begin());
+}
+
 weighted_HC_ordering::weighted_HC_ordering(const HC &hc, std::vector<std::vector<float>> weights, std::mt19937 &rng)
 {
     assert(hc.dimension() == weights.size());

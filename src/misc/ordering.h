@@ -111,6 +111,7 @@ public:
         : scored_HC_ordering(hc, scores, base::default_rng())
     {}
     scored_HC_ordering(const HC &hc, const std::vector<std::vector<float>> &scores, std::mt19937 &rng);
+    std::size_t rank(index_t n, index_t i) const;
     using base::for_each;
 };
 

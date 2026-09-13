@@ -67,13 +67,18 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are nine engines: `mcts`, `mcts-weighted`, `zero`, `linear`,
-`linear-trained`, `linear-weighted`, `flat-ucb`, `flat-ucb-weighted`, and
-`monkey`. They communicate using the [5DUCI protocol](docs/5duci.md).
+There are eleven engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
+`zero-capture-check-pw`, `linear`, `linear-trained`, `linear-weighted`,
+`flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
+[5DUCI protocol](docs/5duci.md).
 
 The three `*-weighted` engines use move metadata to bias rollout selection
 toward tactically promising moves. `zero` is MCTS with a constant-zero default
 policy.
+
+`zero-capture` expands captures before quiet moves. `zero-capture-check-pw`
+adds check-aware ordering and progressive widening; its widening constant and
+exponent can be changed with `--pw-constant` and `--pw-alpha`.
 
 The Linear engines evaluate inconclusive rollout positions with the same
 bounded 64-feature model. `linear` and `linear-weighted` use hand-written

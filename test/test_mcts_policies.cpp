@@ -149,6 +149,53 @@ void test_completion()
     assert(!policy.complete_to_ceiling(root.get(), stopped.get_token(), obs));
 }
 
+void test_capture_ordering()
+{
+    multiverse_odd boards({{0, 1, false, "3k/4/1p2/KR2"}});
+    const state position(boards);
+    auto root = capture_uct_tree_policy::node_t::make_root(position);
+    observer obs;
+    capture_uct_tree_policy policy(42);
+    auto *selected = policy.select(root.get(), {}, obs);
+    assert(selected && selected->get_parent() == root.get());
+    const semimove move = root->get_context()->hc_info.get_semimove(
+        selected->get_n(), selected->get_i());
+    assert(capture_semimove_score(position, move) == capture_ordering_score);
+}
+
+void test_capture_check_progressive_widening()
+{
+    // Rxb2 captures without check; Rd1 checks without capture.
+    multiverse_odd boards({{0, 1, false, "3k/4/Kp2/1R2"}});
+    const state position(boards);
+    observer obs;
+    auto root = capture_pw_uct_tree_policy::node_t::make_root(position);
+    const auto scores = capture_check_coordinate_scores(
+        root->get_context()->hc_info);
+    assert(scores);
+    bool capture = false, check = false;
+    for(index_t axis = 0; axis < root->get_context()->hc_info.universe.dimension(); ++axis)
+    {
+        for(index_t coordinate : root->get_context()->hc_info.universe[axis])
+        {
+            capture |= (*scores)[axis][coordinate] == 480.0f;
+            check |= (*scores)[axis][coordinate] == 300.0f;
+        }
+    }
+    assert(capture && check);
+
+    capture_pw_uct_tree_policy policy(42);
+    assert(policy.widening_limit(0) == 1);
+    assert(policy.widening_limit(1) == 2);
+    assert(policy.widening_limit(4) == 4);
+    auto *selected = policy.select(root.get(), {}, obs);
+    assert(selected && selected->get_parent() == root.get());
+    assert((*scores)[selected->get_n()][selected->get_i()] == 480.0f);
+    auto *ceiling = policy.complete_to_ceiling(selected, {}, obs);
+    assert(ceiling && ceiling->is_ceiling());
+    assert(position.can_apply(action::from_moveseq(ceiling->to_action(), position)));
+}
+
 void test_multiple_semimoves()
 {
     state position(*pgnparser(R"(
@@ -285,9 +332,17 @@ int main()
     test_weighted_action_selection();
     test_promotion_paths();
     test_completion();
+    test_capture_ordering();
+    test_capture_check_progressive_widening();
     test_multiple_semimoves();
     test_interrupted_action_selection();
     test_engine<mcts_engine>();
     test_engine<mcts_weighted_engine>();
     test_engine<zero_engine>();
+    test_engine<zero_capture_engine>();
+
+    zero_capture_check_pw_engine progressive(
+        std::make_unique<sink_io>(), 42, 2.0, 0.5);
+    progressive.set_position("startpos", "");
+    assert(progressive.find_best_move(1, std::nullopt, {}));
 }
