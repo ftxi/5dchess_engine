@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import multiprocessing
 import os
 import signal
 import sqlite3
 import sys
 import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,7 @@ class WorkerJob:
     match_dir: str
     event: str
     database: str
+    core: int | None
 
 
 @dataclass(frozen=True)
@@ -111,6 +113,8 @@ async def _play_until_released(job: WorkerJob, arguments, rules, capture) -> str
 def _play_worker(job: WorkerJob) -> WorkerResult:
     """Run one autoplay game in an isolated process and return structured output."""
 
+    if job.core is not None:
+        os.sched_setaffinity(0, {job.core})
     match_dir = Path(job.match_dir)
     match_dir.mkdir(parents=True, exist_ok=True)
     output_log = (match_dir / "autoplay.log").resolve()
@@ -121,6 +125,8 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
     pgn = ""
     with output_log.open("w") as output, open(os.devnull) as null_input:
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            if job.core is not None:
+                print(f"Worker and engine affinity: CPU {job.core}", flush=True)
             original_stdin = sys.stdin
             sys.stdin = null_input
             try:
@@ -243,6 +249,15 @@ def _report_completed(connection, result: WorkerResult) -> bool:
 def _print_batch_ratings(
     connection, batch_id: int, pairings: Sequence[elo.Pairing], rows
 ) -> None:
+    batch = connection.execute(
+        "SELECT queued FROM batches WHERE id = ?", (batch_id,)
+    ).fetchone()
+    if batch is not None and batch["queued"]:
+        print(f"\nBatch {batch_id} fitted rating update complete.")
+        print("\nLeaderboard:")
+        elo._print_leaderboard(elo.leaderboard(connection))
+        print(flush=True)
+        return
     by_match = {row["id"]: row for row in rows}
     print(f"\nBatch {batch_id} rating update:")
     for pairing in pairings:
@@ -261,7 +276,9 @@ def _print_batch_ratings(
     print(flush=True)
 
 
-def _make_job(pairing: elo.Pairing, args, run_dir: Path) -> WorkerJob:
+def _make_job(
+    pairing: elo.Pairing, args, run_dir: Path, core: int | None = None
+) -> WorkerJob:
     assert pairing.match_id is not None
     assert pairing.batch_id is not None
     assert pairing.ordinal is not None
@@ -287,6 +304,7 @@ def _make_job(pairing: elo.Pairing, args, run_dir: Path) -> WorkerJob:
         match_dir=str(match_dir.resolve()),
         event=getattr(args, "event", "Autoplay"),
         database=str(getattr(args, "database", elo.DEFAULT_DATABASE)),
+        core=core,
     )
 
 
@@ -301,124 +319,139 @@ def _quiet_pool_shutdown(executor: ProcessPoolExecutor, *, cancel: bool) -> None
 def run_scheduled_batch(
     connection, batch_id: int, pairings: Sequence[elo.Pairing], args, run_dir: Path
 ):
-    """Claim, run, report, and finalize one scheduled concurrent wave."""
+    """Drain a durable queue, reusing each CPU as soon as its game finishes."""
 
-    runnable: list[elo.Pairing] = []
-    for pairing in pairings:
-        assert pairing.match_id is not None
-        if elo.claim_match(
-            connection, pairing.match_id, worker=f"matchmaker:{os.getpid()}"
-        ):
-            runnable.append(pairing)
-    if not runnable:
-        raise elo.EloError(f"batch {batch_id} has no scheduled matches to run")
-
-    total = len(runnable)
-    pairing_by_id = {pairing.match_id: pairing for pairing in runnable}
-    jobs = [_make_job(pairing, args, run_dir) for pairing in runnable]
+    slots = getattr(args, "core_slots", None)
+    if not slots:
+        cores = getattr(args, "cores", None) or [None] * args.jobs
+        slots = [(core, None) for core in cores[:args.jobs]]
+    free_slots = list(slots[:args.jobs])
+    pending = list(pairings)
+    available_groups = {group for _, group in free_slots}
+    required_groups = {
+        pairing.execution_group for pairing in pending
+        if pairing.execution_group is not None
+    }
+    missing_groups = sorted(required_groups - available_groups)
+    if missing_groups:
+        raise elo.EloError(
+            "no CPU pool configured for execution group(s): " + ", ".join(missing_groups)
+        )
+    total = len(pending)
     completed = 0
     worker_tag = f"matchmaker:{os.getpid()}"
-    executor: ProcessPoolExecutor | None = None
-    futures = []
-    completed_results: list[WorkerResult] = []
+    executor = None
+    active_jobs = {}
+    batch = connection.execute("SELECT rated FROM batches WHERE id = ?", (batch_id,)).fetchone()
+    if batch is not None and batch["rated"]:
+        elo.verify_artifacts(connection, {identifier for pairing in pairings
+                             if all(elo.get_engine(connection, engine_id).enabled
+                                    for engine_id in (pairing.white_id, pairing.black_id))
+                             for identifier in (pairing.white_id, pairing.black_id)})
+
+    def release_owned():
+        with connection:
+            connection.execute(
+                """UPDATE matches SET status = 'scheduled', worker = '', started_at = NULL
+                   WHERE batch_id = ? AND status = 'running' AND worker = ?""",
+                (batch_id, worker_tag),
+            )
+
+    def stop_disabled():
+        rows = connection.execute(
+            """SELECT m.id FROM matches m
+               JOIN engines w ON w.id = m.white_id
+               JOIN engines b ON b.id = m.black_id
+               WHERE m.batch_id = ? AND m.status IN ('scheduled', 'running')
+                 AND (w.enabled = 0 OR b.enabled = 0)""",
+            (batch_id,),
+        ).fetchall()
+        if rows:
+            elo.abort_matches(connection, [row["id"] for row in rows],
+                              reason="engine disabled during queued run")
+
     try:
-        executor = ProcessPoolExecutor(
-            max_workers=min(args.jobs, len(jobs)), initializer=_initialize_worker
-        )
-        future_to_job = {executor.submit(_play_worker, job): job for job in jobs}
-        futures = list(future_to_job)
-        for future in as_completed(future_to_job):
-            job = future_to_job[future]
-            try:
-                result = future.result()
-            except Exception as exc:
-                # Process-pool transport failures still become durable void results.
-                result = WorkerResult(
-                    match_id=job.match_id,
-                    outcome="error",
-                    summary=f"worker process failure: {type(exc).__name__}: {exc}",
-                    pgn="",
-                    output_log=str(Path(job.match_dir) / "autoplay.log"),
-                    metrics_csv=str(Path(job.match_dir) / "go-metrics.csv"),
+        pool_options = {
+            "max_workers": args.jobs,
+            "initializer": _initialize_worker,
+        }
+        if os.name == "posix":
+            pool_options["mp_context"] = multiprocessing.get_context("fork")
+        executor = ProcessPoolExecutor(**pool_options)
+        while pending or active_jobs:
+            stop_disabled()
+            # Claim only at dispatch. Database status remains authoritative when
+            # another terminal aborts games or disables an engine.
+            for pairing in list(pending):
+                status = connection.execute(
+                    "SELECT status FROM matches WHERE id = ?", (pairing.match_id,)
+                ).fetchone()
+                if status is None or status["status"] != "scheduled":
+                    pending.remove(pairing)
+                    continue
+                slot_index = next(
+                    (index for index, (_, group) in enumerate(free_slots)
+                     if pairing.execution_group is None or pairing.execution_group == group),
+                    None,
                 )
-            completed_results.append(result)
-            if _report_completed(connection, result):
-                completed += 1
-                _print_completed(
-                    pairing_by_id[result.match_id], result, completed, total
-                )
-        _quiet_pool_shutdown(executor, cancel=False)
-        executor = None
-    except KeyboardInterrupt:
-        # Include results already settled at the instant Ctrl+C arrived.
-        known_result_ids = {result.match_id for result in completed_results}
-        for future in futures:
-            done = getattr(future, "done", lambda: False)()
-            if not done:
-                continue
-            try:
-                result = future.result()
-            except BaseException:
-                continue
-            if result.match_id not in known_result_ids:
-                completed_results.append(result)
-                known_result_ids.add(result.match_id)
+                if slot_index is None:
+                    continue
+                # Capacity is a running-game limit, not a queue-length limit.
+                engines = [elo.get_engine(connection, identifier)
+                           for identifier in (pairing.white_id, pairing.black_id)]
+                running = connection.execute(
+                    """SELECT white_id, black_id FROM matches WHERE status = 'running'"""
+                ).fetchall()
+                if any(engine.max_parallel and sum(
+                    engine.id in (row["white_id"], row["black_id"]) for row in running
+                ) >= engine.max_parallel for engine in engines):
+                    continue
+                if not elo.claim_match(connection, pairing.match_id, worker=worker_tag):
+                    pending.remove(pairing)
+                    continue
+                core, group = free_slots.pop(slot_index)
+                job = _make_job(pairing, args, run_dir, core)
+                future = executor.submit(_play_worker, job)
+                active_jobs[future] = (job, pairing)
+                pending.remove(pairing)
+                group_text = f" [{group}]" if group is not None else ""
+                print(f"  Match {job.match_id}: started on CPU {core}{group_text}", flush=True)
+            if not active_jobs:
+                if pending:
+                    raise elo.EloError("queued matches are blocked by other running games; resume later")
+                break
+            done, _ = wait(active_jobs, timeout=0.2, return_when=FIRST_COMPLETED)
+            for future in done:
+                job, pairing = active_jobs.pop(future)
+                free_slots.append((job.core, pairing.execution_group))
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    raise elo.EloError(f"worker process failed for match {job.match_id}: {exc}") from exc
                 if _report_completed(connection, result):
                     completed += 1
-                    _print_completed(
-                        pairing_by_id[result.match_id], result, completed, total
-                    )
-        finished = connection.execute(
-            """
-            SELECT COUNT(*) FROM matches
-            WHERE batch_id = ? AND status IN ('reported', 'completed', 'void')
-            """,
-            (batch_id,),
-        ).fetchone()[0]
-        if not finished:
-            elo.cancel_batch(
-                connection,
-                batch_id,
-                reason="automatic run interrupted before its first game finished",
-            )
-            print(
-                f"\nCancelled batch {batch_id} before its first result; "
-                "it has no rating or matchmaking effect.",
-                file=sys.stderr,
-                flush=True,
-            )
-        else:
-            rows = connection.execute(
-                """
-                SELECT id FROM matches
-                WHERE batch_id = ? AND status = 'running' AND worker = ?
-                """,
-                (batch_id, worker_tag),
-            ).fetchall()
-            for row in rows:
-                elo.reset_running_match(connection, row["id"])
-            print(
-                f"\nInterrupted batch {batch_id} after {finished} finished "
-                "match(es); results were retained and unfinished matches can be resumed.",
-                file=sys.stderr,
-                flush=True,
-            )
-        if executor is not None:
-            for future in futures:
-                future.cancel()
-            _quiet_pool_shutdown(executor, cancel=True)
-            executor = None
-        raise
+                    _print_completed(pairing, result, completed, total)
+                    if result.outcome in {"error", "protocol"}:
+                        raise elo.EloError(
+                            f"paused after match {job.match_id} failed; inspect its log, "
+                            "disable the broken engine, then resume"
+                        )
     finally:
-        if executor is not None:
-            _quiet_pool_shutdown(executor, cancel=True)
-        # A pool-construction failure or Ctrl+C must not strand claimed games.
-        rows = connection.execute(
-            "SELECT id FROM matches WHERE batch_id = ? AND status = 'running' AND worker = ?",
-            (batch_id, worker_tag),
-        ).fetchall()
-        for row in rows:
-            elo.reset_running_match(connection, row["id"])
+        # Save settled results before cancellation, including simultaneous
+        # completions when one worker failed. Reset before waiting so workers'
+        # database monitors cancel autoplay and close both engine processes.
+        try:
+            for future in active_jobs:
+                if future.done() and not future.cancelled():
+                    try:
+                        result = future.result()
+                    except Exception:
+                        continue
+                    _report_completed(connection, result)
+        finally:
+            release_owned()
+            if executor is not None:
+                _quiet_pool_shutdown(executor, cancel=True)
 
     active = connection.execute(
         """
@@ -459,6 +492,42 @@ def _validate_run_args(parser: argparse.ArgumentParser, args) -> None:
         parser.error("--batch-size must be positive")
     if args.movetime <= 0 or args.timeout <= 0 or args.max_actions <= 0:
         parser.error("time and action limits must be positive")
+    if args.cores and args.core_groups:
+        parser.error("--core and --core-group cannot be combined")
+    args.core_slots = []
+    seen_groups: set[str] = set()
+    for specification in args.core_groups or []:
+        if "=" not in specification:
+            parser.error("--core-group must use NAME=CPU,CPU,...")
+        group, values = specification.split("=", 1)
+        group = group.strip()
+        if not group or group in seen_groups:
+            parser.error("--core-group names must be non-empty and unique")
+        try:
+            group_cores = [int(value) for value in values.split(",")]
+        except ValueError:
+            parser.error("--core-group CPU values must be integers")
+        if not group_cores:
+            parser.error("--core-group must contain at least one CPU")
+        seen_groups.add(group)
+        args.core_slots.extend((core, group) for core in group_cores)
+    selected_cores = args.cores or [core for core, _ in args.core_slots]
+    if selected_cores:
+        if not hasattr(os, "sched_setaffinity"):
+            parser.error("CPU pinning requires OS CPU-affinity support")
+        if len(set(selected_cores)) != len(selected_cores):
+            parser.error("CPU values must be unique")
+        if any(core < 0 for core in selected_cores):
+            parser.error("CPU values must be nonnegative")
+        available = os.sched_getaffinity(0)
+        unavailable = sorted(set(selected_cores) - available)
+        if unavailable:
+            parser.error(
+                "--core contains unavailable CPU(s): "
+                + ", ".join(map(str, unavailable))
+            )
+        if args.jobs > len(selected_cores):
+            parser.error("--jobs cannot exceed the number of configured CPUs")
 
 
 def _run_new(connection, args) -> int:
@@ -469,16 +538,17 @@ def _run_new(connection, args) -> int:
     print(f"Run logs: {run_dir.resolve()}")
     while remaining:
         wave += 1
-        requested = min(args.batch_size or args.jobs, remaining)
+        requested = min(args.batch_size or args.games, remaining)
         batch_id, pairings = elo.schedule_batch(
             connection,
             requested,
             focus_engine=args.focus_engine,
             seed=args.seed + wave - 1,
             rated=not args.unrated,
-            k_factor=args.k_factor,
             strategy=args.strategy,
             note=f"automatic run wave {wave}",
+            queued=True,
+            execution_groups=tuple(dict.fromkeys(group for _, group in args.core_slots)),
         )
         strategy_label = (
             f", {args.strategy or 'adaptive'} strategy" if args.focus_engine else ""
@@ -539,7 +609,7 @@ def _resume(connection, args) -> int:
     )
     if disabled:
         print(
-            "Warning: this batch still contains disabled engine(s): "
+            "Unfinished matches will be aborted for disabled engine(s): "
             + ", ".join(disabled),
             file=sys.stderr,
         )
@@ -571,9 +641,24 @@ def _add_game_options(parser: argparse.ArgumentParser, *, include_games: bool) -
         )
         parser.add_argument("--seed", type=int, default=0)
         parser.add_argument("--unrated", action="store_true")
-        parser.add_argument("--k-factor", type=float, default=elo.DEFAULT_K_FACTOR)
         parser.add_argument("--batch-size", type=int)
     parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument(
+        "--core",
+        dest="cores",
+        action="append",
+        type=int,
+        help=(
+            "pin each concurrent match worker and both of its engines to one "
+            "CPU; repeat once per worker"
+        ),
+    )
+    parser.add_argument(
+        "--core-group",
+        dest="core_groups",
+        action="append",
+        help="define a stratified refill pool as NAME=CPU,CPU,...; repeat per group",
+    )
     parser.add_argument("--module-dir", type=Path, default=Path("build"))
     parser.add_argument("--movetime", type=int, default=1000)
     parser.add_argument("--timeout", type=int, default=2000)
@@ -590,7 +675,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--database", type=Path, default=elo.DEFAULT_DATABASE)
     subparsers = parser.add_subparsers(dest="action", required=True)
     run = subparsers.add_parser(
-        "run", help="schedule and play new concurrent rating waves"
+        "run", help="schedule a queue and keep workers busy until it finishes"
     )
     _add_game_options(run, include_games=True)
     resume = subparsers.add_parser(

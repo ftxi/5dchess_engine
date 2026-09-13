@@ -81,7 +81,11 @@ class EngineProcess:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                start_new_session=sys.platform != "win32",
+                # Matchmaker workers are already isolated processes. Creating
+                # another session from inside a worker is rejected by some
+                # restricted Linux hosts with EPERM; the worker still owns
+                # cancellation and cleanup for its engine children.
+                start_new_session=False,
             )
         except OSError as exc:
             raise ProtocolError(f"{self.name}: cannot start {self.command!r}: {exc}") from exc
@@ -491,13 +495,13 @@ def status_worker(module_dir: str, pgn: str, sender) -> None:
 
 
 def save_adjudication_position(
-    game, game_number: int = 1, log_dir: Path = Path("logs")
+    pgn: str, game_number: int = 1, log_dir: Path = Path("logs")
 ) -> Path:
     """Persist the exact position passed to get_match_status() for diagnosis."""
 
     log_dir.mkdir(parents=True, exist_ok=True)
     output = log_dir / f"adjudication-{game_number:04d}.5dpgn"
-    output.write_text(snapshot_pgn(game))
+    output.write_text(pgn)
     return output.resolve()
 
 
@@ -616,6 +620,8 @@ async def play(
     except (AttributeError, NotImplementedError, OSError):
         pass
     result = "draw: action limit reached"
+    outcome = "cap"
+    termination = "action_cap"
 
     def player_label(index: int) -> str:
         player = players[index]
@@ -640,7 +646,6 @@ async def play(
         print("Starting match...\n")
 
     try:
-        outcome = "cap"
         startup_results = await asyncio.gather(
             *(player.start() for player in players), return_exceptions=True
         )
@@ -652,6 +657,7 @@ async def play(
         if startup_errors:
             failed_index, startup_error = startup_errors[0]
             outcome = "protocol"
+            termination = "protocol_failure"
             result = f"protocol failure during startup: {startup_error}"
             append_termination_comment(
                 game,
@@ -680,6 +686,7 @@ async def play(
         if new_game_errors:
             failed_index, new_game_error = new_game_errors[0]
             outcome = "protocol"
+            termination = "protocol_failure"
             result = f"protocol failure during new game: {new_game_error}"
             append_termination_comment(
                 game,
@@ -712,6 +719,7 @@ async def play(
                     timeline_count, board_count,
                     "black" if index else "white", args.movetime, "protocol_error")
                 outcome = "protocol"
+                termination = "protocol_failure"
                 result = f"protocol failure from {player_label(index)}: {exc}"
                 append_termination_comment(
                     game, protocol_termination_comment(player, index, exc)
@@ -728,24 +736,31 @@ async def play(
                 "black" if index else "white", args.movetime,
                 "bestmove" if moves else "nobestmove")
             if not moves:
-                adjudication_file = save_adjudication_position(game, game_number, log_dir)
+                adjudication_pgn = snapshot_pgn(game)
+                adjudication_file = save_adjudication_position(
+                    adjudication_pgn, game_number, log_dir
+                )
                 print(
                     f"{player_label(index)} returned nobestmove; adjudicating position saved at\n"
                     f"  {adjudication_file}",
                     flush=True,
                 )
-                status = await adjudicate(adjudication_file.read_text(), args.module_dir)
+                status = await adjudicate(adjudication_pgn, args.module_dir)
                 if status == "white":
                     outcome = "white"
+                    termination = "checkmate"
                     result = winner(0)
                 elif status == "black":
                     outcome = "black"
+                    termination = "checkmate"
                     result = winner(1)
                 elif status == "draw":
                     outcome = "draw"
+                    termination = "stalemate"
                     result = "draw: stalemate"
                 elif status.startswith("error:"):
                     outcome = "error"
+                    termination = "adjudication_error"
                     exit_code = status.partition(":")[2]
                     append_termination_comment(
                         game, f"Adjudication failed with exit code {exit_code}."
@@ -757,6 +772,7 @@ async def play(
                 else:
                     winning_index = 1 - index
                     outcome = "black" if winning_index else "white"
+                    termination = "nobestmove_nonterminal"
                     result = (
                         f"{winner(winning_index)}: {player_label(index)} returned no move; "
                         "position is not terminal"
@@ -766,6 +782,7 @@ async def play(
             if error:
                 winning_index = 1 - index
                 outcome = "black" if winning_index else "white"
+                termination = "illegal_move"
                 result = f"{winner(winning_index)}: {player_label(index)} {error}"
                 break
             history.extend(moves)
@@ -787,6 +804,7 @@ async def play(
         print(game.show_pgn(show_flags))
         return outcome
     except asyncio.CancelledError:
+        termination = "interrupted"
         set_pgn_result(game, "protocol")
         append_termination_comment(game, "Interrupted.")
         print("\nInterrupted: quitting both engines.\n", file=sys.stderr)
@@ -794,6 +812,9 @@ async def play(
         print(game.show_pgn(show_flags))
         raise
     except Exception as exc:
+        outcome = "error"
+        termination = "unexpected_error"
+        result = f"autoplay failed: {type(exc).__name__}: {exc}"
         set_pgn_result(game, "error")
         append_termination_comment(game, f"Autoplay failed: {type(exc).__name__}.")
         raise
@@ -804,6 +825,7 @@ async def play(
         if capture is not None:
             capture.update(
                 outcome=outcome,
+                termination=termination,
                 summary=result,
                 pgn=game.show_pgn(show_flags),
             )
@@ -873,6 +895,10 @@ def main() -> int:
         type=Path,
         default=Path("logs/autoplay-go-metrics.csv"),
         help="CSV output for per-go timing and MCTS visit counts",
+    )
+    parser.add_argument(
+        "--log-dir", type=Path, default=Path("logs"),
+        help="directory for adjudication positions and protocol diagnostics",
     )
     args = parser.parse_args()
     if args.movetime <= 0 or args.timeout <= 0 or args.max_actions <= 0:

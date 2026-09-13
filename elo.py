@@ -59,6 +59,7 @@ class Pairing:
     white_rating: float
     black_rating: float
     ordinal: int | None = None
+    execution_group: str | None = None
 
 
 def utc_now() -> str:
@@ -149,6 +150,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             reported_at TEXT,
             completed_at TEXT,
             aborted_at TEXT,
+            execution_group TEXT,
             UNIQUE (batch_id, ordinal),
             CHECK (white_id <> black_id)
         );
@@ -173,11 +175,26 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     match_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(matches)")
     }
+    if "queued" not in batch_columns:
+        try:
+            connection.execute("ALTER TABLE batches ADD COLUMN queued INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
     match_schema = connection.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'matches'"
     ).fetchone()[0]
     if "aborted_at" not in match_columns or "'aborted'" not in match_schema:
         _migrate_matches_for_aborts(connection)
+    match_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(matches)")
+    }
+    if "execution_group" not in match_columns:
+        try:
+            connection.execute("ALTER TABLE matches ADD COLUMN execution_group TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
     connection.commit()
 
 
@@ -434,6 +451,58 @@ def update_engine(
     return get_engine(connection, engine_id)
 
 
+def rename_engine(
+    connection: sqlite3.Connection,
+    engine_id: str,
+    *,
+    command: str | None = None,
+    name: str | None = None,
+    enabled: bool | None = None,
+    max_parallel: int | None = None,
+) -> EngineRecord:
+    """Update an engine's mutable metadata while preserving its identity.
+
+    Engine IDs identify a rating history and remain stable when an executable
+    is renamed or moved.  Already-scheduled matches intentionally retain their
+    command snapshots; changed metadata is used for future pairings.
+    """
+
+    engine = get_engine(connection, engine_id)
+    if command is not None:
+        command = command.strip()
+        if not command:
+            raise EloError("engine command must be non-empty")
+    if name is not None:
+        name = name.strip()
+        if not name:
+            raise EloError("engine name must be non-empty")
+    if max_parallel is not None:
+        if max_parallel < 0:
+            raise EloError("max_parallel cannot be negative")
+        if engine.stateful and max_parallel != 1:
+            raise EloError("stateful engines must use max_parallel=1")
+    fields: list[str] = []
+    values: list[object] = []
+    for column, value in (
+        ("command", command),
+        ("name", name),
+        ("enabled", enabled),
+        ("max_parallel", max_parallel),
+    ):
+        if value is not None:
+            fields.append(f"{column} = ?")
+            values.append(int(value) if isinstance(value, bool) else value)
+    if not fields:
+        raise EloError("rename requires at least one property to change")
+    fields.append("updated_at = ?")
+    values.extend((utc_now(), engine_id))
+    with connection:
+        connection.execute(
+            f"UPDATE engines SET {', '.join(fields)} WHERE id = ?", values
+        )
+    return get_engine(connection, engine_id)
+
+
 def verify_artifacts(connection: sqlite3.Connection, engine_ids: Iterable[str]) -> None:
     """Reject rated play if a registered executable or checkpoint changed."""
 
@@ -462,6 +531,87 @@ def elo_delta(
     k_factor: float = DEFAULT_K_FACTOR,
 ) -> float:
     return k_factor * (score - expected_score(rating, opponent_rating))
+
+
+def _solve_linear(matrix: list[list[float]], vector: list[float]) -> list[float]:
+    """Solve a small dense system with pivoted Gaussian elimination."""
+
+    size = len(vector)
+    rows = [matrix[index][:] + [vector[index]] for index in range(size)]
+    for column in range(size):
+        pivot = max(range(column, size), key=lambda row: abs(rows[row][column]))
+        rows[column], rows[pivot] = rows[pivot], rows[column]
+        divisor = rows[column][column]
+        if abs(divisor) < 1e-12:
+            raise EloError("rating fit is singular")
+        rows[column] = [value / divisor for value in rows[column]]
+        for row in range(size):
+            if row == column:
+                continue
+            factor = rows[row][column]
+            rows[row] = [
+                value - factor * source
+                for value, source in zip(rows[row], rows[column])
+            ]
+    return [row[-1] for row in rows]
+
+
+def fitted_ratings(connection: sqlite3.Connection) -> dict[str, float]:
+    """Fit order-independent Bradley-Terry ratings with a weak initial prior."""
+
+    engines = list_engines(connection)
+    if not engines:
+        return {}
+    identifiers = [engine.id for engine in engines]
+    indices = {identifier: index for index, identifier in enumerate(identifiers)}
+    scale = 400.0 / math.log(10.0)
+    prior_deviation = 400.0 / scale
+    precision = 1.0 / (prior_deviation * prior_deviation)
+    initial = [(engine.initial_rating - DEFAULT_RATING) / scale for engine in engines]
+    coefficients = initial[:] + [0.0]  # final coefficient is White advantage
+    matches = connection.execute(
+        """
+        SELECT m.white_id, m.black_id, m.result
+        FROM matches m JOIN batches b ON b.id = m.batch_id
+        WHERE b.rated = 1 AND m.status IN ('reported', 'completed')
+          AND m.result IN ('white', 'black', 'draw')
+        """
+    ).fetchall()
+    if not matches:
+        return {engine.id: engine.initial_rating for engine in engines}
+
+    size = len(coefficients)
+    for _ in range(50):
+        gradient = [0.0] * size
+        information = [[0.0] * size for _ in range(size)]
+        for index in range(size):
+            target = initial[index] if index < len(initial) else 0.0
+            gradient[index] -= precision * (coefficients[index] - target)
+            information[index][index] += precision
+        for match in matches:
+            white = indices[match["white_id"]]
+            black = indices[match["black_id"]]
+            observed = {"white": 1.0, "black": 0.0, "draw": 0.5}[match["result"]]
+            linear = coefficients[white] - coefficients[black] + coefficients[-1]
+            if linear >= 0.0:
+                expected = 1.0 / (1.0 + math.exp(-linear))
+            else:
+                exponential = math.exp(linear)
+                expected = exponential / (1.0 + exponential)
+            weight = expected * (1.0 - expected)
+            features = ((white, 1.0), (black, -1.0), (size - 1, 1.0))
+            for left, left_value in features:
+                gradient[left] += left_value * (observed - expected)
+                for right, right_value in features:
+                    information[left][right] += weight * left_value * right_value
+        step = _solve_linear(information, gradient)
+        coefficients = [value + change for value, change in zip(coefficients, step)]
+        if max(map(abs, step)) < 1e-10:
+            break
+    return {
+        identifier: DEFAULT_RATING + coefficients[index] * scale
+        for index, identifier in enumerate(identifiers)
+    }
 
 
 def _eligible_engines(
@@ -519,8 +669,9 @@ def suggest_pairings(
     seed: int = 0,
     rated: bool = True,
     strategy: str | None = None,
+    queued: bool = False,
 ) -> list[Pairing]:
-    """Suggest a balanced concurrent wave without changing the database."""
+    """Suggest balanced pairings without changing the database."""
 
     if count <= 0:
         raise EloError("match count must be positive")
@@ -545,7 +696,7 @@ def suggest_pairings(
     suggestions: list[Pairing] = []
 
     def has_capacity(engine: EngineRecord) -> bool:
-        return engine.max_parallel == 0 or batch_uses[engine.id] < engine.max_parallel
+        return queued or engine.max_parallel == 0 or batch_uses[engine.id] < engine.max_parallel
 
     def choose_colors(
         first: EngineRecord, second: EngineRecord
@@ -722,6 +873,8 @@ def schedule_batch(
     k_factor: float = DEFAULT_K_FACTOR,
     strategy: str | None = None,
     note: str = "",
+    queued: bool = False,
+    execution_groups: Sequence[str] = (),
 ) -> tuple[int, list[Pairing]]:
     if not math.isfinite(k_factor) or k_factor <= 0:
         raise EloError("K-factor must be positive and finite")
@@ -743,6 +896,7 @@ def schedule_batch(
             seed=seed,
             rated=rated,
             strategy=strategy,
+            queued=queued,
         )
         if rated:
             verify_artifacts(
@@ -762,15 +916,24 @@ def schedule_batch(
             (utc_now(), int(rated), k_factor, seed, focus_engine, strategy, note),
         )
         batch_id = int(cursor.lastrowid)
+        connection.execute("UPDATE batches SET queued = ? WHERE id = ?", (int(queued), batch_id))
+        groups = tuple(dict.fromkeys(group.strip() for group in execution_groups))
+        if any(not group for group in groups):
+            raise EloError("execution group names must be non-empty")
+        directed_uses: dict[tuple[str, str], int] = {}
         scheduled: list[Pairing] = []
         for ordinal, pairing in enumerate(suggestions, 1):
+            directed = (pairing.white_id, pairing.black_id)
+            group = groups[directed_uses.get(directed, 0) % len(groups)] if groups else None
+            directed_uses[directed] = directed_uses.get(directed, 0) + 1
             cursor = connection.execute(
                 """
                 INSERT INTO matches(
                     batch_id, ordinal, white_id, black_id,
                     white_command, black_command,
-                    white_rating_before, black_rating_before, scheduled_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    white_rating_before, black_rating_before, scheduled_at,
+                    execution_group
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_id,
@@ -782,6 +945,7 @@ def schedule_batch(
                     pairing.white_rating,
                     pairing.black_rating,
                     utc_now(),
+                    group,
                 ),
             )
             scheduled.append(
@@ -792,8 +956,9 @@ def schedule_batch(
                     **{
                         key: value
                         for key, value in asdict(pairing).items()
-                        if key not in {"match_id", "batch_id", "ordinal"}
+                        if key not in {"match_id", "batch_id", "ordinal", "execution_group"}
                     },
+                    execution_group=group,
                 )
             )
         connection.commit()
@@ -828,6 +993,7 @@ def batch_pairings(connection: sqlite3.Connection, batch_id: int) -> list[Pairin
             white_rating=row["white_rating_before"],
             black_rating=row["black_rating_before"],
             ordinal=row["ordinal"],
+            execution_group=row["execution_group"],
         )
         for row in rows
     ]
@@ -1108,7 +1274,7 @@ def report_result(
 
 
 def finalize_batch(connection: sqlite3.Connection, batch_id: int) -> list[sqlite3.Row]:
-    """Apply a complete wave atomically and return its completed match rows."""
+    """Finalize a complete batch atomically and return its match rows."""
 
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -1139,20 +1305,21 @@ def finalize_batch(connection: sqlite3.Connection, batch_id: int) -> list[sqlite
             white_delta = black_delta = 0.0
             if batch["rated"]:
                 white_score = {"white": 1.0, "black": 0.0, "draw": 0.5}[row["result"]]
-                white_delta = elo_delta(
-                    row["white_rating_before"],
-                    row["black_rating_before"],
-                    white_score,
-                    batch["k_factor"],
-                )
-                black_delta = elo_delta(
-                    row["black_rating_before"],
-                    row["white_rating_before"],
-                    1.0 - white_score,
-                    batch["k_factor"],
-                )
-                totals[row["white_id"]] = totals.get(row["white_id"], 0.0) + white_delta
-                totals[row["black_id"]] = totals.get(row["black_id"], 0.0) + black_delta
+                if not batch["queued"]:
+                    white_delta = elo_delta(
+                        row["white_rating_before"],
+                        row["black_rating_before"],
+                        white_score,
+                        batch["k_factor"],
+                    )
+                    black_delta = elo_delta(
+                        row["black_rating_before"],
+                        row["white_rating_before"],
+                        1.0 - white_score,
+                        batch["k_factor"],
+                    )
+                    totals[row["white_id"]] = totals.get(row["white_id"], 0.0) + white_delta
+                    totals[row["black_id"]] = totals.get(row["black_id"], 0.0) + black_delta
             connection.execute(
                 """
                 UPDATE matches
@@ -1166,6 +1333,12 @@ def finalize_batch(connection: sqlite3.Connection, batch_id: int) -> list[sqlite
                 "UPDATE engines SET rating = rating + ?, updated_at = ? WHERE id = ?",
                 (delta, utc_now(), engine_id),
             )
+        if batch["queued"] and batch["rated"]:
+            for engine_id, rating in fitted_ratings(connection).items():
+                connection.execute(
+                    "UPDATE engines SET rating = ?, updated_at = ? WHERE id = ?",
+                    (rating, utc_now(), engine_id),
+                )
         connection.execute(
             "UPDATE batches SET status = 'finalized', finalized_at = ? WHERE id = ?",
             (utc_now(), batch_id),
@@ -1185,13 +1358,14 @@ def leaderboard(
     engines = list_engines(connection)
     if not include_training:
         engines = [engine for engine in engines if not engine.training]
+    ratings = fitted_ratings(connection)
     output: list[dict[str, object]] = []
     for engine in engines:
         rows = connection.execute(
             """
             SELECT m.white_id, m.black_id, m.result
             FROM matches m JOIN batches b ON b.id = m.batch_id
-            WHERE m.status = 'completed' AND b.rated = 1
+            WHERE m.status IN ('reported', 'completed') AND b.rated = 1
               AND (m.white_id = ? OR m.black_id = ?)
             """,
             (engine.id, engine.id),
@@ -1211,7 +1385,7 @@ def leaderboard(
             {
                 "id": engine.id,
                 "name": engine.name,
-                "rating": engine.rating,
+                "rating": ratings[engine.id],
                 "games": len(rows),
                 "wins": wins,
                 "draws": draws,
@@ -1328,6 +1502,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--enabled", action=argparse.BooleanOptionalAction, default=None
     )
     update.add_argument("--max-parallel", type=int)
+
+    rename = subparsers.add_parser(
+        "rename", help="update engine metadata without changing its rating history"
+    )
+    rename.add_argument("id")
+    rename.add_argument("--command", help="new command used for future matches")
+    rename.add_argument("--name", help="new display name")
+    rename.add_argument(
+        "--enabled", action=argparse.BooleanOptionalAction, default=None
+    )
+    rename.add_argument("--max-parallel", type=int)
 
     for action in ("enable", "disable"):
         command = subparsers.add_parser(action, help=f"{action} an engine")
@@ -1459,6 +1644,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     max_parallel=args.max_parallel,
                 )
                 print(f"Updated {engine.id}")
+            elif args.action == "rename":
+                engine = rename_engine(
+                    connection,
+                    args.id,
+                    command=args.command,
+                    name=args.name,
+                    enabled=args.enabled,
+                    max_parallel=args.max_parallel,
+                )
+                print(f"Renamed {engine.id}: {engine.command}")
             elif args.action in {"enable", "disable"}:
                 engine = update_engine(
                     connection,
