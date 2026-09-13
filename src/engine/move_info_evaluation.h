@@ -4,6 +4,8 @@
 #include <array>
 
 #include "state.h"
+#include "hypercuboid.h"
+#include "check_position.h"
 
 struct move_info_weights
 {
@@ -43,5 +45,15 @@ float move_info_weight(
     const state::move_info &info,
     const move_info_weights &weights,
     float temperature);
+
+// One scoring context per HC; borrows all result boards from it.
+class hc_move_evaluation
+{
+    const HC_info& info;
+    std::optional<check_position> checks;
+public:
+    explicit hc_move_evaluation(const HC_info& info, bool evaluate_checks = true);
+    std::array<float, move_info_weights::COUNT> features(index_t axis, index_t coordinate);
+};
 
 #endif /* MOVE_INFO_EVALUATION_H */

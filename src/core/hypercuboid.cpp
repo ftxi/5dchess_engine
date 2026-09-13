@@ -47,6 +47,19 @@ semimove HC_info::get_semimove(index_t n, index_t i) const
     return to_semimove(axis_coords.at(n).at(i));
 }
 
+std::optional<HC_info::move_boards> HC_info::get_move_boards(index_t axis, index_t coordinate) const
+{
+    const auto& loc = axis_coords.at(axis).at(coordinate);
+    if (const auto* physical = std::get_if<physical_entry>(&loc))
+        return move_boards{physical->m, physical->b.get(), nullptr};
+    if (const auto* arrival = std::get_if<arriving_entry>(&loc)) {
+        const auto source_axis = line_to_axis.at(arrival->m.from.l());
+        const auto& departure = std::get<departing_entry>(axis_coords[source_axis].at(arrival->idx));
+        return move_boards{arrival->m, arrival->b.get(), departure.b.get()};
+    }
+    return std::nullopt;
+}
+
 /*
  gen_move_path: in state s, find the checking path
  return the checking path and sliding_type, where
@@ -123,7 +136,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     // to track the corresponding departing moves for each arriving move
     std::map<vec4, index_t> jump_indices;
     
-    const int size_x = s.get_board_size().first;
+    const auto [size_x, size_y] = s.get_board_size();
     
     for(vec4 from : s.gen_movable_pieces())
     {
@@ -184,6 +197,13 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 dprint(" ... normal move/capture");
                 newboard = b_ptr->move_piece(p.xy(), q.xy());
             }
+            // Legality checking only needed occupancy here. Outgoing-check scoring
+            // also needs the promoted piece's attacks, so cache the default promotion.
+            if ((b_ptr->lpawn() & z) && (q.y() == 0 || q.y() == size_y-1)) {
+                const piece_t promotion = ext_move(m,s).promote_to;
+                if (promotion != NO_PIECE)
+                    newboard = newboard->replace_piece(q.xy(), player ? to_black(promotion) : promotion);
+            }
             // filter physical checks in the very begining
             dprint(locs.size(), "physical", m);
             bool flag = has_physical_check(*newboard, player);
@@ -216,6 +236,10 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 // store the arriving board after move is made
                 vec4 p = m.from, q = m.to;
                 piece_t pic = s.get_piece(p, player);
+                if (to_white(piece_name(pic)) == BRAWN_W && (q.y() == 0 || q.y() == size_y-1)) {
+                    const piece_t promotion = ext_move(m,s).promote_to;
+                    if (promotion != NO_PIECE) pic = player ? to_black(promotion) : promotion;
+                }
                 const std::shared_ptr<board>& c_ptr = s.get_board(q.l(), q.t(), player);
                 
                 dprint(" ... nonbranching jump");
@@ -257,6 +281,10 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
         {
             vec4 p = m.from, q = m.to;
             piece_t pic = s.get_piece(p, player);
+            if (to_white(piece_name(pic)) == BRAWN_W && (q.y() == 0 || q.y() == size_y-1)) {
+                const piece_t promotion = ext_move(m,s).promote_to;
+                if (promotion != NO_PIECE) pic = player ? to_black(promotion) : promotion;
+            }
             const std::shared_ptr<board>& c_ptr = s.get_board(q.l(), q.t(), player);
             
             dprint(" ... branching jump");

@@ -133,6 +133,15 @@ public:
         : axis_coords(std::move(crds)), s(std::move(s)), line_to_axis(std::move(lm)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
     semimove get_semimove(index_t n, index_t i) const;
 
+    struct move_boards {
+        full_move move;
+        const board* result;
+        const board* departure; // null for physical moves
+    };
+    // Borrowed boards for a full move, including an arrival's paired departure.
+    // Only call for coordinates in universe. Null/departing entries return nullopt.
+    std::optional<move_boards> get_move_boards(index_t axis, index_t coordinate) const;
+
     HC universe;
     const index_t new_axis, dimension; // axes 0, 1, ..., new_axis-1 are playable lines
     // whereas new_axis, new_axis+1, ..., dimension-1 are the possible branching lines
