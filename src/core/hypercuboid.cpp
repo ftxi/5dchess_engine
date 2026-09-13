@@ -103,7 +103,7 @@ bool has_physical_check(const board &b, bool c)
     return false;
 }
 
-std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
+std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
 {
     dprint("HC_info::build_HC()");
     std::map<int, index_t> line_to_axis; // map from timeline index to axis index
@@ -125,7 +125,7 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     
     const int size_x = s.get_board_size().first;
     
-    for(vec4 from : s.gen_movable_pieces())
+    for(vec4 from : s.get_all_pieces(playable_timelines))
     {
         bool has_depart = false;
         for(const vec4 &to : s.gen_piece_move(from))
@@ -145,7 +145,6 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
                 stays_on[from.l()].push_back(m);
             }
         }
-        
     }
     
     size_t estimate_size = 1 + arrives_to.size() + departs_from.size();
@@ -231,7 +230,6 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
             }
         }
         // save this axis
-        locs.shrink_to_fit();
         line_to_axis[l] = static_cast<index_t>(axis_coords.size());
         dprint("above in axis", line_to_axis[l]);
         axis_coords.push_back(std::move(locs));
@@ -335,9 +333,6 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
     }
 #endif
     
-    HC_info info(s, line_to_axis, axis_coords, universe, new_axis, dimension, mandatory_timelines);
-    
-    
     // split the search space by number of branches
     HC hc_n_lines = universe;
     integer_set singleton = {0}, non_null;
@@ -359,7 +354,17 @@ std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)
         hc_n_lines[n] = non_null;
         ss.push_front(hc_n_lines); // prefer lesser branching moves
     }
-    return std::make_tuple(info, ss);
+    return std::pair<HC_info, search_space>(
+        std::piecewise_construct,
+        std::forward_as_tuple(
+            s,
+            std::move(line_to_axis),
+            std::move(axis_coords),
+            std::move(universe),
+            new_axis,
+            dimension,
+            std::move(mandatory_timelines)),
+        std::forward_as_tuple(std::move(ss)));
 }
 
 

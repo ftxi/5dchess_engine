@@ -65,6 +65,9 @@ using rollout_default_policy = default_policy_t<rollout_details,
 using weighted_rollout_default_policy = default_policy_t<rollout_details,
     weighted_action_selection, rollout_cutoff_evaluation>;
 
+std::optional<reward_t<rollout_details>> evaluate_zero_position(
+    state s, std::stop_token stop);
+
 // No simulated actions, but terminal positions retain their actual outcome.
 struct zero_default_policy
 {
@@ -72,17 +75,7 @@ struct zero_default_policy
     template<class Observer>
     std::optional<result_type> evaluate(state s, std::stop_token stop, Observer &)
     {
-        auto moves = random_action_selection{}(s, stop, nullptr);
-        if(stop.stop_requested()) return std::nullopt;
-        rollout_cutoff_evaluation evaluation;
-        if(!moves)
-        {
-            std::optional<bool> winner;
-            if(s.get_mate_type() == mate_type::CHECKMATE)
-                winner = !s.get_present().second;
-            return evaluation.mate_reward(winner, 0);
-        }
-        return evaluation.cutoff_reward(std::move(s), 0, stop, nullptr);
+        return evaluate_zero_position(std::move(s), stop);
     }
 };
 

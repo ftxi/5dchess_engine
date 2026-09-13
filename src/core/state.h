@@ -126,8 +126,9 @@ public:
      */
     generator<full_move> find_checks(bool c) const;
     
-    std::vector<vec4> gen_movable_pieces() const;
+    std::vector<vec4> get_movable_pieces() const;
     std::vector<vec4> get_movable_pieces(const std::vector<int> &lines) const;
+    std::vector<vec4> get_all_pieces(const std::vector<int> &lines) const;
     
     
     mate_type get_mate_type() const;

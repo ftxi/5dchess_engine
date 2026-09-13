@@ -13,6 +13,7 @@
 #include <memory>
 #include <random>
 #include <tuple>
+#include <utility>
 #include <functional>
 #include "geometry.h"
 #include "state.h"
@@ -129,8 +130,8 @@ public:
     // local variables
     const state s;
     const std::map<int, index_t> line_to_axis; // map from timeline index to axis index
-    HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<entry>> crds, HC uni, index_t ax, index_t dim, const std::vector<int> pl)
-        : axis_coords(std::move(crds)), s(std::move(s)), line_to_axis(std::move(lm)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
+    HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<entry>> crds, HC uni, index_t ax, index_t dim, std::vector<int> pl)
+        : axis_coords(std::move(crds)), s(std::move(s)), line_to_axis(std::move(lm)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(std::move(pl)) {}
     semimove get_semimove(index_t n, index_t i) const;
 
     HC universe;
@@ -163,7 +164,7 @@ public:
     std::optional<slice> test_present(const point &p, const HC &hc) const;
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;
-    static std::tuple<HC_info, search_space> build_HC(const state &s);
+    static std::pair<HC_info, search_space> build_HC(const state &s);
     generator<moveseq> search(search_space ss) const;
     template<HCOrdering Order>
     generator<moveseq> search(search_space ss, Order order) const;

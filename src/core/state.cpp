@@ -761,7 +761,7 @@ generator<full_move> state::find_checks_impl(std::vector<int> lines) const
 }
 
 
-std::vector<vec4> state::gen_movable_pieces() const
+std::vector<vec4> state::get_movable_pieces() const
 {
     auto [mandatory_timelines, optional_timelines, unplayable_timelines] = get_timeline_status(present, player);
     auto lines = concat_vectors(mandatory_timelines, optional_timelines);
@@ -778,6 +778,23 @@ std::vector<vec4> state::get_movable_pieces(const std::vector<int> &lines) const
     {
         return gen_movable_pieces_impl<true>(lines);
     }
+}
+
+std::vector<vec4> state::get_all_pieces(const std::vector<int> &lines) const
+{
+    std::vector<vec4> result;
+    for(int l : lines)
+    {
+        const int t = get_timeline_end(l).first;
+        const vec4 p0(0, 0, t, l);
+        const std::shared_ptr<board> &b = m->get_board(l, t, player);
+        const bitboard_t pieces = (player ? b->black() : b->white()) & ~b->wall();
+        for(int pos : marked_pos(pieces))
+        {
+            result.emplace_back(pos, p0);
+        }
+    }
+    return result;
 }
 
 template <bool C>
@@ -1009,7 +1026,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
     {
         auto mv = std::get<pgnparser_ast::physical_move>(move.data);
         // for all physical moves avilable in current state
-        for(vec4 p : gen_movable_pieces())
+        for(vec4 p : get_movable_pieces())
         {
             char piece = to_white(piece_name(get_piece(p, player)));
             bitboard_t bb = player ? m->gen_physical_moves<true>(p) : m->gen_physical_moves<false>(p);
@@ -1061,7 +1078,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
         // do the same for superphysical moves
         auto spm = std::get<pgnparser_ast::superphysical_move>(move.data);
         bool is_relative = std::holds_alternative<pgnparser_ast::relative_board>(spm.to_board);
-        for(vec4 p : gen_movable_pieces())
+        for(vec4 p : get_movable_pieces())
         {
             char piece = to_white(piece_name(get_piece(p, player)));
             auto gen = player ? m->gen_superphysical_moves<true>(p) : m->gen_superphysical_moves<false>(p);

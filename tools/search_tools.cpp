@@ -25,7 +25,7 @@ generator<moveseq> naive_search_impl(state s, moveseq mvs, int k, bool b)
         co_return;
     if(s.can_submit())
         co_yield mvs;
-    for(vec4 p : s.gen_movable_pieces())
+    for(vec4 p : s.get_movable_pieces())
     {
         for(vec4 q : s.gen_piece_move(p))
         {
