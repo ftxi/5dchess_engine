@@ -60,8 +60,11 @@ protected:
     void write_line(const std::string &line);
     bool is_busy() const;
     // Starts an asynchronous engine task and marks the engine busy until the callback finishes.
+    // A returned line is published only after the task has transitioned to idle.
     // Use this for work that may block, such as initialize() or find_best_move().
-    void launch_async_task(task_state task, std::function<void(std::stop_token)> work);
+    void launch_async_task(
+        task_state task,
+        std::function<std::optional<std::string>(std::stop_token)> work);
 
     virtual void on_option_changed(const std::string &key, const option_value_t &value);
 public:

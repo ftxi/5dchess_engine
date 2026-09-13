@@ -9,7 +9,9 @@ bool engine::is_busy() const
     return active_task.load() != task_state::idle;
 }
 
-void engine::launch_async_task(task_state task, std::function<void(std::stop_token)> work)
+void engine::launch_async_task(
+    task_state task,
+    std::function<std::optional<std::string>(std::stop_token)> work)
 {
     if(search_thread.joinable())
     {
@@ -18,20 +20,38 @@ void engine::launch_async_task(task_state task, std::function<void(std::stop_tok
 
     active_task.store(task);
     search_thread = std::jthread([this, work = std::move(work)](std::stop_token st) mutable {
+        std::optional<std::string> response;
+        std::optional<std::string> failure;
         try
         {
-            work(st);
+            response = work(st);
         }
         catch(const std::exception &error)
         {
-            write_line(std::string("info engine task failed: ") + error.what());
+            failure = std::string("info engine task failed: ") + error.what();
         }
         catch(...)
         {
-            write_line("info engine task failed");
+            failure = "info engine task failed";
         }
 
-        active_task.store(task_state::idle);
+        // Publish task completion and its terminal response as one ordered
+        // operation. task_mutex prevents an isready waiter from missing the
+        // state change, and io_mutex prevents readyok from overtaking the
+        // terminal response.
+        {
+            std::lock_guard<std::mutex> task_lock(task_mutex);
+            std::lock_guard<std::mutex> io_lock(io_mutex);
+            active_task.store(task_state::idle);
+            if(failure)
+            {
+                io->write_line(*failure);
+            }
+            else if(response)
+            {
+                io->write_line(*response);
+            }
+        }
         task_cv.notify_all();
     });
 }
@@ -100,12 +120,14 @@ void engine::mainloop()
             }
             else
             {
-                launch_async_task(task_state::initializing, [this](std::stop_token) {
+                launch_async_task(task_state::initializing, [this](std::stop_token)
+                    -> std::optional<std::string> {
                     initialize();
                     if(!quit_requested.load())
                     {
-                        write_line("5duciok");
+                        return "5duciok";
                     }
+                    return std::nullopt;
                 });
             }
         }
@@ -117,8 +139,10 @@ void engine::mainloop()
             }
             else
             {
-                launch_async_task(task_state::initializing, [this](std::stop_token) {
+                launch_async_task(task_state::initializing, [this](std::stop_token)
+                    -> std::optional<std::string> {
                     start_new_game();
+                    return std::nullopt;
                 });
             }
         }
@@ -153,7 +177,14 @@ void engine::mainloop()
                     position += token;
                 }
             }
-            set_position(position, moves);
+            if(is_busy())
+            {
+                write_line("info engine is busy, please run 'stop' first");
+            }
+            else
+            {
+                set_position(position, moves);
+            }
         }
         else if(command == "go")
         {
@@ -179,11 +210,13 @@ void engine::mainloop()
             }
             else
             {
-                launch_async_task(task_state::searching, [this, depth_limit, time_limit_ms](std::stop_token st) {
+                launch_async_task(task_state::searching,
+                    [this, depth_limit, time_limit_ms](std::stop_token st)
+                    -> std::optional<std::string> {
                     auto best_move = find_best_move(depth_limit, time_limit_ms, st);
                     if(quit_requested.load())
                     {
-                        return;
+                        return std::nullopt;
                     }
                     if(best_move)
                     {
@@ -195,12 +228,9 @@ void engine::mainloop()
                             best_move_str += ext_mv.lan(output_state);
                             output_state.apply_move(ext_mv);
                         }
-                        write_line(best_move_str);
+                        return best_move_str;
                     }
-                    else
-                    {
-                        write_line("nobestmove");
-                    }
+                    return "nobestmove";
                 });
             }
         }
