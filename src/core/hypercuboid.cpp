@@ -95,7 +95,7 @@ bool has_physical_check(const board &b, bool c)
     {
         if([[maybe_unused]] auto x = b.is_under_attack(pos, c))
         {
-            dprint("physical check", full_move(vec4(marked_pos(x)[0],vec4(0,0,0,0)),vec4(pos, vec4(0,0,0,0))));
+            dprint("physical check", full_move(vec4(bb_get_pos(x),vec4(0,0,0,0)),vec4(pos, vec4(0,0,0,0))));
             return true;
         }
     }
@@ -115,18 +115,62 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
     auto playable_timelines = concat_vectors(mandatory_timelines, optional_timelines);
     assert(!s.can_submit());
     auto [present_t, player] = s.get_present();
-    
+
+    for(index_t axis = 0; axis < static_cast<index_t>(playable_timelines.size()); axis++)
+    {
+        line_to_axis.emplace(playable_timelines[axis], axis);
+    }
+
     // generate all moves, then split them into cases
     // for departing moves, we merge the moves that depart from the same coordinate
-    std::map<int, std::vector<full_move>> arrives_to, stays_on;
-    std::map<int, std::vector<vec4>> departs_from;
+    struct arrival_bucket
+    {
+        int line;
+        std::vector<full_move> moves;
+    };
+    std::vector<arrival_bucket> arrivals;
+    arrivals.reserve(
+        mandatory_timelines.size()
+        + optional_timelines.size()
+        + unplayable_timelines.size());
+    std::vector<std::vector<full_move>> stays_on(playable_timelines.size());
+    std::vector<std::vector<vec4>> departs_from(playable_timelines.size());
+
+    auto add_arrival = [&arrivals](full_move move)
+    {
+        const int line = move.to.l();
+        auto bucket = std::find_if(
+            arrivals.begin(), arrivals.end(),
+            [line](const arrival_bucket& candidate) { return candidate.line == line; });
+        if(bucket == arrivals.end())
+        {
+            arrivals.push_back(arrival_bucket{line, {}});
+            bucket = std::prev(arrivals.end());
+        }
+        bucket->moves.push_back(move);
+    };
+
     // to track the corresponding departing moves for each arriving move
-    std::map<vec4, index_t> jump_indices;
+    struct jump_index
+    {
+        vec4 from;
+        index_t entry;
+    };
+    std::vector<jump_index> jump_indices;
+
+    auto find_jump_index = [&jump_indices](vec4 from) -> const index_t*
+    {
+        auto result = std::find_if(
+            jump_indices.begin(), jump_indices.end(),
+            [from](const jump_index& candidate) { return candidate.from == from; });
+        return result == jump_indices.end() ? nullptr : &result->entry;
+    };
     
     const int size_x = s.get_board_size().first;
     
     for(vec4 from : s.get_all_pieces(playable_timelines))
     {
+        const index_t source_axis = line_to_axis.at(from.l());
         bool has_depart = false;
         for(const vec4 &to : s.gen_piece_move(from))
         {
@@ -135,26 +179,57 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             {
                 if(!has_depart)
                 {
-                    departs_from[from.l()].push_back(m.from);
+                    departs_from[source_axis].push_back(m.from);
                     has_depart = true;
                 }
-                arrives_to[to.l()].push_back(m);
+                add_arrival(m);
             }
             else
             {
-                stays_on[from.l()].push_back(m);
+                stays_on[source_axis].push_back(m);
             }
         }
     }
-    
-    size_t estimate_size = 1 + arrives_to.size() + departs_from.size();
-    
-    // build nonbranching axes
-    for(int l : playable_timelines)
+
+    std::sort(
+        arrivals.begin(), arrivals.end(),
+        [](const arrival_bucket& lhs, const arrival_bucket& rhs)
+        {
+            return lhs.line < rhs.line;
+        });
+    auto find_arrivals = [&arrivals](int line) -> const std::vector<full_move>*
     {
-        std::vector<entry> locs = {null_entry{}};
-        locs.reserve(estimate_size);
-        for(full_move m : stays_on[l])
+        auto bucket = std::lower_bound(
+            arrivals.begin(), arrivals.end(), line,
+            [](const arrival_bucket& candidate, int value)
+            {
+                return candidate.line < value;
+            });
+        return bucket == arrivals.end() || bucket->line != line
+            ? nullptr : &bucket->moves;
+    };
+
+    index_t max_branch = 0;
+    size_t departure_count = 0;
+    for(const auto& departures : departs_from)
+    {
+        departure_count += departures.size();
+        if(!departures.empty()) max_branch++;
+    }
+    jump_indices.reserve(departure_count);
+    axis_coords.reserve(playable_timelines.size() + max_branch);
+
+    // build nonbranching axes
+    for(index_t axis = 0; axis < static_cast<index_t>(playable_timelines.size()); axis++)
+    {
+        const int l = playable_timelines[axis];
+        const auto* arriving_moves = find_arrivals(l);
+        std::vector<entry> locs;
+        locs.reserve(
+            1 + stays_on[axis].size() + departs_from[axis].size()
+            + (arriving_moves ? arriving_moves->size() : 0));
+        locs.push_back(null_entry{});
+        for(full_move m : stays_on[axis])
         {
             vec4 p = m.from, q = m.to;
             vec4 d = q - p;
@@ -191,9 +266,9 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
                 locs.push_back(physical_entry{m, newboard});
             }
         }
-        for(vec4 p : departs_from[l])
+        for(vec4 p : departs_from[axis])
         {
-            assert(!jump_indices.contains(p));
+            assert(find_jump_index(p) == nullptr);
             // store the departing board after move is made
             std::shared_ptr<board> b_ptr = s.get_board(p.l(), p.t(), player)
                 ->replace_piece(p.xy(), NO_PIECE);
@@ -201,57 +276,56 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             bool flag = has_physical_check(*b_ptr, player);
             if(!flag)
             {
-                jump_indices[p] = static_cast<int>(locs.size());
+                jump_indices.push_back(
+                    jump_index{p, static_cast<index_t>(locs.size())});
                 locs.push_back(departing_entry{p, b_ptr});
             }
         }
-        for(full_move m : arrives_to[l])
+        if(arriving_moves)
         {
-            // only store (possible) non-branching jump arrives
-            auto [last_t, last_c] = s.get_timeline_end(m.to.l());
-            if(m.to.t() == last_t && player == last_c)
+            for(full_move m : *arriving_moves)
             {
-                assert(m.from.tl()!=m.to.tl());
-                // store the arriving board after move is made
-                vec4 p = m.from, q = m.to;
-                piece_t pic = s.get_piece(p, player);
-                const std::shared_ptr<board>& c_ptr = s.get_board(q.l(), q.t(), player);
-                
-                dprint(" ... nonbranching jump");
-                std::shared_ptr<board> newboard = c_ptr->replace_piece(q.xy(), pic);
-                
-                dprint(locs.size(), "arrive", m);
-                // use a temporary idx of -1, will be filled later
-                bool flag = has_physical_check(*newboard, player);
-                if(!flag)
+                // only store (possible) non-branching jump arrives
+                auto [last_t, last_c] = s.get_timeline_end(m.to.l());
+                if(m.to.t() == last_t && player == last_c)
                 {
-                    locs.push_back(arriving_entry{m, newboard, std::numeric_limits<index_t>::max()});
+                    assert(m.from.tl()!=m.to.tl());
+                    // store the arriving board after move is made
+                    vec4 p = m.from, q = m.to;
+                    piece_t pic = s.get_piece(p, player);
+                    const std::shared_ptr<board>& c_ptr = s.get_board(q.l(), q.t(), player);
+
+                    dprint(" ... nonbranching jump");
+                    std::shared_ptr<board> newboard = c_ptr->replace_piece(q.xy(), pic);
+
+                    dprint(locs.size(), "arrive", m);
+                    // use a temporary idx of -1, will be filled later
+                    bool flag = has_physical_check(*newboard, player);
+                    if(!flag)
+                    {
+                        locs.push_back(arriving_entry{m, newboard, std::numeric_limits<index_t>::max()});
+                    }
                 }
             }
         }
         // save this axis
-        line_to_axis[l] = static_cast<index_t>(axis_coords.size());
-        dprint("above in axis", line_to_axis[l]);
+        assert(line_to_axis.at(l) == axis_coords.size());
+        dprint("above in axis", line_to_axis.at(l));
         axis_coords.push_back(std::move(locs));
     }
     
     new_axis = static_cast<int>(axis_coords.size());
 
     // build branching axes
-    index_t max_branch = 0;
-    for(const auto& [l, froms] : departs_from)
-    {
-        // determine the number of branching axes
-        if(!froms.empty())
-        {
-            max_branch++;
-        }
-    }
     // collect all branching moves
-    std::vector<entry> locs = {null_entry{}};
-    for(const auto &[l, arrives] : arrives_to)
+    std::vector<entry> locs;
+    size_t arrival_count = 0;
+    for(const auto& bucket : arrivals) arrival_count += bucket.moves.size();
+    locs.reserve(1 + arrival_count);
+    locs.push_back(null_entry{});
+    for(const auto& bucket : arrivals)
     {
-        for(full_move m : arrives)
+        for(full_move m : bucket.moves)
         {
             vec4 p = m.from, q = m.to;
             piece_t pic = s.get_piece(p, player);
@@ -260,7 +334,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             dprint(" ... branching jump");
             std::shared_ptr<board> newboard = c_ptr->replace_piece(q.xy(), pic);
             
-            if(jump_indices.contains(m.from))
+            if(const index_t* departure = find_jump_index(m.from))
             {
                 /* only add this arriving move when the corresponding departing move
                  is legal (Otherwise, it shouldn't have been registered in jump_map) */
@@ -268,7 +342,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
                 bool flag = has_physical_check(*newboard, player);
                 if(!flag)
                 {
-                    locs.push_back(arriving_entry{m, newboard, jump_indices[m.from]});
+                    locs.push_back(arriving_entry{m, newboard, *departure});
                 }
             }
         }
@@ -307,9 +381,9 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             entry& loc = axis_coords[n][i];
             if(auto* p = std::get_if<arriving_entry>(&loc))
             {
-                if(jump_indices.contains(p->m.from))
+                if(const index_t* departure = find_jump_index(p->m.from))
                 {
-                    p->idx = jump_indices[p->m.from];
+                    p->idx = *departure;
 #ifndef NDEBUG
                     assert(line_to_axis.contains(p->m.from.l()));
                     index_t nfrom = line_to_axis[p->m.from.l()];
