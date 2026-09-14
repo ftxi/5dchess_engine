@@ -13,6 +13,12 @@ class graph
     // represented as an adjacency matrix
     index_t n_vertices;
     std::vector<std::vector<bool>> adj;
+
+    std::optional<std::vector<index_t>> find_augmenting_path(
+        index_t root,
+        const graph &matching,
+        const std::vector<bool> &must_include
+    ) const;
 public:
     graph(index_t n): n_vertices{n}
     {
@@ -27,7 +33,7 @@ public:
     bool not_isolated(index_t u) const;
     std::vector<index_t> neighbors(index_t u) const;
     
-    std::optional<std::vector<std::pair<index_t,index_t>>> find_matching(std::vector<index_t>& include) const;
+    std::optional<std::vector<std::pair<index_t,index_t>>> find_matching(const std::vector<index_t>& include) const;
     
     std::string to_string() const;
 };
