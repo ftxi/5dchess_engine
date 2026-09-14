@@ -20,7 +20,7 @@ int run_perftest(int argc, const char *argv[])
         out << "Usage: 5dtools perftest [policy]\n"
             << "  On each intermediate position, print 1 if actions are available and 0 otherwise.\n"
             << "  Reads a 5DPGN game from stdin.\n"
-            << "  policy      balanced, naive, stable, iterative, or mixed\n"
+            << "  policy      balanced, naive, stable, or iterative\n"
             << "  -h, --help  display this help text and exit\n";
     };
     if(argc == 2 && (std::string_view(argv[1]) == "-h"
@@ -80,11 +80,6 @@ int run_perftest(int argc, const char *argv[])
             case search_mode::iterative: {
                 auto [w, ss] = HC_info::build_HC(current_state);
                 mvs = w.iterative_search(ss).first();
-                break;
-            }
-            case search_mode::mixed: {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.mixed_search(ss).first();
                 break;
             }
         }

@@ -96,8 +96,6 @@
    hypercuboid, limiting fragmentation with careful removal.
  - `search()` is the default adaptive policy. It propagates a problem through
    nearby intersecting hypercuboids while those intersections remain dense.
- - `mixed_search()` uses stable propagation until the first result for states
-   spanning at least ten timelines, then continues iteratively.
 */
 
 class HC_info
@@ -181,7 +179,6 @@ public:
     template<HCOrdering Order>
     generator<moveseq> iterative_search(search_space ss, Order order) const;
     generator<moveseq> stable_search(search_space ss) const;
-    generator<moveseq> mixed_search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
 };

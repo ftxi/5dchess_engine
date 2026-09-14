@@ -264,7 +264,6 @@ std::size_t count_actions(state s, search_mode mode, int maximum)
         case search_mode::naive: return count_naive(s, maximum);
         case search_mode::stable: return count_stable(s, maximum);
         case search_mode::iterative: return count_iterative(s, maximum);
-        case search_mode::mixed: return count_mixed(s, maximum);
     }
     throw std::logic_error("unknown search mode");
 }
@@ -391,7 +390,7 @@ int run_count(int argc, const char *argv[])
             << "  A result equal to max means at least max actions may exist.\n"
             << "  --at turn          select the state after a submitted turn (0, 1w, 1b, ...)\n"
             << "  --format text|json select output format (default: text)\n"
-            << "  policy             balanced, naive, stable, iterative, or mixed\n"
+            << "  policy             balanced, naive, stable, or iterative\n"
             << "  max                positive enumeration limit\n";
     };
     std::optional<turn_selection> selection;
@@ -470,7 +469,6 @@ int run_all(int argc, const char *argv[])
             case search_mode::naive: count = count_naive<true>(s, max); break;
             case search_mode::stable: count = count_stable<true>(s, max); break;
             case search_mode::iterative: count = count_iterative<true>(s, max); break;
-            case search_mode::mixed: count = count_mixed<true>(s, max); break;
         }
         print_count(count, output_format::text);
     }, selection);
