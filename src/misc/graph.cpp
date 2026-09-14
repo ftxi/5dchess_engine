@@ -3,6 +3,8 @@
 #include <sstream>
 #include <algorithm>
 #include <cassert>
+#include <limits>
+#include <numeric>
 
 #include "debug.h"
 
@@ -43,17 +45,199 @@ std::vector<index_t> graph::neighbors(index_t u) const
     return result;
 }
 
-// maintain a tree of pathnodes with
-// pn[previous].a ... pn[previous].b -- a ... b
-// --- means connected, ... means not connected
-struct pathnode
+std::optional<std::vector<index_t>> graph::find_augmenting_path(
+    index_t root,
+    const graph &matching,
+    const std::vector<bool> &must_include
+) const
 {
-    index_t a; // first vertex
-    index_t b; // second vertex (not matched to the first one)
-    index_t previous; // previous pathnode
-};
+    constexpr index_t nil_vertex = std::numeric_limits<index_t>::max();
 
-std::optional<std::vector<std::pair<index_t, index_t>>> graph::find_matching(std::vector<index_t> &include) const
+    // Convert the matching graph to the usual one-mate-per-vertex form used
+    // by the alternating-tree search.
+    std::vector<index_t> mate(n_vertices, nil_vertex);
+    for(index_t u = 0; u < n_vertices; ++u)
+    {
+        for(index_t v = 0; v < u; ++v)
+        {
+            if(matching.adj[u][v])
+            {
+                assert(mate[u] == nil_vertex);
+                assert(mate[v] == nil_vertex);
+                mate[u] = v;
+                mate[v] = u;
+            }
+        }
+    }
+
+    // the BFS search tree structure
+    std::vector<index_t> parent(n_vertices, nil_vertex);
+    // base[v] is the base of the blossom containing v, or v itself if v is not in a blossom
+    std::vector<index_t> base(n_vertices); 
+    std::iota(base.begin(), base.end(), index_t{0});
+    // whether a vertex is reachable from the root by an even-length alternating path
+    std::vector<bool> is_even_reachable(n_vertices, false);
+    // bases included in the blossom currently being contracted
+    std::vector<bool> in_blossom(n_vertices, false);
+    // used to find the lowest common ancestor of two vertices in the alternating tree
+    std::vector<bool> in_ancestor_path(n_vertices, false);
+    // the BFS queue
+    std::queue<index_t> queue;
+
+    const auto lowest_common_ancestor = [&](index_t a, index_t b) {
+        std::fill(in_ancestor_path.begin(), in_ancestor_path.end(), false);
+        while(true)
+        {
+            a = base[a];
+            in_ancestor_path[a] = true;
+            if(mate[a] == nil_vertex)
+            {
+                break;
+            }
+            a = parent[mate[a]];
+        }
+        while(true)
+        {
+            b = base[b];
+            if(in_ancestor_path[b])
+            {
+                return b;
+            }
+            b = parent[mate[b]];
+        }
+    };
+
+    const auto mark_blossom_path = [&](index_t vertex, index_t blossom_base, index_t child) {
+        while(base[vertex] != blossom_base)
+        {
+            in_blossom[base[vertex]] = true;
+            in_blossom[base[mate[vertex]]] = true;
+            parent[vertex] = child;
+            child = mate[vertex];
+            vertex = parent[mate[vertex]];
+        }
+    };
+
+    // Reconstruct root ... endpoint from the alternating-tree parents. 
+    // The parent adjustments made while contracting a blossom expand it into the
+    // correct alternating path here.
+    const auto reconstruct_path = [&] (index_t endpoint) {
+        std::vector<index_t> reverse_path;
+        index_t vertex = endpoint;
+        while(vertex != nil_vertex)
+        {
+            reverse_path.push_back(vertex);
+            const index_t previous = parent[vertex];
+            if(previous == nil_vertex)
+            {
+                break;
+            }
+            reverse_path.push_back(previous);
+            vertex = mate[previous];
+        }
+        std::reverse(reverse_path.begin(), reverse_path.end());
+        assert(!reverse_path.empty() && reverse_path.front() == root);
+        return reverse_path;
+    };
+
+    // BFS starts
+    queue.push(root);
+    is_even_reachable[root] = true;
+    while(!queue.empty())
+    {
+        const index_t vertex = queue.front();
+        queue.pop();
+        // for each (potential) neighbor of the focused vertex
+        // as commented below, if the 'neighbor' is not really a neighbor
+        // we will skip it
+        for(index_t neighbor = 0; neighbor < n_vertices; ++neighbor)
+        {
+            // skip nonexistent edges
+            // and the matching edge from vertex.
+            if(!adj[vertex][neighbor] || mate[vertex] == neighbor)
+            {
+                continue;
+            }
+
+            // Our path may end after a matching edge at a vertex outside S.
+            // Check that endpoint before comparing blossom bases: contraction
+            // may put the endpoint inside the current blossom while parent[]
+            // still describes the path that reaches it.
+            if(mate[neighbor] != nil_vertex && !must_include[mate[neighbor]])
+            {
+                // If no route reaches neighbor in the odd role yet, record
+                // the nonmatching edge from vertex.
+                if(parent[neighbor] == nil_vertex)
+                {
+                    // if neighbor and vertex are in the same blossom, skip
+                    if(base[vertex] == base[neighbor])
+                    {
+                        continue;
+                    }
+                    parent[neighbor] = vertex;
+                }
+                // otherwise, the path ends after neighbor's matching edge, at its
+                // optional mate outside S.
+                std::vector<index_t> path = reconstruct_path(neighbor);
+                path.push_back(mate[neighbor]);
+                return path;
+            }
+
+            // if the edge is internal to a blossom, skip
+            if(base[vertex] == base[neighbor])
+            {
+                continue;
+            }
+
+            // if the current edge closes an odd alternating cycle.
+            const bool closes_blossom = neighbor == root
+                || (mate[neighbor] != nil_vertex
+                    && parent[mate[neighbor]] != nil_vertex);
+            if(closes_blossom)
+            {
+                // mark the blossom
+                const index_t blossom_base = lowest_common_ancestor(vertex, neighbor);
+                std::fill(in_blossom.begin(), in_blossom.end(), false);
+                mark_blossom_path(vertex, blossom_base, neighbor);
+                mark_blossom_path(neighbor, blossom_base, vertex);
+                // for the contracted blossom
+                for(index_t v = 0; v < n_vertices; ++v)
+                {
+                    if(in_blossom[base[v]])
+                    {
+                        base[v] = blossom_base;
+                        // since a blossom is an odd cycle, all vertices in it are even-reachable
+                        // even those initially thought as odd (take another path through the blossom)
+                        // they will need to be added to the searching queue
+                        if(!is_even_reachable[v])
+                        {
+                            is_even_reachable[v] = true;
+                            queue.push(v);
+                        }
+                    }
+                }
+            }
+            // if the neighbor is not in the tree, add it
+            else if(parent[neighbor] == nil_vertex)
+            {
+                parent[neighbor] = vertex;
+                // if the neighbor is unmatched, we found an augmenting path
+                if(mate[neighbor] == nil_vertex)
+                {
+                    return reconstruct_path(neighbor);
+                }
+                // otherwise, add the neighbor's mate to the tree
+                // and add it to the searching queue
+                const index_t next = mate[neighbor];
+                is_even_reachable[next] = true;
+                queue.push(next);
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::vector<std::pair<index_t, index_t>>> graph::find_matching(const std::vector<index_t> &include) const
 {
     dprint("finding a match on" + to_string());
     graph matched(n_vertices);
@@ -67,91 +251,24 @@ std::optional<std::vector<std::pair<index_t, index_t>>> graph::find_matching(std
         dprint("n=" + n);
         // if n is already matched, skip
         if(matched.not_isolated(n)) continue;
-        // otherwise, try to find a augumentation path starting from n
-        std::vector<bool> seen = adj[n];
-        seen[n] = true; // seen will be some nodes of odd distance from n (and n itself)
-        std::vector<pathnode> pn = {{n_vertices, n_vertices, n_vertices}}; // pn[0] is a placeholder
-        pn.reserve(n_vertices);
-        std::queue<index_t> q; // maintain a queue for BFS search
-        for (index_t m : neighbors(n))
-        {
-            index_t index = static_cast<index_t>(pn.size());
-            pn.push_back({.a=n, .b=m, .previous=0});
-            q.push(index);
-        }
-        index_t augpathend = n_vertices;
-        while(!q.empty())
-        {
-            index_t index = q.front();
-            pathnode p = pn[index];
-            q.pop();
-            auto us = matched.neighbors(p.b);
-//            print_range("Was:", us);
-//            std::erase(us, p.a);
-//            index_t current_index = p.previous;
-//            while(pn[current_index].previous != n_vertices)
-//            {
-//                std::erase(us, pn[current_index].a);
-//                std::erase(us, pn[current_index].a);
-//                current_index = pn[current_index].previous;
-//            }
-//            print_range("Now:", us);
-            if(us.empty())
-            {
-                //if p.b is not matched, we can stop our augmentation path here
-                augpathend = index;
-                break;
-            }
-            else
-            {
-                // otherwise, p.b is matched to some u (the new a)
-                index_t u = us[0];
-                if(!must_include[u])
-                {
-                    // if we don't have to include u, we can just drop the match p.b -- u
-                    matched.remove_edge(p.b, u);
-                    augpathend = index;
-                    break;
-                }
-                else
-                {
-                    // in the last case, continue the bfs search for all possible v (the new b)
-                    seen[p.a] = true;
-                    index_t current_index = p.previous;
-                    while(pn[current_index].previous != n_vertices)
-                    {
-                        seen[pn[current_index].a] = true;
-                        seen[pn[current_index].b] = true;
-                        current_index = pn[current_index].previous;
-                    }
-                    for(index_t v : neighbors(u))
-                    {
-                        if(!seen[v])
-                        {
-                            index_t new_index = static_cast<index_t>(pn.size());
-                            pn.push_back({.a=u, .b=v, .previous=index});
-                            q.push(new_index);
-                            seen[v] = true;
-                        }
-                    }
-                }
-            }
-        }
-        // if we have not found the augmentation path, there is no match
-        if(augpathend == n_vertices)
+        // Otherwise, find an augmenting path starting from n. Odd alternating
+        // cycles are contracted so reaching a vertex through one side of a
+        // blossom does not hide a valid path through the other side.
+        const auto path = find_augmenting_path(n, matched, must_include);
+        if(!path)
             return std::nullopt;
-        // otherwise, modify the matching by takeing symmetric difference
+
+        // Update the matching by taking the symmetric difference with path.
+        // Remove its matching edges first, then add its non-matching edges.
         dprint("found augmenting path:");
-        while(augpathend != 0)
+        for(std::size_t i = 1; i + 1 < path->size(); i += 2)
         {
-            pathnode p = pn[augpathend];
-            dprint(p.b, "...", p.a, "---");
-            matched.add_edge(p.a, p.b);
-            if(p.previous != 0)
-            {
-                matched.remove_edge(pn[p.previous].b, p.a);
-            }
-            augpathend = p.previous;
+            matched.remove_edge((*path)[i], (*path)[i + 1]);
+        }
+        for(std::size_t i = 0; i + 1 < path->size(); i += 2)
+        {
+            dprint((*path)[i], "---", (*path)[i + 1]);
+            matched.add_edge((*path)[i], (*path)[i + 1]);
         }
         dprint("Updated to:", matched.to_string());
     }
