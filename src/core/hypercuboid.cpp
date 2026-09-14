@@ -3,9 +3,12 @@
 #include "check_position.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
+#include <cstddef>
 #include <iostream>
 #include <limits>
+#include <memory_resource>
 #include <random>
 
 //#define DEBUGMSG
@@ -22,16 +25,16 @@ semimove HC_info::to_semimove(const entry &loc)
     }, loc);
 }
 
-std::shared_ptr<board> HC_info::extract_board(const entry &loc)
+const board& HC_info::extract_board(const entry &loc)
 {
-    return std::visit([](const auto &move) -> std::shared_ptr<board> {
+    return std::visit([](const auto &move) -> const board& {
         using T = std::decay_t<decltype(move)>;
         if constexpr (std::is_same_v<T, physical_entry>
                    || std::is_same_v<T, arriving_entry>
                    || std::is_same_v<T, departing_entry>) return move.b;
         else {
             assert(false && "shouldn't extract a board from a null entry");
-            return nullptr;
+            throw std::logic_error("cannot extract a board from a null HC entry");
         }
     }, loc);
 }
@@ -121,22 +124,42 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
         line_to_axis.emplace(playable_timelines[axis], axis);
     }
 
+    std::array<std::byte, 32 * 1024> temporary_storage;
+    std::pmr::monotonic_buffer_resource temporary_resource(
+        temporary_storage.data(), temporary_storage.size());
+
     // generate all moves, then split them into cases
     // for departing moves, we merge the moves that depart from the same coordinate
     struct arrival_bucket
     {
         int line;
-        std::vector<full_move> moves;
+        std::pmr::vector<full_move> moves;
+
+        arrival_bucket(int line, std::pmr::memory_resource* resource)
+            : line(line), moves(resource) {}
     };
-    std::vector<arrival_bucket> arrivals;
+    struct axis_moves
+    {
+        std::pmr::vector<full_move> stays;
+        std::pmr::vector<vec4> departures;
+
+        explicit axis_moves(std::pmr::memory_resource* resource)
+            : stays(resource), departures(resource) {}
+    };
+
+    std::pmr::vector<arrival_bucket> arrivals(&temporary_resource);
     arrivals.reserve(
         mandatory_timelines.size()
         + optional_timelines.size()
         + unplayable_timelines.size());
-    std::vector<std::vector<full_move>> stays_on(playable_timelines.size());
-    std::vector<std::vector<vec4>> departs_from(playable_timelines.size());
+    std::pmr::vector<axis_moves> moves_by_axis(&temporary_resource);
+    moves_by_axis.reserve(playable_timelines.size());
+    for(size_t i = 0; i < playable_timelines.size(); i++)
+    {
+        moves_by_axis.emplace_back(&temporary_resource);
+    }
 
-    auto add_arrival = [&arrivals](full_move move)
+    auto add_arrival = [&arrivals, &temporary_resource](full_move move)
     {
         const int line = move.to.l();
         auto bucket = std::find_if(
@@ -144,7 +167,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             [line](const arrival_bucket& candidate) { return candidate.line == line; });
         if(bucket == arrivals.end())
         {
-            arrivals.push_back(arrival_bucket{line, {}});
+            arrivals.emplace_back(line, &temporary_resource);
             bucket = std::prev(arrivals.end());
         }
         bucket->moves.push_back(move);
@@ -156,7 +179,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
         vec4 from;
         index_t entry;
     };
-    std::vector<jump_index> jump_indices;
+    std::pmr::vector<jump_index> jump_indices(&temporary_resource);
 
     auto find_jump_index = [&jump_indices](vec4 from) -> const index_t*
     {
@@ -179,25 +202,27 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             {
                 if(!has_depart)
                 {
-                    departs_from[source_axis].push_back(m.from);
+                    moves_by_axis[source_axis].departures.push_back(m.from);
                     has_depart = true;
                 }
                 add_arrival(m);
             }
             else
             {
-                stays_on[source_axis].push_back(m);
+                moves_by_axis[source_axis].stays.push_back(m);
             }
         }
     }
 
     std::sort(
-        arrivals.begin(), arrivals.end(),
+        arrivals.begin(),
+        arrivals.end(),
         [](const arrival_bucket& lhs, const arrival_bucket& rhs)
         {
             return lhs.line < rhs.line;
-        });
-    auto find_arrivals = [&arrivals](int line) -> const std::vector<full_move>*
+        }
+    );
+    auto find_arrivals = [&arrivals](int line) -> const std::pmr::vector<full_move>*
     {
         auto bucket = std::lower_bound(
             arrivals.begin(), arrivals.end(), line,
@@ -211,10 +236,10 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
 
     index_t max_branch = 0;
     size_t departure_count = 0;
-    for(const auto& departures : departs_from)
+    for(const auto& moves : moves_by_axis)
     {
-        departure_count += departures.size();
-        if(!departures.empty()) max_branch++;
+        departure_count += moves.departures.size();
+        if(!moves.departures.empty()) max_branch++;
     }
     jump_indices.reserve(departure_count);
     axis_coords.reserve(playable_timelines.size() + max_branch);
@@ -226,59 +251,76 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
         const auto* arriving_moves = find_arrivals(l);
         std::vector<entry> locs;
         locs.reserve(
-            1 + stays_on[axis].size() + departs_from[axis].size()
+            1 + moves_by_axis[axis].stays.size()
+            + moves_by_axis[axis].departures.size()
             + (arriving_moves ? arriving_moves->size() : 0));
         locs.push_back(null_entry{});
-        for(full_move m : stays_on[axis])
+        for(full_move m : moves_by_axis[axis].stays)
         {
             vec4 p = m.from, q = m.to;
             vec4 d = q - p;
-            const std::shared_ptr<board>& b_ptr = s.get_board(p.l(), p.t(), player);
-            std::shared_ptr<board> newboard = nullptr;
+            const board& source_board = *s.get_board(p.l(), p.t(), player);
+            dprint(locs.size(), "physical", m);
+            locs.emplace_back(std::in_place_type<physical_entry>, m, source_board);
+            board& newboard = std::get<physical_entry>(locs.back()).b;
             bitboard_t z = pmask(p.xy());
             // en passant
-            if((b_ptr->lpawn()&z) && d.x()!=0 && b_ptr->get_piece(q.xy()) == NO_PIECE)
+            if((source_board.lpawn()&z) && d.x()!=0
+               && source_board.get_piece(q.xy()) == NO_PIECE)
             {
                 dprint(" ... en passant");
-                newboard = b_ptr->replace_piece(ppos(q.x(),p.y()), NO_PIECE)
-                                ->move_piece(p.xy(), q.xy());
+                newboard.set_piece(ppos(q.x(),p.y()), NO_PIECE);
+                piece_t piece = newboard.get_piece(p.xy());
+                newboard.set_piece(q.xy(), piece);
+                newboard.set_piece(p.xy(), NO_PIECE);
             }
             // castling
-            else if((b_ptr->king()&z) && abs(d.x()) > 1)
+            else if((source_board.king()&z) && abs(d.x()) > 1)
             {
                 dprint(" ... castling");
                 int rook_x1 = d.x() < 0 ? 0 : (size_x - 1); //rook's original x coordinate
                 int rook_x2 = q.x() + (d.x() < 0 ? 1 : -1); //rook's new x coordinate
-                newboard = b_ptr->move_piece(ppos(rook_x1, p.y()), ppos(rook_x2,q.y()))
-                                ->move_piece(p.xy(), q.xy());
+                const int rook_from = ppos(rook_x1, p.y());
+                const int rook_to = ppos(rook_x2, q.y());
+                piece_t rook = newboard.get_piece(rook_from);
+                newboard.set_piece(rook_to, rook);
+                newboard.set_piece(rook_from, NO_PIECE);
+                piece_t king = newboard.get_piece(p.xy());
+                newboard.set_piece(q.xy(), king);
+                newboard.set_piece(p.xy(), NO_PIECE);
             }
             // normal move
             else
             {
                 dprint(" ... normal move/capture");
-                newboard = b_ptr->move_piece(p.xy(), q.xy());
+                piece_t piece = newboard.get_piece(p.xy());
+                newboard.set_piece(q.xy(), piece);
+                newboard.set_piece(p.xy(), NO_PIECE);
             }
             // filter physical checks in the very begining
-            dprint(locs.size(), "physical", m);
-            bool flag = has_physical_check(*newboard, player);
-            if(!flag)
+            if(has_physical_check(newboard, player))
             {
-                locs.push_back(physical_entry{m, newboard});
+                locs.pop_back();
             }
         }
-        for(vec4 p : departs_from[axis])
+        for(vec4 p : moves_by_axis[axis].departures)
         {
             assert(find_jump_index(p) == nullptr);
             // store the departing board after move is made
-            std::shared_ptr<board> b_ptr = s.get_board(p.l(), p.t(), player)
-                ->replace_piece(p.xy(), NO_PIECE);
-            dprint(locs.size(), "depart", p);
-            bool flag = has_physical_check(*b_ptr, player);
-            if(!flag)
+            const index_t entry_index = static_cast<index_t>(locs.size());
+            locs.emplace_back(
+                std::in_place_type<departing_entry>, p,
+                *s.get_board(p.l(), p.t(), player));
+            board& newboard = std::get<departing_entry>(locs.back()).b;
+            newboard.set_piece(p.xy(), NO_PIECE);
+            dprint(entry_index, "depart", p);
+            if(has_physical_check(newboard, player))
             {
-                jump_indices.push_back(
-                    jump_index{p, static_cast<index_t>(locs.size())});
-                locs.push_back(departing_entry{p, b_ptr});
+                locs.pop_back();
+            }
+            else
+            {
+                jump_indices.push_back(jump_index{p, entry_index});
             }
         }
         if(arriving_moves)
@@ -293,17 +335,20 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
                     // store the arriving board after move is made
                     vec4 p = m.from, q = m.to;
                     piece_t pic = s.get_piece(p, player);
-                    const std::shared_ptr<board>& c_ptr = s.get_board(q.l(), q.t(), player);
+                    const board& destination_board = *s.get_board(q.l(), q.t(), player);
 
                     dprint(" ... nonbranching jump");
-                    std::shared_ptr<board> newboard = c_ptr->replace_piece(q.xy(), pic);
-
                     dprint(locs.size(), "arrive", m);
+                    locs.emplace_back(
+                        std::in_place_type<arriving_entry>, m, destination_board,
+                        std::numeric_limits<index_t>::max());
+                    board& newboard = std::get<arriving_entry>(locs.back()).b;
+                    newboard.set_piece(q.xy(), pic);
+
                     // use a temporary idx of -1, will be filled later
-                    bool flag = has_physical_check(*newboard, player);
-                    if(!flag)
+                    if(has_physical_check(newboard, player))
                     {
-                        locs.push_back(arriving_entry{m, newboard, std::numeric_limits<index_t>::max()});
+                        locs.pop_back();
                     }
                 }
             }
@@ -329,20 +374,21 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
         {
             vec4 p = m.from, q = m.to;
             piece_t pic = s.get_piece(p, player);
-            const std::shared_ptr<board>& c_ptr = s.get_board(q.l(), q.t(), player);
+            const board& destination_board = *s.get_board(q.l(), q.t(), player);
             
             dprint(" ... branching jump");
-            std::shared_ptr<board> newboard = c_ptr->replace_piece(q.xy(), pic);
-            
             if(const index_t* departure = find_jump_index(m.from))
             {
                 /* only add this arriving move when the corresponding departing move
                  is legal (Otherwise, it shouldn't have been registered in jump_map) */
                 dprint(locs.size(), "branching:", m);
-                bool flag = has_physical_check(*newboard, player);
-                if(!flag)
+                locs.emplace_back(
+                    std::in_place_type<arriving_entry>, m, destination_board, *departure);
+                board& newboard = std::get<arriving_entry>(locs.back()).b;
+                newboard.set_piece(q.xy(), pic);
+                if(has_physical_check(newboard, player))
                 {
-                    locs.push_back(arriving_entry{m, newboard, *departure});
+                    locs.pop_back();
                 }
             }
         }
@@ -600,7 +646,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
         // for all branching moves
         index_t i = p[n];
         // present may need to move to the time of this arrive
-        entry loc = axis_coords[n][i];
+        const entry& loc = axis_coords[n][i];
         if(std::holds_alternative<null_entry>(loc))
         {
             break;
@@ -696,7 +742,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
             integer_set s;
             for(index_t i : hc[n])
             {
-                entry loc = axis_coords[n][i];
+                const entry& loc = axis_coords[n][i];
                 if(std::holds_alternative<null_entry>(loc))
                 {
                     s.insert(i);
@@ -704,7 +750,7 @@ std::optional<slice> HC_info::test_present(const point &p, const HC& hc) const
                 }
                 else
                 {
-                    auto am = std::get<arriving_entry>(loc);
+                    const auto& am = std::get<arriving_entry>(loc);
                     if(am.m.to.t() >= mint)
                     {
                         s.insert(i);
@@ -741,7 +787,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         const auto [old_t, old_l] = extract_tl(loc);
         (void)old_l;
         // Branch arrivals use the axis's new line, not their old hotspot line.
-        newstate.add_board(l, next_turn({old_t,c}), *extract_board(loc));
+        newstate.add_board(l, next_turn({old_t,c}), extract_board(loc));
     }
     // HC construction has already filtered physical checks on resulting boards.
     if(auto maybe_check = newstate.first_check(!c, false))
@@ -767,29 +813,29 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
             integer_set not_taking;
             for(index_t i : hc[n1])
             {
-                entry loc = axis_coords[n1][i];
+                const entry& loc = axis_coords[n1][i];
                 /* if there isn't a new board on the same place, it won't create the same check*/
                 if(std::holds_alternative<null_entry>(loc) || !is_next(extract_tl(loc).first,check.from.t()))
                 {
                     continue;
                 }
-                std::shared_ptr<board> newboard = extract_board(loc);
+                const board& newboard = extract_board(loc);
                 if(sliding_type)
                 {
-                    bitboard_t bb = c ? newboard->white() : newboard->black();
+                    bitboard_t bb = c ? newboard.white() : newboard.black();
                     switch(sliding_type)
                     {
                         case 1:
-                            bb &= newboard->lrook();
+                            bb &= newboard.lrook();
                             break;
                         case 2:
-                            bb &= newboard->lbishop();
+                            bb &= newboard.lbishop();
                             break;
                         case 3:
-                            bb &= newboard->lunicorn();
+                            bb &= newboard.lunicorn();
                             break;
                         case 4:
-                            bb &= newboard->ldragon();
+                            bb &= newboard.ldragon();
                             break;
                         default:
                             assert(false && "wrong sliding type infered");
@@ -801,7 +847,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         not_taking.insert(i);
                     }
                 }
-                else if(newboard->get_piece(check.from.xy()) == newstate.get_piece(check.from, !c))
+                else if(newboard.get_piece(check.from.xy()) == newstate.get_piece(check.from, !c))
                 {
                     // non sliding pieces remains in same position
                     dprint(n1, i, sliding_type, to_semimove(loc).lan(s));
@@ -820,7 +866,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
         if(line_to_axis.contains(l2))
         {
             index_t n2 = line_to_axis.at(l2);
-            entry loc0 = axis_coords[n2][p[n2]];
+            const entry& loc0 = axis_coords[n2][p[n2]];
             if(std::holds_alternative<null_entry>(loc0) || !is_next(extract_tl(loc0).first, check.to.t()))
             {
                 // pass to ban everything
@@ -830,8 +876,8 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                 integer_set expose_royal;
                 for(index_t i : hc[n2])
                 {
-                    entry loc = axis_coords[n2][i];
-                    std::shared_ptr<board> newboard;
+                    const entry& loc = axis_coords[n2][i];
+                    const board* newboard = nullptr;
                     /* if there isn't a new board on the same place, do nothing*/
                     if(std::holds_alternative<null_entry>(loc) || !is_next(extract_tl(loc).first, check.to.t()))
                     {
@@ -839,7 +885,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     }
                     else
                     {
-                        newboard = extract_board(loc);
+                        newboard = &extract_board(loc);
                     }
                     bitboard_t friendly = c ? newboard->black() : newboard->white();
                     bool is_royal = pmask(check.to.xy()) & newboard->royal() & friendly;
@@ -864,7 +910,7 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
             if(line_to_axis.contains(crossed.l()))
             {
                 index_t n = line_to_axis.at(crossed.l());
-                entry loc0 = axis_coords[n][p[n]];
+                const entry& loc0 = axis_coords[n][p[n]];
                 if(std::holds_alternative<null_entry>(loc0) || !is_next(extract_tl(loc0).first, crossed.t()))
                 {
                     // pass to ban everything
@@ -875,15 +921,15 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                     integer_set not_blocking;
                     for(index_t i : hc[n])
                     {
-                        entry loc = axis_coords[n][i];
+                        const entry& loc = axis_coords[n][i];
                         /* if there isn't a board, then nothing pass through it*/
                         if(std::holds_alternative<null_entry>(loc) || !is_next(extract_tl(loc).first, crossed.t()))
                         {
                             continue;
                         }
-                        std::shared_ptr<board> newboard = extract_board(loc);
+                        const board& newboard = extract_board(loc);
                         /* if the very place is empty, then it is clearly not blocking*/
-                        if(!(z & newboard->occupied()))
+                        if(!(z & newboard.occupied()))
                         {
                             dprint(n, i, sliding_type, to_semimove(loc).lan(s));
                             dprint("axis", n, "not blocking (empty)", i);
@@ -895,20 +941,20 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                          */
                         if(sliding_type)
                         {
-                            bitboard_t bb = c ? newboard->white() : newboard->black();
+                            bitboard_t bb = c ? newboard.white() : newboard.black();
                             switch(sliding_type)
                             {
                                 case 1:
-                                    bb &= newboard->lrook();
+                                    bb &= newboard.lrook();
                                     break;
                                 case 2:
-                                    bb &= newboard->lbishop();
+                                    bb &= newboard.lbishop();
                                     break;
                                 case 3:
-                                    bb &= newboard->lunicorn();
+                                    bb &= newboard.lunicorn();
                                     break;
                                 case 4:
-                                    bb &= newboard->ldragon();
+                                    bb &= newboard.ldragon();
                                     break;
                                 default:
                                     assert(false && "wrong sliding type infered");
@@ -924,8 +970,8 @@ std::optional<slice> HC_info::find_checks(const point &p, const HC& hc) const
                         /* on the crossed point, if a friendly royal piece is there
                          it is still checking despite the path is technically blocked
                          */
-                        bitboard_t friendly = c ? newboard->black() : newboard->white();
-                        if(z & newboard->royal() & friendly)
+                        bitboard_t friendly = c ? newboard.black() : newboard.white();
+                        if(z & newboard.royal() & friendly)
                         {
                             dprint(n, i, sliding_type, to_semimove(loc).lan(s));
                             dprint("axis", n, "not blocking (expose royal)", i);
@@ -1006,7 +1052,7 @@ moveseq HC_info::to_action(const point &p) const
     std::vector<full_move> mvs;
     for(const auto &[l,i] : line_to_axis)
     {
-        entry loc = axis_coords[i][p[i]];
+        const entry& loc = axis_coords[i][p[i]];
         if(std::holds_alternative<physical_entry>(loc))
         {
             mvs.push_back(std::get<physical_entry>(loc).m);

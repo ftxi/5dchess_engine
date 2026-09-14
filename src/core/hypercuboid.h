@@ -105,24 +105,33 @@ class HC_info
     struct physical_entry
     {
         full_move m;
-        std::shared_ptr<board> b;
+        board b;
+
+        physical_entry(full_move move, const board& position)
+            : m(move), b(position) {}
     };
     struct arriving_entry
     {
         full_move m;
-        std::shared_ptr<board> b;
+        board b;
         index_t idx;
+
+        arriving_entry(full_move move, const board& position, index_t departure)
+            : m(move), b(position), idx(departure) {}
     };
     struct departing_entry
     {
         vec4 from;
-        std::shared_ptr<board> b;
+        board b;
+
+        departing_entry(vec4 source, const board& position)
+            : from(source), b(position) {}
     };
     struct null_entry {};
     using entry = std::variant<physical_entry, arriving_entry, departing_entry, null_entry>;
 
     static semimove to_semimove(const entry &e);
-    static std::shared_ptr<board> extract_board(const entry &e);
+    static const board& extract_board(const entry &e);
     static std::pair<int, int> extract_tl(const entry &e);
     std::vector<std::vector<entry>> axis_coords;
 
