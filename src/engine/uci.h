@@ -1,11 +1,11 @@
 #ifndef UCI_H
 #define UCI_H
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <optional>
 #include <variant>
-#include <condition_variable>
 #include <thread>
 #include <stop_token>
 #include <atomic>
@@ -42,10 +42,8 @@ private:
     std::unique_ptr<io_handler> io; 
     std::atomic<task_state> active_task{task_state::idle};
     std::jthread search_thread;
-    std::thread ready_thread;
-    std::atomic<bool> ready_pending{false};
     std::atomic<bool> quit_requested{false};
-    std::condition_variable task_cv;
+    std::size_t pending_ready_requests = 0;
     std::mutex task_mutex;
     std::mutex io_mutex;
     mutable std::mutex options_mutex;
@@ -59,12 +57,15 @@ protected:
     }
     void write_line(const std::string &line);
     bool is_busy() const;
-    // Starts an asynchronous engine task and marks the engine busy until the callback finishes.
-    // A returned line is published only after the task has transitioned to idle.
-    // Use this for work that may block, such as initialize() or find_best_move().
+    /* Starts an asynchronous engine task and marks the engine busy until the callback finishes.
+     * The optional return value is a terminal protocol response. It is sent after the task finishes
+     * and task_state is set back to idle, so a GUI reacting to it finds the engine ready for its next
+     * operation. The task may send intermediate info responses before returning.
+     * Use this for work that may block, such as initialize() or find_best_move(). */
     void launch_async_task(
         task_state task,
-        std::function<std::optional<std::string>(std::stop_token)> work);
+        std::function<std::optional<std::string>(std::stop_token)> work
+    );
 
     virtual void on_option_changed(const std::string &key, const option_value_t &value);
 public:

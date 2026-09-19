@@ -264,6 +264,9 @@ it replies
 
 and enters the **Idle State**.
 
+An `isready` received while initialization is still running is answered only
+after initialization finishes. Each `isready` command receives one `readyok`.
+
 ## Idle State
 
 While idle:
@@ -303,7 +306,10 @@ If a `stop` command is received:
 * It should output the current best move (or `nobestmove`).
 * Then return to the Idle State.
 
-If a `isready` command is received: the engine should defer the response `readyok` until the search is complete.
+If an `isready` command is received, the engine should still respond with
+`readyok` immediately, even if the search is not complete. This response only
+confirms that the engine is responsive; the search's `bestmove` or `nobestmove`
+response signals that the search has finished.
 
 ---
 
@@ -332,7 +338,6 @@ If a `isready` command is received: the engine should defer the response `readyo
 | UI | `go` |
 | Engine | *(searching...)* |
 | UI | `isready` |
-| Engine | *(reply deferred while searching)* |
+| Engine | `readyok` |
 | UI | `stop` |
 | Engine | `bestmove (0T1)g1f3` |
-| Engine | `readyok` |

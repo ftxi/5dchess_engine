@@ -18,7 +18,10 @@ void engine::launch_async_task(
         search_thread.join();
     }
 
-    active_task.store(task);
+    {
+        std::lock_guard<std::mutex> task_lock(task_mutex);
+        active_task.store(task);
+    }
     search_thread = std::jthread([this, work = std::move(work)](std::stop_token st) mutable {
         std::optional<std::string> response;
         std::optional<std::string> failure;
@@ -35,36 +38,40 @@ void engine::launch_async_task(
             failure = "info engine task failed";
         }
 
-        // Publish task completion and its terminal response as one ordered
-        // operation. task_mutex prevents an isready waiter from missing the
-        // state change, and io_mutex prevents readyok from overtaking the
-        // terminal response.
+        // Publish task completion, its terminal response, and any readiness
+        // replies deferred during initialization as one ordered operation.
         {
             std::lock_guard<std::mutex> task_lock(task_mutex);
             std::lock_guard<std::mutex> io_lock(io_mutex);
             active_task.store(task_state::idle);
-            if(failure)
+            if(!quit_requested.load())
             {
-                io->write_line(*failure);
+                if(failure)
+                {
+                    io->write_line(*failure);
+                }
+                else if(response)
+                {
+                    io->write_line(*response);
+                }
+
+                while(pending_ready_requests > 0)
+                {
+                    io->write_line("readyok");
+                    --pending_ready_requests;
+                }
             }
-            else if(response)
-            {
-                io->write_line(*response);
-            }
+            pending_ready_requests = 0;
         }
-        task_cv.notify_all();
     });
 }
 
 engine::~engine()
 {
-    quit_requested = true;
-    ready_pending = false;
-    task_cv.notify_all();
-
-    if(ready_thread.joinable())
     {
-        ready_thread.join();
+        std::lock_guard<std::mutex> task_lock(task_mutex);
+        quit_requested = true;
+        pending_ready_requests = 0;
     }
 }
 
@@ -91,21 +98,12 @@ void engine::mainloop()
             search_thread.join();
         }
 
-        if(ready_thread.joinable() && !ready_pending.load())
-        {
-            ready_thread.join();
-        }
-
         std::string line = io->read_line();
         if(line.empty())
         {
             if(search_thread.joinable() && !is_busy())
             {
                 search_thread.join();
-            }
-            if(ready_thread.joinable() && !ready_pending.load())
-            {
-                ready_thread.join();
             }
             continue;
         }
@@ -236,43 +234,29 @@ void engine::mainloop()
         }
         else if(command == "isready")
         {
-            if(!is_busy())
+            std::lock_guard<std::mutex> task_lock(task_mutex);
+            if(active_task.load() == task_state::initializing)
+            {
+                ++pending_ready_requests;
+            }
+            else
             {
                 write_line("readyok");
-            }
-            else if(!ready_pending.exchange(true))
-            {
-                if(ready_thread.joinable())
-                {
-                    ready_thread.join();
-                }
-
-                ready_thread = std::thread([this]() {
-                    std::unique_lock<std::mutex> lock(task_mutex);
-                    task_cv.wait(lock, [this]() {
-                        return !is_busy() || quit_requested.load();
-                    });
-                    lock.unlock();
-                    if(quit_requested.load())
-                    {
-                        ready_pending = false;
-                        return;
-                    }
-                    write_line("readyok");
-                    ready_pending = false;
-                });
             }
         }
         else if(command == "quit")
         {
-            quit_requested = true;
-            ready_pending = false;
-            task_cv.notify_all();
-            if(is_busy())
             {
-                stop_search();
+                std::lock_guard<std::mutex> task_lock(task_mutex);
+                std::lock_guard<std::mutex> io_lock(io_mutex);
+                quit_requested = true;
+                pending_ready_requests = 0;
+                if(is_busy())
+                {
+                    stop_search();
+                }
+                io->write_line("bye");
             }
-            write_line("bye");
             break;
         }
         else if(command == "stop")
@@ -334,18 +318,12 @@ void engine::mainloop()
             search_thread.join();
         }
 
-        if(ready_thread.joinable() && !ready_pending.load())
-        {
-            ready_thread.join();
-        }
     }
 
-    ready_pending = false;
-    task_cv.notify_all();
-
-    if(ready_thread.joinable())
     {
-        ready_thread.join();
+        std::lock_guard<std::mutex> task_lock(task_mutex);
+        quit_requested = true;
+        pending_ready_requests = 0;
     }
 
     if(search_thread.joinable())

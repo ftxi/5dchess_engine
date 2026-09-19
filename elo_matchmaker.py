@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import ctypes
 import multiprocessing
 import os
 import signal
@@ -62,6 +63,59 @@ class WorkerAborted(Exception):
     """The database no longer marks this worker's match as running."""
 
 
+def _windows_kernel32():
+    """Return the typed Windows process-affinity API."""
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.GetProcessAffinityMask.argtypes = (
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.POINTER(ctypes.c_size_t),
+    )
+    kernel32.GetProcessAffinityMask.restype = ctypes.c_int
+    kernel32.SetProcessAffinityMask.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
+    kernel32.SetProcessAffinityMask.restype = ctypes.c_int
+    return kernel32
+
+
+def _available_cpus() -> set[int] | None:
+    """Return CPUs available for strict affinity, or None when unsupported."""
+
+    if sys.platform == "win32":
+        kernel32 = _windows_kernel32()
+        process_mask = ctypes.c_size_t()
+        system_mask = ctypes.c_size_t()
+        process = kernel32.GetCurrentProcess()
+        if not kernel32.GetProcessAffinityMask(
+            process, ctypes.byref(process_mask), ctypes.byref(system_mask)
+        ):
+            error = ctypes.get_last_error()
+            raise OSError(error, ctypes.FormatError(error))
+        return {
+            cpu
+            for cpu in range(ctypes.sizeof(ctypes.c_size_t) * 8)
+            if process_mask.value & (1 << cpu)
+        }
+    if hasattr(os, "sched_getaffinity"):
+        return set(os.sched_getaffinity(0))
+    return None
+
+
+def _pin_current_process(core: int) -> None:
+    """Pin this worker; engine children inherit its process affinity."""
+
+    if sys.platform == "win32":
+        kernel32 = _windows_kernel32()
+        process = kernel32.GetCurrentProcess()
+        if not kernel32.SetProcessAffinityMask(process, ctypes.c_size_t(1 << core)):
+            error = ctypes.get_last_error()
+            raise OSError(error, ctypes.FormatError(error))
+        return
+    if hasattr(os, "sched_setaffinity"):
+        os.sched_setaffinity(0, {core})
+
+
 def _initialize_worker() -> None:
     # The parent owns terminal interrupts and changes match state to request
     # cooperative cancellation. Letting every worker raise KeyboardInterrupt
@@ -114,7 +168,7 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
     """Run one autoplay game in an isolated process and return structured output."""
 
     if job.core is not None:
-        os.sched_setaffinity(0, {job.core})
+        _pin_current_process(job.core)
     match_dir = Path(job.match_dir)
     match_dir.mkdir(parents=True, exist_ok=True)
     output_log = (match_dir / "autoplay.log").resolve()
@@ -331,6 +385,7 @@ def run_scheduled_batch(
     required_groups = {
         pairing.execution_group for pairing in pending
         if pairing.execution_group is not None
+        and not getattr(args, "ignore_execution_groups", False)
     }
     missing_groups = sorted(required_groups - available_groups)
     if missing_groups:
@@ -375,7 +430,7 @@ def run_scheduled_batch(
             "max_workers": args.jobs,
             "initializer": _initialize_worker,
         }
-        if os.name == "posix":
+        if sys.platform.startswith("linux"):
             pool_options["mp_context"] = multiprocessing.get_context("fork")
         executor = ProcessPoolExecutor(**pool_options)
         while pending or active_jobs:
@@ -391,7 +446,9 @@ def run_scheduled_batch(
                     continue
                 slot_index = next(
                     (index for index, (_, group) in enumerate(free_slots)
-                     if pairing.execution_group is None or pairing.execution_group == group),
+                     if getattr(args, "ignore_execution_groups", False)
+                     or pairing.execution_group is None
+                     or pairing.execution_group == group),
                     None,
                 )
                 if slot_index is None:
@@ -412,7 +469,7 @@ def run_scheduled_batch(
                 core, group = free_slots.pop(slot_index)
                 job = _make_job(pairing, args, run_dir, core)
                 future = executor.submit(_play_worker, job)
-                active_jobs[future] = (job, pairing)
+                active_jobs[future] = (job, pairing, group)
                 pending.remove(pairing)
                 group_text = f" [{group}]" if group is not None else ""
                 print(f"  Match {job.match_id}: started on CPU {core}{group_text}", flush=True)
@@ -422,8 +479,8 @@ def run_scheduled_batch(
                 break
             done, _ = wait(active_jobs, timeout=0.2, return_when=FIRST_COMPLETED)
             for future in done:
-                job, pairing = active_jobs.pop(future)
-                free_slots.append((job.core, pairing.execution_group))
+                job, pairing, group = active_jobs.pop(future)
+                free_slots.append((job.core, group))
                 try:
                     result = future.result()
                 except Exception as exc:
@@ -513,13 +570,25 @@ def _validate_run_args(parser: argparse.ArgumentParser, args) -> None:
         args.core_slots.extend((core, group) for core in group_cores)
     selected_cores = args.cores or [core for core, _ in args.core_slots]
     if selected_cores:
-        if not hasattr(os, "sched_setaffinity"):
-            parser.error("CPU pinning requires OS CPU-affinity support")
+        available = _available_cpus()
+        if available is None:
+            if sys.platform != "darwin":
+                parser.error("CPU pinning requires OS CPU-affinity support")
+            option = "--core-group" if args.core_groups else "--core"
+            print(
+                f"Warning: {option} is ignored because it requires strict CPU affinity, "
+                f"which macOS does not provide. Using unpinned --jobs {args.jobs} "
+                "execution instead.",
+                file=sys.stderr,
+            )
+            args.cores = None
+            args.core_slots = []
+            args.ignore_execution_groups = True
+            return
         if len(set(selected_cores)) != len(selected_cores):
             parser.error("CPU values must be unique")
         if any(core < 0 for core in selected_cores):
             parser.error("CPU values must be nonnegative")
-        available = os.sched_getaffinity(0)
         unavailable = sorted(set(selected_cores) - available)
         if unavailable:
             parser.error(
@@ -671,7 +740,7 @@ def _add_game_options(parser: argparse.ArgumentParser, *, include_games: bool) -
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = elo.DefaultsHelpArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=elo.DEFAULT_DATABASE)
     subparsers = parser.add_subparsers(dest="action", required=True)
     run = subparsers.add_parser(

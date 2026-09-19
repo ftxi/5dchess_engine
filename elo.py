@@ -21,6 +21,45 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
+class DefaultsHelpFormatter(argparse.ArgumentDefaultsHelpFormatter):
+    """Show defaults even for options whose help text is otherwise empty."""
+
+    @staticmethod
+    def _has_reportable_default(action: argparse.Action) -> bool:
+        return bool(
+            action.option_strings
+            and not action.required
+            and action.default is not argparse.SUPPRESS
+        )
+
+    def _format_action(self, action: argparse.Action) -> str:
+        if action.help is None and self._has_reportable_default(action):
+            action.help = "(default: %(default)s)"
+            try:
+                return super()._format_action(action)
+            finally:
+                action.help = None
+        return super()._format_action(action)
+
+    def _get_help_string(self, action: argparse.Action) -> str:
+        help_text = action.help or ""
+        if (
+            self._has_reportable_default(action)
+            and "%(default)" not in help_text
+            and "(default:" not in help_text
+        ):
+            help_text += " (default: %(default)s)"
+        return help_text.strip()
+
+
+class DefaultsHelpArgumentParser(argparse.ArgumentParser):
+    """Use the default-reporting formatter for this parser and its children."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("formatter_class", DefaultsHelpFormatter)
+        super().__init__(*args, **kwargs)
+
+
 DEFAULT_DATABASE = Path("logs/elo-matchmaker.sqlite3")
 DEFAULT_RATING = 1500.0
 DEFAULT_K_FACTOR = 32.0
@@ -1460,7 +1499,7 @@ def _print_leaderboard(rows: Sequence[dict[str, object]]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = DefaultsHelpArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     subparsers = parser.add_subparsers(dest="action", required=True)
 

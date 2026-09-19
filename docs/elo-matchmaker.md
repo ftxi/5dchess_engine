@@ -62,6 +62,11 @@ python3 elo_matchmaker.py run --games 120 --jobs 6 \
   --core 0 --core 1 --core 2 --core 3 --core 4 --core 5
 ```
 
+CPU affinity is supported on Linux and Windows. On macOS, `--core` and
+`--core-group` print a warning and fall back to ordinary unpinned `--jobs`
+execution. Without either affinity option, `--jobs` always controls the number
+of games run in parallel without selecting CPUs.
+
 Named pools keep hardware classes separate and store the assigned group on
 each match:
 
