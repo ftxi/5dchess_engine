@@ -89,6 +89,14 @@ public:
 
     random_HC_ordering(const HC &hc, std::mt19937 &rng);
     using base::for_each;
+
+    // Shuffle candidates independently of the precomputed per-axis order.
+    template<class Range>
+    static void shuffle(Range &values, std::mt19937 *rng = nullptr)
+    {
+        std::shuffle(values.begin(), values.end(),
+                     rng ? *rng : base::default_rng());
+    }
 };
 
 static_assert(HCOrdering<random_HC_ordering>);

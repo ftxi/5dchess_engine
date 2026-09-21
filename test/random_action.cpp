@@ -39,7 +39,7 @@ int main()
         emvs.reserve(mvs.size());
         for(const full_move &fm : mvs)
         {
-            emvs.emplace_back(fm);
+            emvs.emplace_back(fm, s);
         }
         action act = action::from_vector(emvs, s);
         std::cout << act.pgn(s) << '\n';

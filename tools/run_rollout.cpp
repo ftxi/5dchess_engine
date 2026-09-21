@@ -1,6 +1,6 @@
 #include "state.h"
 #include "pgnparser.h"
-#include "rollout.h"
+#include "rollout_policy.h"
 #include "run_rollout.h"
 #include <optional>
 #include <string>
@@ -203,11 +203,12 @@ int run_rollout(int argc, const char *argv[])
         return 1;
     }
     state &s = *parsed_state;
-    std::optional<std::mt19937> rng;
-    if(seed.has_value())
-    {
-        rng.emplace(*seed);
-    }
+    rollout_default_policy rollout_policy(
+        random_action_selection{},
+        rollout_cutoff_evaluation{},
+        static_cast<std::size_t>(max_actions),
+        seed);
+    struct observer {} rollout_observer;
     if(csv_output)
     {
         std::cout << "simulation,winner,time_ms\n";
@@ -216,13 +217,17 @@ int run_rollout(int argc, const char *argv[])
     for(int i = 0; i < simulation_num; i++)
     {
         auto start = clock::now();
-        std::mt19937 *rng_ptr = rng.has_value() ? &*rng : nullptr;
-        const rollout_result result = rollout(s, max_actions, {}, rng_ptr);
-        const rollout_result::termination termination = result.end;
+        const auto result = rollout_policy.evaluate(s, {}, rollout_observer);
+        if(!result)
+        {
+            std::cerr << "Error: rollout interrupted\n";
+            return 1;
+        }
+        const rollout_details::termination termination = result->data.end;
         const char *winner_name
-            = termination == rollout_result::termination::WHITE_WINS
+            = termination == rollout_details::termination::WHITE_WINS
             ? "white"
-            : termination == rollout_result::termination::BLACK_WINS
+            : termination == rollout_details::termination::BLACK_WINS
                 ? "black"
                 : "none";
         auto duration = clock::now() - start;
@@ -241,11 +246,11 @@ int run_rollout(int argc, const char *argv[])
                       << " ms)   ";
             std::cout.flush();
         }
-        if(termination == rollout_result::termination::WHITE_WINS)
+        if(termination == rollout_details::termination::WHITE_WINS)
         {
             ++white_wins;
         }
-        else if(termination == rollout_result::termination::BLACK_WINS)
+        else if(termination == rollout_details::termination::BLACK_WINS)
         {
             ++black_wins;
         }

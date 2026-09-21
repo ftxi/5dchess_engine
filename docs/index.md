@@ -105,7 +105,77 @@ The moves can be grouped into actions.
 
 Check Detection
 =============
-Check detection is *not* automatically triggered when applying moves or submitting. It is done by calling `find_checks` method (declared in `core/state.h`). Check detection *differs from* checkmate detection.
+Check detection is not automatically triggered when applying moves or submitting.
+
+For general check detection, use `state::find_checks(color)`. It generates every move by `color` that captures an enemy royal piece in the current state.
+
+```cpp
+const state &base = /* a state */;
+const state &position = /* the state after appling moves in base */;
+for (full_move move : position.find_checks(attacker))
+{
+    // Process a checking move.
+}
+```
+
+When the position is assembled from boards that have already been constructed, use `check_position` to avoid copying a state and its timeline histories. It is a non-owning view: the constructor copies timeline metadata from a base state, and `add_board()` borrows each new endpoint board. The base state and added boards must remain alive and unchanged while the view is used. `HC_info` uses this interface to check a hypercuboid candidate without applying its moves to a temporary state.
+
+The constructor's `l_min` and `l_max` define the inclusive range of timeline indices that the view may contain. Start with `base.get_lines_range()` and extend it to include every timeline on which a board will be added. A branching superphysical move may place its arrival board on a new timeline outside the base range.
+
+```cpp
+const full_move mv = /* a superphysical move */;
+const state &base = /* state where the move is applied to */;
+const int departure_l = mv.from.l();
+const int arrival_l = /* resulting arrival_l */;
+const board &departure_board = /* after the piece has gone */;
+const board &arrival_board = /* after the piece has arrived */;
+
+const auto [base_l_min, base_l_max] = base.get_lines_range();
+const int l_min = std::min({base_l_min, departure_l, arrival_l});
+const int l_max = std::max({base_l_max, departure_l, arrival_l});
+
+check_position candidate(base, l_min, l_max);
+candidate.add_board(
+    departure_l,
+    next_turn({mv.from.t(), player}),
+    departure_board
+);
+candidate.add_board(
+    arrival_l,
+    next_turn({mv.to.t(), player}),
+    arrival_board
+);
+
+// Above need to be done for all moves in the action to perform
+
+if (auto checking_move = candidate.first_check(attacker, include_physical))
+{
+    // Process one checking move.
+}
+```
+
+Use `checks()` instead when every checking move is needed. `check_position` only detects royal captures; it does not apply moves, validate actions, submit turns, or determine which timelines are playable.
+
+#### Check detection on phantom boards
+
+To distinguish checkmate from stalemate when a position has no valid actions, perform check detection after advancing every eligible timeline to its phantom board.
+
+The original way to obtain the boolean result constructs a phantom state and searches it with the general move generator:
+
+```cpp
+const bool in_check = position.phantom()
+    .find_checks(!position.get_present().second)
+    .first()
+    .has_value();
+```
+
+The check-only interface is:
+
+```cpp
+const bool in_check = position.has_phantom_check();
+```
+
+Both expressions answer the same question. The original form constructs an owning phantom state and calls `state::find_checks()`. `has_phantom_check()` instead creates a borrowed `check_position` with `check_position::for_phantom()` and stops after finding one royal capture, avoiding the copied multiverse and general move generation. Use the original form when the phantom state or its checking moves are needed for further processing; use `has_phantom_check()` when only the boolean result is needed.
 
 Checkmate Detection
 =============

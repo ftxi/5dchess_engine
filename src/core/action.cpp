@@ -1,3 +1,4 @@
+#include <stdexcept>
 #include "action.h"
 #include <algorithm>
 #include <array>
@@ -122,6 +123,15 @@ std::ostream &operator<<(std::ostream &os, const full_move &fm)
 
 /*********************************/
 
+ext_move::ext_move(full_move move, const state &s)
+    : fm(move), promote_to(NO_PIECE)
+{
+    const auto normalized = s.normalize_promotion(*this);
+    if(!normalized)
+        throw std::invalid_argument("ext_move: cannot normalize promotion");
+    *this = *normalized;
+}
+
 ext_move::ext_move(std::string s)
     : fm(s.empty() || s.back() < 'A' || s.back() > 'Z'
              ? s : s.substr(0, s.size() - 1)),
@@ -206,7 +216,7 @@ action action::from_moveseq(const moveseq &mvs, const state &s)
     std::vector<ext_move> ext_mvs;
     ext_mvs.reserve(mvs.size());
     std::transform(mvs.begin(), mvs.end(), std::back_inserter(ext_mvs),
-                   [](const auto& fm) { return ext_move(fm); });
+                   [&s](const auto& fm) { return ext_move(fm, s); });
     return action::from_vector(ext_mvs, s);
 }
 
@@ -233,7 +243,7 @@ std::string action::lan(const state &initial_state) const
         }
         const ext_move &mv = *normalized;
         result += mv.lan(s) + " ";
-        s.apply_move<true>(mv.fm, mv.promote_to);
+        s.apply_move<true>(mv);
     }
     if(!result.empty())
     {
@@ -501,7 +511,7 @@ std::string action::pgn_impl(
         }
         auto [m, pt] = *normalized;
         pgn += m.pgn_impl(s, pt, options, check_symbols[i], multimove) + " ";
-        s.apply_move<true>(m, pt);
+        s.apply_move<true>(*normalized);
     }
     if(!pgn.empty())
     {

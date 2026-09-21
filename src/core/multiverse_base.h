@@ -94,6 +94,9 @@ public:
     turn_t get_timeline_end(int l) const;
     
     std::shared_ptr<board> get_board(int l, int t, bool c) const;
+    // Borrow an existing board without changing its shared ownership count.
+    // Coordinates must name an existing board; valid while this multiverse lives.
+    const board* get_board_ptr(int l, int t, bool c) const;
     
     template<bool SHOW_UMOVE=false>
     std::vector<boards_info_t> get_boards() const;

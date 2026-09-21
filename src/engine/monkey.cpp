@@ -24,7 +24,7 @@ std::optional<action> monkey_engine::find_best_move(std::optional<int> depth_lim
         std::vector<ext_move> ext_mvs;
         for(full_move fm : *mvs)
         {
-            ext_mvs.emplace_back(fm);
+            ext_mvs.emplace_back(fm, s);
         }
         action act = action::from_vector(ext_mvs, s);
         return act;

@@ -83,7 +83,7 @@ Overview
 A Branched 5DPGN consists of these parts: headers, 5DFEN, and game tree. Example:
 ```
 [Size "6x6"]
-[Timelines "Odd"]
+[Timeline "Odd"]
 [r*nqk*nr*/p*p*p*p*p*p*/6/6/P*P*P*P*P*P*/R*NQK*NR*:0:1:w]
 
 (1w. d3 / b4 

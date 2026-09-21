@@ -180,6 +180,22 @@ void test_attacks()
     cerr << "test_attacks passed" << endl;
 }
 
+void test_marked_pos()
+{
+    std::vector<int> positions;
+    for(int pos : marked_pos((bitboard_t{1} << 63) | (bitboard_t{1} << 17) | 1))
+        positions.push_back(pos);
+    ASSERT_EQ(positions.size(), std::size_t{3});
+    ASSERT_EQ(positions[0], 63);
+    ASSERT_EQ(positions[1], 17);
+    ASSERT_EQ(positions[2], 0);
+
+    positions.clear();
+    for(int pos : marked_pos(0))
+        positions.push_back(pos);
+    ASSERT_EQ(positions.size(), std::size_t{0});
+}
+
 //void test_bb_conversion()
 //{
 //    std::random_device rd;
@@ -197,6 +213,7 @@ void test_attacks()
 
  int main()
  {
+     test_marked_pos();
      test_attacks();
      //test_bb_conversion();
      cerr << "---= test_bitboards.cpp: all passed =---" << endl;

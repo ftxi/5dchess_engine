@@ -87,6 +87,19 @@ int main()
         previous_header = position;
     }
     assert(metadata_pgn.contains("[Matchid \"42\"]"));
+    assert(metadata_pgn.contains("[Board \"Standard\"]"));
+    assert(!metadata_pgn.contains("[Variant \"Standard\"]"));
+
+    const std::string standard_metadata_pgn = metadata_game.show_pgn(
+        pgn_options::SHOW_NOTHING, true, true);
+    assert(standard_metadata_pgn.contains("[Variant \"Standard\"]"));
+    assert(!standard_metadata_pgn.contains("[Board "));
+    assert(!standard_metadata_pgn.contains("[Matchid "));
+
+    game variant_game = game::from_pgn("[Variant \"Standard\"]");
+    const std::string variant_pgn = variant_game.show_pgn(pgn_options::SHOW_NOTHING);
+    assert(variant_pgn.contains("[Variant \"Standard\"]"));
+    assert(!variant_pgn.contains("[Board "));
 
     game outcome_game = game::from_pgn(R"(
 [Board "Standard"]

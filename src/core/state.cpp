@@ -1,4 +1,5 @@
 #include "state.h"
+#include "check_position.h"
 #include <algorithm>
 #include <cassert>
 #include <functional>
@@ -68,7 +69,7 @@ state::state(const pgnparser_ast::game &g)
                 if(pt_opt.has_value())
                 {
                     piece_t pt = to_white(*pt_opt);
-                    flag = apply_move<false>(fm, pt);
+                    flag = apply_move<false>(ext_move(fm, pt));
                 }
                 else
                 {
@@ -145,7 +146,9 @@ std::optional<state> state::can_submit() const
 std::optional<state> state::can_apply(full_move fm, piece_t promote_to) const
 {
     state new_state = *this;
-    bool flag = new_state.apply_move<false>(fm, promote_to);
+    const auto normalized = normalize_promotion(ext_move(fm, promote_to));
+    if(!normalized) return std::nullopt;
+    bool flag = new_state.apply_move<false>(*normalized);
     if(flag)
     {
         return std::make_optional<state>(new_state);
@@ -161,7 +164,7 @@ std::optional<state> state::can_apply(const action &act) const
     state new_state = *this;
     for(const auto& em : act.get_moves())
     {
-        bool flag = new_state.apply_move<false>(em.fm, em.promote_to);
+        bool flag = new_state.apply_move<false>(em);
         if(!flag)
         {
             return std::nullopt;
@@ -176,8 +179,17 @@ std::optional<state> state::can_apply(const action &act) const
 }
 
 template<bool UNSAFE>
-bool state::apply_move(full_move fm, piece_t promote_to)
+bool state::apply_move(full_move fm)
 {
+    const auto normalized = normalize_promotion(ext_move(fm, NO_PIECE));
+    if(!normalized) return false;
+    return apply_move<UNSAFE>(*normalized);
+}
+
+template<bool UNSAFE>
+bool state::apply_move(ext_move mv)
+{
+    const auto [fm, promote_to] = mv;
     dprint("applying move", fm);
     vec4 p = fm.from;
     vec4 q = fm.to;
@@ -185,11 +197,10 @@ bool state::apply_move(full_move fm, piece_t promote_to)
     if constexpr (!UNSAFE)
     {
         const auto normalized = normalize_promotion(ext_move(fm, promote_to));
-        if(!normalized)
+        if(!normalized || *normalized != mv)
         {
             return false;
         }
-        promote_to = normalized->promote_to;
 #ifndef NDEBUG
         auto te = m->get_timeline_end(p.l());
         assert(std::make_pair(p.t(), player) == te && "moves must be made on an active board");
@@ -399,8 +410,12 @@ state::move_info state::get_move_info(full_move fm, piece_t pt) const
     const piece_t moved_piece = m->get_piece(p, player);
     piece_t captured_piece = NO_PIECE;
 
+    // Like other unchecked callers, an explicit promotion is trusted. Only
+    // an omitted choice needs state-dependent preparation.
+    const ext_move prepared = pt == NO_PIECE ? ext_move(fm, *this) : ext_move(fm, pt);
+    pt = prepared.promote_to;
     auto new_state = std::make_unique<state>(*this);
-    [[maybe_unused]] const bool applied = new_state->apply_move<true>(fm, pt);
+    [[maybe_unused]] const bool applied = new_state->apply_move<true>(prepared);
     assert(applied);
     vec4 new_pos(0,0,0,0);
     check_type_t check_type = check_type_t::NONE;
@@ -617,6 +632,11 @@ bool state::submit()
     return true;
 }
 
+bool state::has_phantom_check() const
+{
+    return check_position::for_phantom(*this).first_check(!player).has_value();
+}
+
 state state::phantom() const
 {
     const auto [l_min, l_max] = get_lines_range();
@@ -741,7 +761,7 @@ generator<full_move> state::find_checks_impl(std::vector<int> lines) const
 }
 
 
-std::vector<vec4> state::gen_movable_pieces() const
+std::vector<vec4> state::get_movable_pieces() const
 {
     auto [mandatory_timelines, optional_timelines, unplayable_timelines] = get_timeline_status(present, player);
     auto lines = concat_vectors(mandatory_timelines, optional_timelines);
@@ -758,6 +778,23 @@ std::vector<vec4> state::get_movable_pieces(const std::vector<int> &lines) const
     {
         return gen_movable_pieces_impl<true>(lines);
     }
+}
+
+std::vector<vec4> state::get_all_pieces(const std::vector<int> &lines) const
+{
+    std::vector<vec4> result;
+    for(int l : lines)
+    {
+        const int t = get_timeline_end(l).first;
+        const vec4 p0(0, 0, t, l);
+        const std::shared_ptr<board> &b = m->get_board(l, t, player);
+        const bitboard_t pieces = (player ? b->black() : b->white()) & ~b->wall();
+        for(int pos : marked_pos(pieces))
+        {
+            result.emplace_back(pos, p0);
+        }
+    }
+    return result;
 }
 
 template <bool C>
@@ -848,7 +885,7 @@ mate_type state::get_mate_type_impl(bool legal_action_witness) const
     }
     if(legal_action_witness)
     {
-        if(phantom().find_checks(!player).first().has_value())
+        if(has_phantom_check())
         {
             dprint("softmate (legal action witnessed)");
             return mate_type::SOFTMATE;
@@ -858,7 +895,7 @@ mate_type state::get_mate_type_impl(bool legal_action_witness) const
     }
     if(w.search(ss).first())
     {
-        if(phantom().find_checks(!player).first().has_value())
+        if(has_phantom_check())
         {
             dprint("softmate");
             return mate_type::SOFTMATE;
@@ -871,7 +908,7 @@ mate_type state::get_mate_type_impl(bool legal_action_witness) const
     }
     else
     {
-        if(phantom().find_checks(!player).first().has_value())
+        if(has_phantom_check())
         {
             dprint("checkmate");
             return mate_type::CHECKMATE;
@@ -989,7 +1026,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
     {
         auto mv = std::get<pgnparser_ast::physical_move>(move.data);
         // for all physical moves avilable in current state
-        for(vec4 p : gen_movable_pieces())
+        for(vec4 p : get_movable_pieces())
         {
             char piece = to_white(piece_name(get_piece(p, player)));
             bitboard_t bb = player ? m->gen_physical_moves<true>(p) : m->gen_physical_moves<false>(p);
@@ -1041,7 +1078,7 @@ state::parse_pgn_res state::parse_move(const pgnparser_ast::move &move) const
         // do the same for superphysical moves
         auto spm = std::get<pgnparser_ast::superphysical_move>(move.data);
         bool is_relative = std::holds_alternative<pgnparser_ast::relative_board>(spm.to_board);
-        for(vec4 p : gen_movable_pieces())
+        for(vec4 p : get_movable_pieces())
         {
             char piece = to_white(piece_name(get_piece(p, player)));
             auto gen = player ? m->gen_superphysical_moves<true>(p) : m->gen_superphysical_moves<false>(p);
@@ -1112,8 +1149,10 @@ state::parse_pgn_res state::parse_move(const std::string &move) const
     return parse_move(*parsed_move);
 }
 
-template bool state::apply_move<false>(full_move, piece_t);
-template bool state::apply_move<true>(full_move, piece_t);
+template bool state::apply_move<false>(full_move);
+template bool state::apply_move<true>(full_move);
+template bool state::apply_move<false>(ext_move);
+template bool state::apply_move<true>(ext_move);
 template bool state::submit<false>();
 template bool state::submit<true>();
 

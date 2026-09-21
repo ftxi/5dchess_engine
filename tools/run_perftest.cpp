@@ -20,7 +20,7 @@ int run_perftest(int argc, const char *argv[])
         out << "Usage: 5dtools perftest [policy]\n"
             << "  On each intermediate position, print 1 if actions are available and 0 otherwise.\n"
             << "  Reads a 5DPGN game from stdin.\n"
-            << "  policy      balanced, naive, stable, iterative, or mixed\n"
+            << "  policy      balanced, naive, stable, or iterative\n"
             << "  -h, --help  display this help text and exit\n";
     };
     if(argc == 2 && (std::string_view(argv[1]) == "-h"
@@ -82,13 +82,7 @@ int run_perftest(int argc, const char *argv[])
                 mvs = w.iterative_search(ss).first();
                 break;
             }
-            case search_mode::mixed: {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.mixed_search(ss).first();
-                break;
-            }
         }
-        auto [t,c] = current_state.get_present();
         if(mvs)
         {
             std::cout << '1' << std::flush;
@@ -124,7 +118,7 @@ int run_perftest(int argc, const char *argv[])
                             if(pt_opt.has_value())
                             {
                                 piece_t pt = to_white(*pt_opt);
-                                flag = current_state.apply_move<false>(fm, pt);
+                                flag = current_state.apply_move<false>(ext_move(fm, pt));
                             }
                             else
                             {
@@ -189,7 +183,7 @@ int run_perftest(int argc, const char *argv[])
         else
         {
             std::cout << "0\n";
-            if(current_state.phantom().find_checks(!c).first())
+            if(current_state.has_phantom_check())
             {
                 std::cout << "Turn " << show_turn(turn) << ": Checkmate";
             }

@@ -13,6 +13,7 @@
 #include <memory>
 #include <random>
 #include <tuple>
+#include <utility>
 #include <functional>
 #include "geometry.h"
 #include "state.h"
@@ -95,8 +96,6 @@
    hypercuboid, limiting fragmentation with careful removal.
  - `search()` is the default adaptive policy. It propagates a problem through
    nearby intersecting hypercuboids while those intersections remain dense.
- - `mixed_search()` uses stable propagation until the first result for states
-   spanning at least ten timelines, then continues iteratively.
 */
 
 class HC_info
@@ -104,24 +103,33 @@ class HC_info
     struct physical_entry
     {
         full_move m;
-        std::shared_ptr<board> b;
+        board b;
+
+        physical_entry(full_move move, const board& position)
+            : m(move), b(position) {}
     };
     struct arriving_entry
     {
         full_move m;
-        std::shared_ptr<board> b;
+        board b;
         index_t idx;
+
+        arriving_entry(full_move move, const board& position, index_t departure)
+            : m(move), b(position), idx(departure) {}
     };
     struct departing_entry
     {
         vec4 from;
-        std::shared_ptr<board> b;
+        board b;
+
+        departing_entry(vec4 source, const board& position)
+            : from(source), b(position) {}
     };
     struct null_entry {};
     using entry = std::variant<physical_entry, arriving_entry, departing_entry, null_entry>;
 
     static semimove to_semimove(const entry &e);
-    static std::shared_ptr<board> extract_board(const entry &e);
+    static const board& extract_board(const entry &e);
     static std::pair<int, int> extract_tl(const entry &e);
     std::vector<std::vector<entry>> axis_coords;
 
@@ -129,8 +137,8 @@ public:
     // local variables
     const state s;
     const std::map<int, index_t> line_to_axis; // map from timeline index to axis index
-    HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<entry>> crds, HC uni, index_t ax, index_t dim, const std::vector<int> pl)
-        : axis_coords(std::move(crds)), s(std::move(s)), line_to_axis(std::move(lm)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(pl) {}
+    HC_info(state s, std::map<int, index_t> lm, std::vector<std::vector<entry>> crds, HC uni, index_t ax, index_t dim, std::vector<int> pl)
+        : axis_coords(std::move(crds)), s(std::move(s)), line_to_axis(std::move(lm)), universe(std::move(uni)), new_axis(ax), dimension(dim), mandatory_lines(std::move(pl)) {}
     semimove get_semimove(index_t n, index_t i) const;
 
     HC universe;
@@ -163,7 +171,7 @@ public:
     std::optional<slice> test_present(const point &p, const HC &hc) const;
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;
-    static std::tuple<HC_info, search_space> build_HC(const state &s);
+    static std::pair<HC_info, search_space> build_HC(const state &s);
     generator<moveseq> search(search_space ss) const;
     template<HCOrdering Order>
     generator<moveseq> search(search_space ss, Order order) const;
@@ -171,7 +179,6 @@ public:
     template<HCOrdering Order>
     generator<moveseq> iterative_search(search_space ss, Order order) const;
     generator<moveseq> stable_search(search_space ss) const;
-    generator<moveseq> mixed_search(search_space ss) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
 };

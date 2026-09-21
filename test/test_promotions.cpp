@@ -105,7 +105,12 @@ int main()
 
     game default_game = game::from_pgn(promotion_game("", 'Q'));
     assert(default_game.get_promotion_options() == promotion_options::QUEEN);
-    assert(default_game.show_pgn().contains("[Promotions \"Q\"]"));
+    assert(!default_game.metadata.contains("promotions"));
+    assert(!default_game.show_pgn().contains("[Promotions"));
+
+    game explicit_default_game = game::from_pgn(promotion_game("Q", 'Q'));
+    assert(explicit_default_game.metadata.contains("promotions"));
+    assert(explicit_default_game.show_pgn().contains("[Promotions \"Q\"]"));
 
     const std::string before_promotion = R"(
 [Promotions "Q"]
@@ -120,7 +125,7 @@ int main()
     const state promotion_state(*parsed);
     const auto [fm, pt, candidates] = promotion_state.parse_move("h8=Q");
     assert(fm.has_value());
-    const action implicit_queen = action::from_vector({ext_move(*fm)}, promotion_state);
+    const action implicit_queen = action::from_vector({ext_move(*fm, promotion_state)}, promotion_state);
     const action explicit_queen = action::from_vector(
         {ext_move(*fm, QUEEN_W)}, promotion_state);
     assert(implicit_queen == explicit_queen);
@@ -152,7 +157,7 @@ int main()
     assert(!no_promotion_state.can_apply(*no_fm, QUEEN_W));
 
     const action no_promotion_action = action::from_vector(
-        {ext_move(*no_fm)}, no_promotion_state);
+        {ext_move(*no_fm, no_promotion_state)}, no_promotion_state);
     assert(no_promotion_action.get_moves()[0].promote_to == NO_PIECE);
     const std::string no_promotion_pgn = no_promotion_action.pgn(no_promotion_state);
     assert(no_promotion_pgn.contains("h7h8"));
@@ -182,7 +187,7 @@ int main()
     assert(rejects(no_promotion_before + "2. h8Q\n"));
 
     state unsafe_state = promotion_state;
-    assert(unsafe_state.apply_move<true>(*fm, KNIGHT_W));
+    assert(unsafe_state.apply_move<true>(ext_move(*fm, KNIGHT_W)));
     const auto [end_t, end_c] = unsafe_state.get_timeline_end(fm->to.l());
     assert(unsafe_state.get_piece(
         vec4(fm->to.x(), fm->to.y(), end_t, fm->to.l()), end_c) == KNIGHT_W);

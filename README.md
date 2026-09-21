@@ -1,12 +1,9 @@
-5dchess_engine
+5D Chess Engine
 ==================
 
+An open source C++ engine based on Monte Carlo tree search (MCTS) for the game '5D Chess With Multiverse Time Travel', featuring fast checkmate detection and customized MCTS tree design.
 
-The `5dchess_engine` is a standalone program that can also be used as a library for analyzing 5D chess game. Written in c++, it is also compiled for use in python and javascript environments. When used as a standalone tool, it offers both a command line interface and a web-based interface for viewing and analyzing games.
-
-This project is written in a serious language for chess-programming (c++). It aims to provide fast performance for basic game logic such as move generation and checkmate detection, which can be used as a solic foundation for a competant 5d chess bot. 
-
-There is a 5d chess bot implemented in this project, which utilizes a customized Monte Carlo Tree Search algorithm. Plans for the near future is to try out different modifications of MCTS to improve the performance of the bot.
+Besides the [5duci](docs/5duci.md) engine, this project also includes a web interface which allows analyzing 5D Chess positions online. Moreover, it provides python and javascript bindings that allows access of game logic from different programming languages.
 
 ### Try it online!
 
@@ -14,6 +11,7 @@ Visit <https://ftxi.github.io/5dchess_engine/>.
 
 ### Features
 
+This project is written in a serious language for chess-programming. The target for it has shift from early stage goal of providing fast performance for basic game logic such as move generation and checkmate detection, which can be then used as a solid foundation for a competent 5d chess bot, to actually improving the bot. In fact, the plans for the near future is to try out different modifications of MCTS and figure out which is the correct direction.
 
 This program supports reading arbitary 5d chess variant specified by 5dfen. For moves, it supports long algebraic notation (which looks like `(0T13)b6b5` for physical moves and `(-1T19)e8(0T18)f8` for superphysical moves) or simplified 5dpgn notation specified in [docs/pgn-bnf.txt](docs/pgn-bnf.txt).
 
@@ -69,7 +67,44 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are six engines: `5dchess mcts`, `5dchess zero`, `5dchess linear`, `5dchess linear-trained`, `5dchess flat-uct`, and `5dchess monkey`; they communicate using the [5DUCI protocol](docs/5duci.md). `zero` is MCTS with a constant-zero default policy. The two Linear engines evaluate inconclusive rollout positions with the same bounded 64-feature model: `linear` uses hand-written weights and `linear-trained` uses a frozen experimental profile. See [Linear evaluation features](docs/linear-features.md). `flat-uct` evaluates each legal root action with repeated random rollouts and chooses with the adversarial UCT rule, without expanding a search tree. Every default-policy rollout removes the first 100 discovered problems iteratively, then switches to adaptive propagation for the remainder of each action search. Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`, for example `5dchess flat-uct --seed 1234`. MCTS, both Linear engines, and flat-UCT also accept `--rollout-max-actions` (or `-r`) to shorten each default-policy rollout from its default limit of 200 actions, for example `5dchess linear --rollout-max-actions 40`. The same limit can be changed through 5DUCI with `setoption name rollout-max-actions value 40`. A rollout that reaches the limit is scored as a draw by MCTS and flat-UCT; Linear evaluates the final rollout position instead. Setting the limit to zero disables rollout entirely. The shared UCT implementation is in `src/engine/uct.h` and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in `src/engine/uci.h`. You must implement `initialize()` and `find_best_move()`, then start its `mainloop()` with an `io_handler`.
+There are nine engines: `mcts`, `mcts-weighted`, `zero`, `linear`,
+`linear-trained`, `linear-weighted`, `flat-ucb`, `flat-ucb-weighted`, and
+`monkey`. They communicate using the [5DUCI protocol](docs/5duci.md).
+
+The three `*-weighted` engines use move metadata to bias rollout selection
+toward tactically promising moves. `zero` is MCTS with a constant-zero default
+policy.
+
+The Linear engines evaluate inconclusive rollout positions with the same
+bounded 64-feature model. `linear` and `linear-weighted` use hand-written
+weights, while `linear-trained` uses a frozen experimental profile. See
+[Linear evaluation features](docs/linear-features.md).
+
+The two flat-UCB engines evaluate each legal root action with repeated rollouts
+and choose with the adversarial UCB rule, without expanding a search tree.
+Weighting affects their rollout moves, not root UCB selection.
+
+Search engines accept an optional unsigned 32-bit seed using `--seed` or `-s`.
+For example, use `5dchess flat-ucb-weighted --seed 1234`. MCTS, Linear, and
+flat-UCB engines also accept `--rollout-max-actions` (or `-r`) to shorten each
+default-policy rollout from its default limit of 200 actions. For example, use
+`5dchess linear-weighted --rollout-max-actions 40`.
+
+Weighted engines accept `--weight-temperature` (or `-wt`) to control how
+strongly move weights bias their rollouts. Lower positive values increase the
+bias; higher values approach randomized selection. The default is `1200`. The
+same value can be changed through 5DUCI with
+`setoption name weight-temperature value 600.0`.
+
+The rollout action limit can be changed through 5DUCI with
+`setoption name rollout-max-actions value 40`. A rollout that reaches the limit
+is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
+position instead. Setting the limit to zero disables rollout entirely.
+
+The shared confidence-bound scoring implementation is in `src/engine/uct.h`
+and `src/engine/uct.cpp`. To create an engine, derive the `engine` class in
+`src/engine/uci.h`. Implement `initialize()` and `find_best_move()`, then start
+its `mainloop()` with an `io_handler`.
 
 To play a match between two engines, first build the Python module (run `cmake` with `-DPYMODULE=on`), then run `autoplay.py` with the two engines specified as arguments. Example:
 ```sh
@@ -79,11 +114,11 @@ Autoplay records standard PGN match headers. Use `--event` and `--site` to
 name a standalone run; both default to `Autoplay` and `Local`. In a series,
 `Round` is the one-based game number.
 
-For a compact 10-game flat-UCT/MCTS protocol smoke test, use:
+For a compact 10-game flat-UCB/MCTS protocol smoke test, use:
 ```sh
-python autoplay.py --white "./build/5dchess flat-uct --seed 11 --rollout-max-actions 2" --black "./build/5dchess mcts --seed 29 --rollout-max-actions 2" --movetime 20 --max-actions 2 --games 10
+python autoplay.py --white "./build/5dchess flat-ucb --seed 11 --rollout-max-actions 2" --black "./build/5dchess mcts --seed 29 --rollout-max-actions 2" --movetime 20 --max-actions 2 --games 10
 ```
-Autoplay metrics include `engine_score`: flat-UCT's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
+Autoplay metrics include `engine_score`: flat-UCB's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
 Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
 
 For persistent Elo ratings across many registered engines, manual result
@@ -162,8 +197,10 @@ All resources inside this project are either open source online or created by my
 For more details on the structure of this repository, please read [this page](docs/index.md).
 
 ### TODOs
-- [ ] Move weighting for default policy
+- [x] Modularize Monte Carlo tree search
+- [x] Move weighting for default policy
 - [ ] Move ordering for tree policy
 - [ ] Progressive widening
-- [ ] Learned weights for the linear engine
+- [x] Learned weights for the linear engine
 - [ ] UCT/PUCT switch
+- [x] Increase performance of find_checks

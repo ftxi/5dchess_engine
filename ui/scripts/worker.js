@@ -24,6 +24,7 @@ createModule().then((engine) => {
         exportShortNotation: false,
         exportRelativeNotation: false,
         exportOutcome: false,
+        exportStandardMetadataOnly: false,
         exportCompleteGameTree: true,
     };
 
@@ -328,7 +329,11 @@ createModule().then((engine) => {
             if (self.settings.exportOutcome) {
                 flags |= engine.SHOW_OUTCOME;
             }
-            let pgn = self.game.show_pgn_with_scope(flags, self.settings.exportCompleteGameTree !== false);
+            let pgn = self.game.show_pgn(
+                flags,
+                self.settings.exportCompleteGameTree !== false,
+                self.settings.exportStandardMetadataOnly === true,
+            );
             self.postMessage({ type: 'update_pgn', pgn: pgn });
         } else if (data.type === 'update_comment') {
             let comments = data.comments || [];

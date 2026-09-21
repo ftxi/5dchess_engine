@@ -45,7 +45,10 @@ game game::from_pgn(std::string input)
     g.metadata = ag->headers;
     g.metadata["timeline"] = variant_setup.is_even_timelines ? "even" : "odd";
     g.metadata["size"] = std::to_string(variant_setup.size_x) + "x" + std::to_string(variant_setup.size_y);
-    g.metadata["promotions"] = format_promotions(variant_setup.promotions);
+    if(g.metadata.contains("promotions"))
+    {
+        g.metadata["promotions"] = format_promotions(variant_setup.promotions);
+    }
     gnode<comments_t> *cn = nullptr;
     // parse moves
     std::function<void(gnode<comments_t>*, const pgnparser_ast::gametree&)> dfs;
@@ -88,8 +91,7 @@ game game::from_pgn(std::string input)
                             oss << "game::from_pgn(): Illegal promotion: " << mv_ast;
                             throw std::runtime_error(oss.str());
                         }
-                        const bool flag = s.apply_move<false>(
-                            normalized->fm, normalized->promote_to);
+                        const bool flag = s.apply_move<false>(*normalized);
                         if(!flag)
                         {
                             std::ostringstream oss;
@@ -223,7 +225,7 @@ match_status_t game::get_match_status() const
         return match_status_t::PLAYING;
     }
     auto [t, c] = s.get_present();
-    if(s.phantom().find_checks(!c).first().has_value())
+    if(s.has_phantom_check())
     {
         return c ? match_status_t::WHITE_WINS : match_status_t::BLACK_WINS;
     }
@@ -236,7 +238,7 @@ match_status_t game::get_match_status() const
 std::vector<vec4> game::get_movable_pieces() const
 {
     state s = get_current_state();
-    return s.gen_movable_pieces();
+    return s.get_movable_pieces();
 }
 
 bool game::is_playable(vec4 p) const
@@ -369,8 +371,8 @@ bool game::suggest_action()
     for(moveseq mvs : w.search(ss))
     {
         std::vector<ext_move> emvs;
-        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [](full_move m){
-            return ext_move(m);
+        std::transform(mvs.begin(), mvs.end(), std::back_inserter(emvs), [&s](full_move m){
+            return ext_move(m, s);
         });
         action act = action::from_vector(emvs, s);
         if(!current_node->find_child(act))
@@ -464,7 +466,10 @@ bool game::visit_child(action act, comments_t comments, std::optional<state> new
     return false;
 }
 
-std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
+std::string game::show_pgn(
+    pgn_options show_flags,
+    bool complete_game_tree,
+    bool standard_metadata_only)
 {
     std::ostringstream oss;
     constexpr static std::array<std::string, 11> ordered_keys = {
@@ -474,9 +479,25 @@ std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
 
     for(const auto &k : ordered_keys)
     {
+        if(k == "variant")
+        {
+            auto it = metadata.find("board");
+            const bool legacy_board = it != metadata.end();
+            if(!legacy_board)
+                it = metadata.find("variant");
+            if(it != metadata.end())
+                oss << '[' << (legacy_board && !standard_metadata_only ? "Board" : "Variant")
+                    << " \"" << it->second << "\"]\n";
+            continue;
+        }
         if(k == "promotions")
         {
-            oss << "[Promotions \"" << format_promotions(get_promotion_options()) << "\"]\n";
+            const promotion_options promotions = get_promotion_options();
+            if(promotions != promotion_options::QUEEN
+                || metadata.contains("promotions"))
+            {
+                oss << "[Promotions \"" << format_promotions(promotions) << "\"]\n";
+            }
             continue;
         }
         auto it = metadata.find(k);
@@ -492,18 +513,22 @@ std::string game::show_pgn(pgn_options show_flags, bool complete_game_tree)
         }
         oss << "[" << key << " \"" << it->second << "\"]\n";
     }
-    for(const auto &[k, v] : metadata)
+    if(!standard_metadata_only)
     {
-        if(std::find(ordered_keys.begin(), ordered_keys.end(), k) != ordered_keys.end())
+        for(const auto &[k, v] : metadata)
         {
-            continue;
+            if(k == "board"
+               || std::find(ordered_keys.begin(), ordered_keys.end(), k) != ordered_keys.end())
+            {
+                continue;
+            }
+            std::string key = k;
+            if(!key.empty())
+            {
+                key[0] = toupper(key[0]);
+            }
+            oss << "[" << key << " \"" << v << "\"]\n";
         }
-        std::string key = k;
-        if(!key.empty())
-        {
-            key[0] = toupper(key[0]);
-        }
-        oss << "[" << key << " \"" << v << "\"]\n";
     }
     oss << gametree->get_state().show_fen();
     if(complete_game_tree)
