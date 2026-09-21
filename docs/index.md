@@ -4,7 +4,11 @@ Structure of the code
 Engine documentation:
 
 - [Linear evaluation features](linear-features.md)
+- [Factored combinatorial MCTS](factored-search.md)
 - [Frozen Linear profile](linear-trained.md)
+- [Search playground experiments](search-playground.md)
+- [Zero engine depth at 1500 ms](zero-depth-analysis.md)
+- [Iteration-ratio policy matches](iteration-ratio-matches.md)
 
 The following image roughly captures the structure of the code:
 ```

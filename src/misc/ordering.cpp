@@ -15,6 +15,7 @@ scored_HC_ordering::scored_HC_ordering(const HC &hc, const std::vector<std::vect
 {
     assert(hc.dimension() == scores.size());
     orderings.resize(hc.dimension());
+    ranks.resize(hc.dimension());
     for(index_t n = 0; n < hc.dimension(); n++)
     {
         orderings[n].assign(hc[n].begin(), hc[n].end());
@@ -22,7 +23,17 @@ scored_HC_ordering::scored_HC_ordering(const HC &hc, const std::vector<std::vect
         std::sort(orderings[n].begin(), orderings[n].end(), [&](index_t i, index_t j) {
             return scores[n][i] > scores[n][j];
         });
+        ranks[n].resize(scores[n].size());
+        for(std::size_t rank = 0; rank < orderings[n].size(); ++rank)
+        {
+            ranks[n][orderings[n][rank]] = rank;
+        }
     }
+}
+
+std::size_t scored_HC_ordering::rank(index_t n, index_t i) const
+{
+    return ranks.at(n).at(i);
 }
 
 weighted_HC_ordering::weighted_HC_ordering(const HC &hc, std::vector<std::vector<float>> weights, std::mt19937 &rng)

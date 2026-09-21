@@ -81,6 +81,12 @@ linear_cutoff_evaluation::weight_vector_t linear_cutoff_evaluation::trained_weig
 linear_cutoff_evaluation::feature_vector_t linear_cutoff_evaluation::extract_features(
     const state &position)
 {
+    return extract_features(position, count_move_space(position));
+}
+
+linear_cutoff_evaluation::feature_vector_t linear_cutoff_evaluation::extract_features(
+    const state &position, const move_space_data &move_space)
+{
     feature_vector_t features{};
     features[bias_offset] = 1.0f;
 
@@ -121,7 +127,6 @@ linear_cutoff_evaluation::feature_vector_t linear_cutoff_evaluation::extract_fea
         timeline_features.end(),
         features.begin() + timeline_offset);
 
-    const move_space_data move_space = count_move_space(position);
     features[log_universe_volume_offset] = move_space.log_universe_volume;
     features[log_non_new_volume_offset] = move_space.log_non_new_volume;
     return features;
@@ -129,7 +134,13 @@ linear_cutoff_evaluation::feature_vector_t linear_cutoff_evaluation::extract_fea
 
 float linear_cutoff_evaluation::evaluate(const state &position) const
 {
-    const feature_vector_t features = extract_features(position);
+    return evaluate(position, count_move_space(position));
+}
+
+float linear_cutoff_evaluation::evaluate(
+    const state &position, const move_space_data &move_space) const
+{
+    const feature_vector_t features = extract_features(position, move_space);
     const float linear_score = std::inner_product(
         features.begin(),
         features.end(),

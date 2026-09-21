@@ -1,5 +1,6 @@
 #include "rollout_policy.h"
 #include "hypercuboid.h"
+#include "statistics.h"
 #include "utils.h"
 
 #include <cmath>
@@ -123,10 +124,11 @@ std::optional<moveseq> random_action_selection::operator()(
 }
 
 std::optional<reward_t<rollout_details>> evaluate_zero_position(
-    state s, std::stop_token stop)
+    const state &s, std::stop_token stop, move_space_data *move_space)
 {
     if(stop.stop_requested()) return std::nullopt;
     auto [info, space] = HC_info::build_HC(s);
+    if(move_space) *move_space = count_move_space(info);
     auto moves = mixed_search(
         info, std::move(space), natural_HC_ordering{}, stop).first();
     if(stop.stop_requested()) return std::nullopt;
@@ -139,7 +141,9 @@ std::optional<reward_t<rollout_details>> evaluate_zero_position(
             winner = !s.get_present().second;
         return evaluation.mate_reward(winner, 0);
     }
-    return evaluation.cutoff_reward(std::move(s), 0, stop, nullptr);
+    return reward_t<rollout_details>{
+        0.0f,
+        {rollout_details::termination::ACTION_LIMIT, 0}};
 }
 
 void weighted_action_selection::set_temperature(float value)

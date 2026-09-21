@@ -106,11 +106,13 @@ static_assert(HCOrdering<random_HC_ordering>);
 class scored_HC_ordering : private detail::precomputed_HC_ordering<scored_HC_ordering>
 {
     using base = detail::precomputed_HC_ordering<scored_HC_ordering>;
+    std::vector<std::vector<std::size_t>> ranks;
 public:
     scored_HC_ordering(const HC &hc, const std::vector<std::vector<float>> &scores)
         : scored_HC_ordering(hc, scores, base::default_rng())
     {}
     scored_HC_ordering(const HC &hc, const std::vector<std::vector<float>> &scores, std::mt19937 &rng);
+    std::size_t rank(index_t n, index_t i) const;
     using base::for_each;
 };
 

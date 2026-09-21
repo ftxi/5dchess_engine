@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <vector>
+#include "core/hypercuboid.h"
 #include "core/multiverse_variants.h"
 #include "core/pgnparser.h"
 #include "core/state.h"
@@ -139,10 +140,15 @@ void test_standard_move_space_volume()
 [Board "Standard - Turn Zero"]
 )").parse_game());
     const move_space_data data = count_move_space(s);
+    auto [info, search_space] = HC_info::build_HC(s);
+    (void)search_space;
+    const move_space_data reused = count_move_space(info);
     const float expected = std::log(21.0f); // null coordinate + 20 moves
 
     assert(std::abs(data.log_universe_volume - expected) < 1e-6f);
     assert(std::abs(data.log_non_new_volume - expected) < 1e-6f);
+    assert(reused.log_universe_volume == data.log_universe_volume);
+    assert(reused.log_non_new_volume == data.log_non_new_volume);
 }
 
 void test_branching_move_space_volume()

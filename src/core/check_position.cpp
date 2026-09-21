@@ -34,6 +34,65 @@ check_position check_position::for_phantom(const state& s)
     return result;
 }
 
+check_position check_position::for_move_scoring(const state& s)
+{
+    const auto [lo, hi] = s.get_lines_range();
+    const int branch = s.new_line();
+    check_position result(s, std::min(lo, branch), std::max(hi, branch));
+    const bool player = s.get_present().second;
+    for(int l = lo; l <= hi; ++l)
+    {
+        const auto at = s.get_timeline_end(l);
+        if(at.second != player)
+        {
+            result.add_board(
+                l, next_turn(at), *s.get_board_ptr(l, at.first, at.second));
+        }
+    }
+    return result;
+}
+
+bool check_position::gives_check(
+    std::span<const scoring_board> boards,
+    bool attacker)
+{
+    assert(!boards.empty() && boards.size() <= 2);
+    std::array<int, 2> sources{};
+    std::array<line_view, 2> saved{};
+    for(std::size_t i = 0; i < boards.size(); ++i)
+    {
+        const auto& update = boards[i];
+        assert(update.value && update.start <= update.end);
+        assert(update.line >= first_line
+               && update.line - first_line < static_cast<int>(lines.size()));
+        assert(i == 0 || update.line != sources[0]);
+        sources[i] = update.line;
+        auto& line = lines[update.line - first_line];
+        saved[i] = line;
+        if(!line.exists) line.start = update.start;
+        line.exists = true;
+        line.added_start = update.start;
+        line.end = update.end;
+        line.added = update.value;
+    }
+    struct restore
+    {
+        check_position& view;
+        std::span<const int> sources;
+        const std::array<line_view, 2>& saved;
+        ~restore()
+        {
+            for(std::size_t i = 0; i < sources.size(); ++i)
+            {
+                view.lines[sources[i] - view.first_line] = saved[i];
+            }
+        }
+    } guard{*this, std::span(sources).first(boards.size()), saved};
+    auto emit = [](full_move) { return true; };
+    return attacker ? scan<true>(true, emit, guard.sources)
+                    : scan<false>(true, emit, guard.sources);
+}
+
 void check_position::add_board(int l, turn_t at, const board& b)
 {
     assert(l >= first_line && l - first_line < static_cast<int>(lines.size()));
@@ -45,6 +104,7 @@ void check_position::add_board(int l, turn_t at, const board& b)
         line.exists = true;
         line.start = at;
     }
+    line.added_start = at;
     line.end = at;
     line.added = &b;
 }
@@ -57,7 +117,7 @@ const board* check_position::board_at(int l, int t, bool c) const
     const turn_t at{t,c};
     if (!line.exists || at < line.start || at > line.end)
         return nullptr;
-    if (line.added && at == line.end)
+    if (line.added && at >= line.added_start)
         return line.added;
     return line.in_base ? base.get_board_ptr(l,t,c) : nullptr;
 }
@@ -216,11 +276,14 @@ bool check_position::scan_jumps(vec4 p0, const board& source,
 }
 
 template<bool C, check_emitter Emit>
-bool check_position::scan(bool include_physical, Emit&& emit) const
+bool check_position::scan(
+    bool include_physical,
+    Emit&& emit,
+    std::span<const int> sources) const
 {
-    for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
+    auto scan_line = [&](int i) {
         const auto& line = lines[i];
-        if (!line.exists || line.end.second != C) continue;
+        if (!line.exists || line.end.second != C) return false;
         const vec4 p0(0,0,line.end.first,first_line+i);
         const board& source = *board_at(p0.l(),p0.t(),C);
         const bitboard_t friendly = source.hostile<!C>(); // excludes walls
@@ -229,6 +292,21 @@ bool check_position::scan(bool include_physical, Emit&& emit) const
             || scan_compound_sliders<C>(p0,source,friendly,emit)
             || scan_jumps<C>(p0,source,friendly,emit)) {
             return true;
+        }
+        return false;
+    };
+    if(!sources.empty())
+    {
+        for(int l : sources)
+        {
+            if(scan_line(l - first_line)) return true;
+        }
+    }
+    else
+    {
+        for(int i = 0; i < static_cast<int>(lines.size()); ++i)
+        {
+            if(scan_line(i)) return true;
         }
     }
     return false;

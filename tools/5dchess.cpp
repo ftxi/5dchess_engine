@@ -22,6 +22,10 @@ struct command_line_options
     std::optional<std::uint32_t> seed;
     int rollout_max_actions = default_mcts_rollout_max_actions;
     float weight_temperature = default_move_info_temperature;
+    double progressive_widening_constant
+        = default_progressive_widening_constant;
+    double progressive_widening_alpha = default_progressive_widening_alpha;
+    double factor_prior_strength = default_factor_prior_strength;
 };
 
 bool is_weighted_engine(std::string_view name)
@@ -43,6 +47,11 @@ void print_usage(std::ostream &out)
         << "  mcts               Monte Carlo tree search with randomized rollouts\n"
         << "  mcts-weighted      MCTS with move-info-weighted rollouts\n"
         << "  zero               MCTS with no rollout and zero cutoff evaluation\n"
+        << "  zero-capture       zero with capture-biased tree expansion\n"
+        << "  zero-capture-check  zero-capture with check ordering\n"
+        << "  zero-capture-pw    zero-capture with progressive widening\n"
+        << "  zero-capture-check-pw  capture/check ordering with progressive widening\n"
+        << "  factored           factor-sharing PW MCTS with linear leaf values\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
         << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
@@ -55,6 +64,11 @@ void print_usage(std::ostream &out)
         << default_mcts_rollout_max_actions << ")\n"
         << "  -wt, --weight-temperature <n>   weighted rollout temperature (default "
         << default_move_info_temperature << ")\n"
+        << "  --pw-constant <n>               progressive-widening constant"
+           " (default 1)\n"
+        << "  --pw-alpha <n>                  widening exponent in (0, 1]"
+           " (default 0.5)\n"
+        << "  --factor-prior <n>              factored virtual-sample cap (default 2)\n"
         << "  -h, --help                      display this help text and exit\n";
 }
 
@@ -87,6 +101,9 @@ command_line_options parse_options(
     bool seed_seen = false;
     bool rollout_limit_seen = false;
     bool weight_temperature_seen = false;
+    bool pw_constant_seen = false;
+    bool pw_alpha_seen = false;
+    bool factor_prior_seen = false;
     for(int i = 2; i < argc; ++i)
     {
         const std::string option = argv[i];
@@ -129,6 +146,43 @@ command_line_options parse_options(
             options.weight_temperature = parse_positive_float(argv[i]);
             weight_temperature_seen = true;
         }
+        else if(option == "--pw-constant")
+        {
+            if((engine_name != "zero-capture-check-pw"
+                && engine_name != "zero-capture-pw"
+                && engine_name != "factored") || pw_constant_seen
+               || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid widening constant option");
+            }
+            options.progressive_widening_constant
+                = parse_positive_float(argv[i]);
+            pw_constant_seen = true;
+        }
+        else if(option == "--pw-alpha")
+        {
+            if((engine_name != "zero-capture-check-pw"
+                && engine_name != "zero-capture-pw"
+                && engine_name != "factored") || pw_alpha_seen
+               || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid widening alpha option");
+            }
+            options.progressive_widening_alpha = parse_positive_float(argv[i]);
+            if(options.progressive_widening_alpha > 1.0)
+                throw std::invalid_argument("widening alpha exceeds one");
+            pw_alpha_seen = true;
+        }
+        else if(option == "--factor-prior")
+        {
+            if(engine_name != "factored" || factor_prior_seen
+               || ++i >= argc)
+            {
+                throw std::invalid_argument("invalid factor prior option");
+            }
+            options.factor_prior_strength = parse_positive_float(argv[i]);
+            factor_prior_seen = true;
+        }
         else
         {
             throw std::invalid_argument("unknown option");
@@ -155,7 +209,12 @@ int main(int argc, const char *argv[])
 
     const std::string engine_name = argv[1];
     if(engine_name != "mcts" && engine_name != "mcts-weighted"
-       && engine_name != "zero" && engine_name != "linear"
+       && engine_name != "zero" && engine_name != "zero-capture"
+       && engine_name != "zero-capture-check"
+       && engine_name != "zero-capture-pw"
+       && engine_name != "zero-capture-check-pw"
+       && engine_name != "factored"
+       && engine_name != "linear"
        && engine_name != "linear-trained" && engine_name != "linear-weighted"
        && engine_name != "flat-ucb" && engine_name != "flat-ucb-weighted"
        && engine_name != "monkey")
@@ -194,6 +253,38 @@ int main(int argc, const char *argv[])
     {
         selected_engine = std::make_unique<zero_engine>(
             std::make_unique<stdio_handler>(), options.seed);
+    }
+    else if(engine_name == "zero-capture")
+    {
+        selected_engine = std::make_unique<zero_capture_engine>(
+            std::make_unique<stdio_handler>(), options.seed);
+    }
+    else if(engine_name == "zero-capture-check")
+    {
+        selected_engine = std::make_unique<zero_capture_check_engine>(
+            std::make_unique<stdio_handler>(), options.seed);
+    }
+    else if(engine_name == "zero-capture-pw")
+    {
+        selected_engine = std::make_unique<zero_capture_pw_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.progressive_widening_constant,
+            options.progressive_widening_alpha);
+    }
+    else if(engine_name == "zero-capture-check-pw")
+    {
+        selected_engine = std::make_unique<zero_capture_check_pw_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.progressive_widening_constant,
+            options.progressive_widening_alpha);
+    }
+    else if(engine_name == "factored")
+    {
+        selected_engine = std::make_unique<factored_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.progressive_widening_constant,
+            options.progressive_widening_alpha,
+            options.factor_prior_strength);
     }
     else if(engine_name == "linear" || engine_name == "linear-trained"
             || engine_name == "linear-weighted")

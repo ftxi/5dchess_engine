@@ -152,7 +152,12 @@ class EngineProcess:
         self.phase = "idle"
 
     async def choose(
-        self, position: str, history: list[str], movetime_ms: int, commands: asyncio.Queue[str]
+        self,
+        position: str,
+        history: list[str],
+        movetime_ms: int,
+        commands: asyncio.Queue[str],
+        depth: int | None = None,
     ) -> list[str] | None:
         self.phase = "searching"
         request = f"position {position}"
@@ -164,7 +169,12 @@ class EngineProcess:
         self.last_engine_scores = ""
         self.last_go_seconds = None
         go_started = time.perf_counter()
-        await self.send(f"go movetime {movetime_ms}")
+        go = f"go movetime {movetime_ms}"
+        if depth is not None:
+            if depth <= 0:
+                raise ValueError("depth must be positive")
+            go += f" depth {depth}"
+        await self.send(go)
 
         # Wait for engine output and terminal input concurrently.  Keeping
         # this orchestration in Python makes Ctrl+C responsive even while the

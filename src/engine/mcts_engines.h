@@ -4,6 +4,8 @@
 #include <iomanip>
 #include <sstream>
 #include "uct.h"
+#include "capture_uct.h"
+#include "capture_pw_uct.h"
 #include "backpropagation.h"
 #include "selection_policy.h"
 #include "rollout_policy.h"
@@ -76,6 +78,20 @@ using zero_mcts_engine = basic_mcts_engine<
     most_visited_selection,
     mcts_observer
 >;
+using zero_capture_mcts_engine = basic_mcts_engine<
+    capture_uct_tree_policy,
+    zero_default_policy,
+    sum_backpropagation,
+    most_visited_selection,
+    mcts_observer
+>;
+using zero_capture_pw_mcts_engine = basic_mcts_engine<
+    capture_pw_uct_tree_policy,
+    zero_default_policy,
+    sum_backpropagation,
+    most_visited_selection,
+    mcts_observer
+>;
 using weighted_rollout_mcts_engine = basic_mcts_engine<
     uct_tree_policy,
     weighted_rollout_default_policy,
@@ -105,6 +121,57 @@ public:
         : zero_mcts_engine({}, uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
 };
 
+class zero_capture_engine final : public zero_capture_mcts_engine
+{
+public:
+    zero_capture_engine(std::unique_ptr<io_handler> io,
+                        std::optional<std::uint32_t> seed = std::nullopt,
+                        int = default_mcts_rollout_max_actions)
+        : zero_capture_mcts_engine(
+            {}, capture_uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
+};
+
+class zero_capture_check_engine final : public zero_capture_mcts_engine
+{
+public:
+    zero_capture_check_engine(
+        std::unique_ptr<io_handler> io,
+        std::optional<std::uint32_t> seed = std::nullopt,
+        int = default_mcts_rollout_max_actions)
+        : zero_capture_mcts_engine(
+            {}, capture_uct_tree_policy{seed, true}, {}, {}, {}, std::move(io)) {}
+};
+
+class zero_capture_pw_engine final : public zero_capture_pw_mcts_engine
+{
+public:
+    zero_capture_pw_engine(
+        std::unique_ptr<io_handler> io,
+        std::optional<std::uint32_t> seed = std::nullopt,
+        double widening_constant = default_progressive_widening_constant,
+        double widening_alpha = default_progressive_widening_alpha)
+        : zero_capture_pw_mcts_engine(
+            {},
+            capture_pw_uct_tree_policy{
+                seed, widening_constant, widening_alpha, false},
+            {}, {}, {}, std::move(io)) {}
+};
+
+class zero_capture_check_pw_engine final : public zero_capture_pw_mcts_engine
+{
+public:
+    zero_capture_check_pw_engine(
+        std::unique_ptr<io_handler> io,
+        std::optional<std::uint32_t> seed = std::nullopt,
+        double widening_constant = default_progressive_widening_constant,
+        double widening_alpha = default_progressive_widening_alpha)
+        : zero_capture_pw_mcts_engine(
+            {},
+            capture_pw_uct_tree_policy{
+                seed, widening_constant, widening_alpha},
+            {}, {}, {}, std::move(io)) {}
+};
+
 class mcts_weighted_engine final : public weighted_rollout_mcts_engine
 {
 public:
@@ -123,6 +190,8 @@ public:
 };
 
 static_assert(TreePolicy<uct_tree_policy, mcts_observer>);
+static_assert(TreePolicy<capture_uct_tree_policy, mcts_observer>);
+static_assert(TreePolicy<capture_pw_uct_tree_policy, mcts_observer>);
 static_assert(DefaultPolicy<rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<weighted_rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<zero_default_policy, mcts_observer>);

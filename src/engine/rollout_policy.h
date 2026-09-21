@@ -6,6 +6,8 @@
 #include "default_policy.h"
 #include "move_info_evaluation.h"
 
+struct move_space_data;
+
 struct rollout_details
 {
     enum class termination { WHITE_WINS, BLACK_WINS, STALEMATE, ACTION_LIMIT };
@@ -66,7 +68,9 @@ using weighted_rollout_default_policy = default_policy_t<rollout_details,
     weighted_action_selection, rollout_cutoff_evaluation>;
 
 std::optional<reward_t<rollout_details>> evaluate_zero_position(
-    state s, std::stop_token stop);
+    const state &s,
+    std::stop_token stop,
+    move_space_data *move_space = nullptr);
 
 // No simulated actions, but terminal positions retain their actual outcome.
 struct zero_default_policy

@@ -67,13 +67,27 @@ Build the tests independently with `-DTEST=on`. With none of `ENGINE`, `TOOLS`, 
 
 #### Engines and autoplay
 
-There are nine engines: `mcts`, `mcts-weighted`, `zero`, `linear`,
-`linear-trained`, `linear-weighted`, `flat-ucb`, `flat-ucb-weighted`, and
-`monkey`. They communicate using the [5DUCI protocol](docs/5duci.md).
+There are fourteen engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
+`zero-capture-check`, `zero-capture-pw`, `zero-capture-check-pw`, `factored`,
+`linear`, `linear-trained`, `linear-weighted`,
+`flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
+[5DUCI protocol](docs/5duci.md).
 
 The three `*-weighted` engines use move metadata to bias rollout selection
 toward tactically promising moves. `zero` is MCTS with a constant-zero default
 policy.
+
+`zero-capture` expands captures before quiet moves. `zero-capture-check` and
+`zero-capture-pw` independently add check-aware ordering and progressive
+widening for ablation. `zero-capture-check-pw` combines both; widening's
+constant and exponent can be changed with `--pw-constant` and `--pw-alpha`.
+
+`factored` reuses coordinate returns across different prefixes of the same
+hypercuboid action. Shared evidence supplies a capped prior while exact branch
+statistics remain authoritative. It combines capture/check ordering,
+progressive widening, and terminal-aware linear leaf evaluation. Use
+`--factor-prior` to change the virtual-sample cap. See
+[Factored combinatorial MCTS](docs/factored-search.md).
 
 The Linear engines evaluate inconclusive rollout positions with the same
 bounded 64-feature model. `linear` and `linear-weighted` use hand-written
@@ -120,6 +134,12 @@ python autoplay.py --white "./build/5dchess flat-ucb --seed 11 --rollout-max-act
 ```
 Autoplay metrics include `engine_score`: flat-UCB's selected-action rollout win rate, or MCTS's average score along the selected principal path. MCTS also fills `engine_scores` with the colon-separated score for each path node. Both engines report `iterations` and `ips` (iterations per second) in the CSV metrics.
 Use `--help` for more information on how to set a starting game, time controls, or a multi-game series.
+
+For early policy comparisons independent of current implementation speed,
+`iteration_ratio_match.py` gives a target engine a multiplier of `zero`'s
+position-matched iteration count, runs color-reversed pairs in parallel, and
+performs sequential superiority/non-inferiority tests. See
+[Iteration-ratio policy matches](docs/iteration-ratio-matches.md).
 
 For persistent Elo ratings across many registered engines, manual result
 reporting, automatic opponent selection, and concurrent games, see
@@ -199,8 +219,8 @@ For more details on the structure of this repository, please read [this page](do
 ### TODOs
 - [x] Modularize Monte Carlo tree search
 - [x] Move weighting for default policy
-- [ ] Move ordering for tree policy
-- [ ] Progressive widening
+- [x] Move ordering for tree policy
+- [x] Progressive widening
 - [x] Learned weights for the linear engine
 - [ ] UCT/PUCT switch
 - [x] Increase performance of find_checks

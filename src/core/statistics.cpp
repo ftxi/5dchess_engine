@@ -67,7 +67,11 @@ move_space_data count_move_space(const state &s)
 {
     auto [info, search_space] = HC_info::build_HC(s);
     (void)search_space;
+    return count_move_space(info);
+}
 
+move_space_data count_move_space(const HC_info &info)
+{
     double log_universe_volume = 0.0;
     double log_non_new_volume = 0.0;
     for(index_t axis = 0; axis < info.dimension; ++axis)

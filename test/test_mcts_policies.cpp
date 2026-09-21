@@ -1,8 +1,11 @@
 #undef NDEBUG
 #include <algorithm>
 #include <cassert>
+#include <cmath>
+#include <functional>
 #include <limits>
 #include <set>
+#include "linear.h"
 #include "mcts_engines.h"
 #include "pgnparser.h"
 
@@ -149,6 +152,175 @@ void test_completion()
     assert(!policy.complete_to_ceiling(root.get(), stopped.get_token(), obs));
 }
 
+void test_capture_ordering()
+{
+    multiverse_odd boards({{0, 1, false, "3k/4/1p2/KR2"}});
+    const state position(boards);
+    auto root = capture_uct_tree_policy::node_t::make_root(position);
+    observer obs;
+    capture_uct_tree_policy policy(42);
+    auto *selected = policy.select(root.get(), {}, obs);
+    assert(selected && selected->get_parent() == root.get());
+    const semimove move = root->get_context()->hc_info.get_semimove(
+        selected->get_n(), selected->get_i());
+    assert(capture_semimove_score(position, move) == capture_ordering_score);
+}
+
+void test_capture_check_progressive_widening()
+{
+    // Rxb2 captures without check; Rd1 checks without capture.
+    multiverse_odd boards({{0, 1, false, "3k/4/Kp2/1R2"}});
+    const state position(boards);
+    observer obs;
+    auto root = capture_pw_uct_tree_policy::node_t::make_root(position);
+    const auto scores = capture_check_coordinate_scores(
+        root->get_context()->hc_info);
+    assert(scores);
+    bool capture = false, check = false;
+    for(index_t axis = 0;
+        axis < root->get_context()->hc_info.universe.dimension(); ++axis)
+    {
+        for(index_t coordinate : root->get_context()->hc_info.universe[axis])
+        {
+            capture |= (*scores)[axis][coordinate] == 480.0f;
+            check |= (*scores)[axis][coordinate] == 300.0f;
+        }
+    }
+    assert(capture && check);
+
+    capture_pw_uct_tree_policy policy(42);
+    assert(policy.widening_limit(0) == 1);
+    assert(policy.widening_limit(1) == 1);
+    assert(policy.widening_limit(4) == 2);
+    auto *selected = policy.select(root.get(), {}, obs);
+    assert(selected && selected->get_parent() == root.get());
+    assert((*scores)[selected->get_n()][selected->get_i()] == 480.0f);
+    auto *ceiling = policy.complete_to_ceiling(selected, {}, obs);
+    assert(ceiling && ceiling->is_ceiling());
+    assert(position.can_apply(
+        action::from_moveseq(ceiling->to_action(), position)));
+}
+
+void test_factored_progressive_widening()
+{
+    observer obs;
+    auto root = factored_pw_uct_tree_policy::node_t::make_root(
+        standard_position());
+    factored_pw_uct_tree_policy policy(42, 1.0, 0.5, 2.0);
+    auto *shared = policy.action_statistics(root.get());
+    assert(shared);
+
+    auto *selected = policy.select(root.get(), {}, obs);
+    auto *ceiling = policy.complete_to_ceiling(selected, {}, obs);
+    assert(ceiling && ceiling->is_ceiling());
+    factored_sum_backpropagation{}.backpropagate(
+        ceiling, reward_t<>{0.5f, {}}, obs);
+
+    // Every coordinate in the completed action receives the return once, in
+    // addition to the ordinary exact-node statistics.
+    for(auto *node = ceiling; node != root.get(); node = node->get_parent())
+    {
+        const auto &coordinate
+            = shared->coordinates[node->get_n()][node->get_i()];
+        assert(coordinate.visits == 1);
+        assert(coordinate.sum_reward == 0.5f);
+        assert(factored_blended_mean(
+            node->get_info().sum_reward,
+            node->get_info().visits,
+            coordinate,
+            2.0) == 0.5f);
+    }
+
+    // Evidence from the same coordinate under another prefix contributes as
+    // a capped prior, rather than replacing the exact observation.
+    factored_coordinate_statistics factor{0.0f, 2};
+    assert(factored_blended_mean(0.5f, 1, factor, 2.0) == 0.0f);
+    factor = {1.5f, 4};
+    const float blended = factored_blended_mean(0.5f, 1, factor, 2.0);
+    assert(std::abs(blended - 7.0f / 18.0f) < 1e-6f);
+
+    bool invalid = false;
+    try
+    {
+        factored_pw_uct_tree_policy bad(42, 1.0, 0.5, 0.0);
+    }
+    catch(const std::invalid_argument &)
+    {
+        invalid = true;
+    }
+    assert(invalid);
+
+    // On a genuinely multi-timeline position, repeated completions should
+    // reach the same later-axis coordinate through distinct prefixes. The
+    // action-root factor table combines those observations.
+    state branched(*pgnparser(R"(
+[Mode "5D"]
+[Board "Very Small - Open"]
+1. Bb2+ / Nxb2
+2. N>>xd3 / (1T1)Bc3+
+3. Bb2
+)").parse_game());
+    auto factored_root
+        = factored_pw_uct_tree_policy::node_t::make_root(branched);
+    assert(factored_root->get_context()->hc_info.dimension > 1);
+    factored_pw_uct_tree_policy wide(7, 100.0, 0.5, 2.0);
+    auto *branched_shared = wide.action_statistics(factored_root.get());
+    assert(branched_shared);
+    for(int iteration = 0; iteration < 80; ++iteration)
+    {
+        auto *node = wide.select(factored_root.get(), {}, obs);
+        auto *completed = wide.complete_to_ceiling(node, {}, obs);
+        assert(completed && completed->is_ceiling());
+        factored_sum_backpropagation{}.backpropagate(
+            completed, reward_t<>{0.0f, {}}, obs);
+    }
+
+    std::vector<std::vector<std::size_t>> largest_exact(
+        branched_shared->coordinates.size());
+    for(std::size_t axis = 0; axis < largest_exact.size(); ++axis)
+        largest_exact[axis].resize(
+            branched_shared->coordinates[axis].size(), 0);
+    std::function<void(factored_pw_uct_tree_policy::node_t *)> scan
+        = [&](auto *parent) {
+            for(auto *child : parent->get_children())
+            {
+                auto &largest
+                    = largest_exact[child->get_n()][child->get_i()];
+                largest = std::max(largest, child->get_info().visits);
+                if(!child->is_ceiling()) scan(child);
+            }
+        };
+    scan(factored_root.get());
+    bool observed_cross_prefix_sharing = false;
+    for(std::size_t axis = 0; axis < largest_exact.size(); ++axis)
+    for(std::size_t coordinate = 0;
+        coordinate < largest_exact[axis].size(); ++coordinate)
+    {
+        observed_cross_prefix_sharing
+            |= branched_shared->coordinates[axis][coordinate].visits
+                > largest_exact[axis][coordinate];
+    }
+    assert(observed_cross_prefix_sharing);
+}
+
+void test_terminal_linear_default_policy()
+{
+    observer obs;
+    terminal_linear_default_policy policy;
+    linear_cutoff_evaluation evaluator(
+        linear_cutoff_evaluation::default_weights());
+    const state initial = standard_position();
+    auto result = policy.evaluate(initial, {}, obs);
+    assert(result);
+    assert(result->data.end == rollout_details::termination::ACTION_LIMIT);
+    assert(std::abs(result->score - evaluator.evaluate(initial)) < 1e-6f);
+
+    multiverse_odd boards({{0, 1, true, "k7/1Q6/2K5/8/8/8/8/8"}});
+    result = policy.evaluate(state(boards), {}, obs);
+    assert(result && result->score == 1.0f);
+    assert(result->data.end == rollout_details::termination::WHITE_WINS);
+}
+
 void test_multiple_semimoves()
 {
     state position(*pgnparser(R"(
@@ -285,9 +457,31 @@ int main()
     test_weighted_action_selection();
     test_promotion_paths();
     test_completion();
+    test_capture_ordering();
+    test_capture_check_progressive_widening();
+    test_factored_progressive_widening();
+    test_terminal_linear_default_policy();
     test_multiple_semimoves();
     test_interrupted_action_selection();
     test_engine<mcts_engine>();
     test_engine<mcts_weighted_engine>();
     test_engine<zero_engine>();
+    test_engine<zero_capture_engine>();
+    test_engine<zero_capture_check_engine>();
+
+    zero_capture_pw_engine capture_progressive(
+        std::make_unique<sink_io>(), 42, 2.0, 0.5);
+    capture_progressive.set_position("startpos", "");
+    assert(capture_progressive.find_best_move(1, std::nullopt, {}));
+    zero_capture_check_pw_engine progressive(
+        std::make_unique<sink_io>(), 42, 2.0, 0.5);
+    progressive.set_position("startpos", "");
+    assert(progressive.find_best_move(1, std::nullopt, {}));
+
+    factored_engine factored(
+        std::make_unique<sink_io>(), 42, 1.0, 0.5, 2.0);
+    factored.set_position("startpos", "");
+    auto factored_move = factored.find_best_move(1, std::nullopt, {});
+    assert(factored_move);
+    assert(factored.get_current_state()->can_apply(*factored_move));
 }

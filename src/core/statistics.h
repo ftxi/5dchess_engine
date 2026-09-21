@@ -5,6 +5,8 @@
 #include "state.h"
 #include "utils.h"
 
+class HC_info;
+
 /* Material counts */
 
 template<typename T>
@@ -82,5 +84,6 @@ struct move_space_data
 };
 
 move_space_data count_move_space(const state &s);
+move_space_data count_move_space(const HC_info &info);
 
 #endif /* STATISTICS_H */

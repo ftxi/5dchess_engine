@@ -10,6 +10,7 @@
 #include <stop_token>
 #include <utility>
 
+#include "factored_pw_uct.h"
 #include "mcts_engines.h"
 #include "statistics.h"
 
@@ -56,8 +57,12 @@ public:
     static weight_vector_t default_weights();
     static weight_vector_t trained_weights();
     static feature_vector_t extract_features(const state &position);
+    static feature_vector_t extract_features(
+        const state &position, const move_space_data &move_space);
 
     float evaluate(const state &position) const;
+    float evaluate(
+        const state &position, const move_space_data &move_space) const;
     const weight_vector_t &get_weights() const { return weights; }
 
     result_type mate_reward(std::optional<bool> winner, std::size_t length) const;
@@ -66,6 +71,40 @@ public:
         std::size_t length,
         std::stop_token stop_token,
         std::mt19937 *) const;
+};
+
+// Dense, zero-rollout evaluation for the factored search. Unlike setting a
+// normal Linear rollout length to zero, this retains exact mate/stalemate
+// rewards by probing terminality before applying the static evaluator.
+class terminal_linear_default_policy
+{
+    linear_cutoff_evaluation cutoff_evaluation;
+
+public:
+    using result_type = reward_t<rollout_details>;
+
+    explicit terminal_linear_default_policy(
+        linear_cutoff_evaluation::weight_vector_t weights
+            = linear_cutoff_evaluation::default_weights())
+        : cutoff_evaluation(std::move(weights))
+    {}
+
+    template<class Observer>
+    std::optional<result_type> evaluate(
+        state position,
+        std::stop_token stop_token,
+        Observer &)
+    {
+        move_space_data move_space;
+        auto terminal = evaluate_zero_position(
+            position, stop_token, &move_space);
+        if(!terminal || stop_token.stop_requested()) return std::nullopt;
+        if(terminal->data.end != rollout_details::termination::ACTION_LIMIT)
+            return terminal;
+        return result_type{
+            cutoff_evaluation.evaluate(position, move_space),
+            {rollout_details::termination::ACTION_LIMIT, 0}};
+    }
 };
 
 using linear_default_policy = default_policy_t<
@@ -87,6 +126,12 @@ using weighted_linear_mcts_engine = basic_mcts_engine<
     uct_tree_policy,
     weighted_linear_default_policy,
     sum_backpropagation,
+    most_visited_selection,
+    mcts_observer>;
+using factored_linear_mcts_engine = basic_mcts_engine<
+    factored_pw_uct_tree_policy,
+    terminal_linear_default_policy,
+    factored_sum_backpropagation,
     most_visited_selection,
     mcts_observer>;
 
@@ -132,8 +177,32 @@ public:
         ) {}
 };
 
+class factored_engine final : public factored_linear_mcts_engine
+{
+public:
+    factored_engine(
+        std::unique_ptr<io_handler> io_handler,
+        std::optional<std::uint32_t> seed = std::nullopt,
+        double widening_constant = default_progressive_widening_constant,
+        double widening_alpha = default_progressive_widening_alpha,
+        double factor_prior_strength = default_factor_prior_strength,
+        linear_cutoff_evaluation::weight_vector_t weights
+            = linear_cutoff_evaluation::default_weights())
+        : factored_linear_mcts_engine(
+            terminal_linear_default_policy{std::move(weights)},
+            factored_pw_uct_tree_policy{
+                seed,
+                widening_constant,
+                widening_alpha,
+                factor_prior_strength},
+            {}, {}, {}, std::move(io_handler))
+    {}
+};
+
 static_assert(CutoffEvaluation<linear_cutoff_evaluation, rollout_details>);
 static_assert(DefaultPolicy<linear_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<weighted_linear_default_policy, mcts_observer>);
+static_assert(DefaultPolicy<terminal_linear_default_policy, mcts_observer>);
+static_assert(TreePolicy<factored_pw_uct_tree_policy, mcts_observer>);
 
 #endif /* LINEAR_H */
