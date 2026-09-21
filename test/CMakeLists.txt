@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME test_autoplay
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_autoplay.py"
+    )
+    set_tests_properties(test_autoplay PROPERTIES
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+else()
+    message(STATUS "Python 3 not found; skipping autoplay tests")
+endif()
+
 # Find all test files in the test directory
 file(GLOB TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 

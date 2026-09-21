@@ -28,6 +28,10 @@ if(TOOLS)
 
     if(TEST)
         message(STATUS "Registering tools related tests...")
+        add_test(
+            NAME 5dtools_stats
+            COMMAND bash "${CMAKE_SOURCE_DIR}/test/test_5dtools_stats.sh" $<TARGET_FILE:5dtools>
+        )
         file(GLOB PGN_FILES "${CMAKE_SOURCE_DIR}/test/pgn/*.5dpgn")
         foreach(PGN_FILE ${PGN_FILES})
             get_filename_component(PGN_NAME ${PGN_FILE} NAME_WE)
