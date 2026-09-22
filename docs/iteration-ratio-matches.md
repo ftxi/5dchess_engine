@@ -55,9 +55,12 @@ Important options are:
 | `--max-target-movetime` | 10000 ms | Absolute target cap per action |
 | `--workers` | 2 | Concurrent games, not process count |
 | `--max-actions` | 500 | Draw cap per game |
-| `--look-pairs` | 8,16,32,64,128,256 | Predeclared statistical looks |
+| `--stat-method` | anytime | `anytime` e-process or legacy `fixed-looks` |
+| `--advance-on` | noninferior | Advance after `noninferior`, or require `better` |
+| `--superiority-target` | 0.60 | Alternative mean that tunes the superiority e-process |
+| `--look-pairs` | 8,16,32,64,128,256 | Checkpoints used only by `fixed-looks` |
 | `--max-pairs` | 256 | Maximum color-reversed pairs at one ratio |
-| `--alpha` | 0.05 | Total within-ratio sequential error budget |
+| `--alpha` | 0.05 | Within-ratio false-positive bound |
 | `--noninferiority-margin` | 0.10 | Tolerated deficit in normalized pair score |
 
 Each active game uses three engine processes: the two players and a separate
@@ -66,7 +69,21 @@ Parallel load affects measured IPS, so keep worker count fixed when comparing
 experiments.
 
 Ctrl-C cancels active games, closes their engines, excludes unfinished games,
-and prints a summary containing the smallest ratio already established.
+and prints a summary containing the smallest ratio already established. With
+the default anytime method, the reported anytime p-values remain valid at an
+arbitrary Ctrl-C stopping time.
+
+For a focused confirmation run that does not leave a ratio as soon as
+non-inferiority is known, use:
+
+```sh
+python3.12 iteration_ratio_match.py \
+  --target './build/5dchess factored --seed {seed}' \
+  --ratios .75 \
+  --advance-on better \
+  --max-pairs 512 \
+  --workers 4
+```
 
 ## Iteration and time budgets
 
@@ -149,6 +166,12 @@ The fields mean:
 - `target/zero IPS 0.752`: aggregate target IPS is currently 75.2% of
   aggregate `zero` IPS.
 
+In anytime mode, the line printed after a complete pair additionally shows
+the current superiority/non-inferiority/inferiority e-values and their
+anytime p-values. A current e-value can fall after unfavorable evidence; the
+anytime p-value uses the largest e-value previously reached and therefore
+does not rise again.
+
 Actual competing-engine failures are scored competitively: a target failure
 is a target loss and a playing `zero` failure is a target win. Meter and
 controller failures are void. Ctrl-C unfinished games are neither completed
@@ -200,17 +223,127 @@ pairings have mean score 0.5, but their sign-test inputs differ.
 
 The script never chooses a pairing after seeing results. Opening, seed, and
 pair identity are fixed before play. This blocking is meaningful only when
-the paired games share relevant nuisance conditions. The p-values also assume
-different pairs are independent experimental units. Repeating an effectively
+the paired games share relevant nuisance conditions. The default guarantee
+uses a conditional-mean assumption; treating different pairs as independent
+experimental units is a simpler sufficient model. Repeating an effectively
 deterministic identical pair does not create independent evidence; use varied
 openings and seeds.
 
-## Statistical hypotheses and p-values
+## Statistical hypotheses
 
 The game-level target W-D-L display is descriptive. Statistical tests use
 complete color-reversed pairs.
 
-### Superiority
+The default method tests the bounded pair scores directly. Its hypotheses are:
+
+| Claim | Null hypothesis rejected |
+|---|---|
+| superior | conditional mean pair score is at most 0.5 |
+| non-inferior | conditional mean pair score is at most `0.5 - delta` |
+| inferior | conditional mean pair score is at least 0.5 |
+
+The conditional formulation allows sequential sampling: before each pair,
+under the null its expected score given the past must remain on the null side
+of the boundary. Independence between genuinely distinct pairs is a simpler
+sufficient assumption.
+
+## Default always-valid method
+
+The default `--stat-method anytime` uses a test-martingale, also called an
+e-process. For a score `q_i` in `[0, 1]`, null boundary `mu_0`, and a chosen
+alternative mean `mu_1 > mu_0`, define
+
+```text
+lambda = (mu_1 - mu_0) / (mu_0 * (1 - mu_0))
+factor_i = 1 + lambda * (q_i - mu_0)
+E_n = product(i=1..n) factor_i.
+```
+
+For a lower-direction test, such as inferiority, reverse the final difference:
+
+```text
+factor_i = 1 + lambda * (mu_0 - q_i).
+```
+
+Every factor is positive. Under its null hypothesis, its conditional expected
+value is at most one. Therefore `E_n` is nonnegative evidence whose expected
+value cannot systematically grow under the null. Ville's inequality gives
+
+```text
+P_null(max over all n of E_n >= 1 / alpha) <= alpha.
+```
+
+At the default `alpha = 0.05`, the decision boundary is consequently
+`E >= 20`. The controller updates and displays evidence after every valid
+pair. There are no planned checkpoints and no 128-to-256 blind interval.
+Parallel runs may finish several pairs together; pairs are applied in their
+predeclared pair-number order, and a batch can overshoot a boundary by at most
+the number of already-running pairs.
+
+The displayed anytime p-value is
+
+```text
+p_anytime = min(1, 1 / max(E_1, ..., E_n)).
+```
+
+It never increases after evidence has crossed a boundary. It is not the same
+quantity as an ordinary fixed-sample p-value. Looking after every pair,
+stopping on a promising result, or pressing Ctrl-C does not invalidate it.
+
+### Superiority and inferiority evidence
+
+Superiority uses `mu_0 = 0.5` and `mu_1 = --superiority-target`, which defaults
+to 0.60. Inferiority uses the symmetric lower alternative 0.40. The alternative
+does not redefine superiority: the null boundary remains 0.5. It tunes the bet
+for power. A target near the actual effect accumulates evidence faster; a poor
+choice remains valid but may require more pairs.
+
+Choose this target before starting an experiment. Selecting or changing it
+after inspecting the same games and then recomputing evidence would be
+data-dependent tuning and would forfeit the stated error guarantee unless the
+selection itself were corrected for.
+
+With the default superiority target, a pair win of score 1 multiplies
+superiority evidence by 1.2, a pair loss of score 0 multiplies it by 0.8, and
+a score-0.5 pair tie multiplies it by 1. Scores 0.75 and 0.25 contribute
+intermediate factors.
+
+### Non-inferiority evidence
+
+For margin `delta`, non-inferiority uses null boundary
+
+```text
+mu_0 = 0.5 - delta
+```
+
+and alternative mean 0.5. With the default margin 0.10, the boundary is 0.4.
+This tests whether the target is more than ten percentage points below equal;
+it does not prove exact equality. All pair scores, including ties, contribute.
+
+### Decisions and continuation
+
+At each update:
+
+1. `better` is established when both superiority and non-inferiority evidence
+   have crossed `1 / alpha`;
+2. otherwise `noninferior` is established when its evidence crosses;
+3. otherwise `inferior` is established when its evidence crosses;
+4. otherwise the ratio remains running.
+
+By default, either `better` or `noninferior` passes a multiplier and advances
+the sweep. `--advance-on better` records non-inferiority but continues the
+current multiplier until superiority, inferiority, or `--max-pairs`. This is
+the appropriate mode when the question is specifically whether a multiplier
+is superior rather than merely acceptable as an optimization gate.
+
+## Legacy fixed-look method
+
+Use `--stat-method fixed-looks` to reproduce the original methodology. It
+uses exact sign-test tails for superiority and inferiority, a Hoeffding bound
+for non-inferiority, and alpha-spending at the checkpoints supplied by
+`--look-pairs`.
+
+### Superiority sign test
 
 Let `W`, `T`, and `L` be pair wins, ties, and losses. The exact sign test uses
 only the `D = W + L` decisive pairs. Under the null hypothesis that pair wins
@@ -223,7 +356,7 @@ p_superior = sum(k=W..D) choose(D, k) * 0.5^D.
 Pair ties are excluded. A small value supports a target tendency to win a
 random matched block more often than it loses one.
 
-### Inferiority
+### Inferiority sign test
 
 The opposite exact sign-test tail is
 
@@ -234,7 +367,7 @@ p_inferior = sum(k=0..W) choose(D, k) * 0.5^D.
 A small value supports a target tendency to lose matched blocks more often
 than it wins them.
 
-### Non-inferiority
+### Non-inferiority Hoeffding bound
 
 A p-value cannot establish exact equality. The script operationalizes
 "equal or better" as non-inferiority within a declared margin `delta`. With
@@ -256,11 +389,11 @@ This is a conservative valid p-value bound. It requires no parametric model
 for pair scores, but it can require many pairs when the true score is close to
 0.5 or when a narrower margin is requested.
 
-## Sequential looks and the displayed threshold
+### Fixed sequential looks and the displayed threshold
 
 Repeatedly stopping whenever an ordinary p-value falls below 0.05 would
-inflate the false-positive rate. The script tests only at the predeclared pair
-counts supplied by `--look-pairs`.
+inflate the false-positive rate. In legacy mode, the script tests only at the
+predeclared pair counts supplied by `--look-pairs`.
 
 For planned looks `L_1, ..., L_j` and total within-ratio alpha `alpha`, the
 p-value threshold at look `L_i` is
@@ -296,10 +429,10 @@ the script begins the next smaller multiplier. The final "most aggressive
 established ratio" is the smallest multiplier that passed; it is not the
 currently running or merely encouraging multiplier.
 
-The alpha budget controls repeated looks within one multiplier. It resets for
-the next multiplier and does not provide an additional family-wise correction
-over the entire ratio sweep. Claims comparing several tested multipliers must
-account for that limitation.
+Under either method, the alpha guarantee is per tested multiplier. It resets
+for the next multiplier and does not provide an additional family-wise
+correction over the entire ratio sweep. Claims comparing several tested
+multipliers must account for that limitation.
 
 ### Worked example
 

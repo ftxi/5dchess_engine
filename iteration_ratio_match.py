@@ -8,10 +8,11 @@ reference iteration count.  The target then receives ``ratio * iterations``
 safety cap derived from the measured target/zero IPS ratio.
 
 Ratios are tested from largest to smallest.  Each statistical sample is a
-color-reversed pair sharing an opening and seed.  The sweep advances after a
-sequentially corrected superiority or non-inferiority test and stops on
-significant inferiority or an inconclusive maximum sample.  Ctrl-C cancels
-active games and still prints the strongest (smallest) established ratio.
+color-reversed pair sharing an opening and seed.  By default, always-valid
+e-processes update after every pair, so stopping at any time does not inflate
+the false-positive rate.  The older fixed-look procedure remains available
+for reproducing prior runs.  Ctrl-C cancels active games and still prints the
+strongest (smallest) established ratio.
 """
 
 from __future__ import annotations
@@ -121,6 +122,13 @@ class RatioResult:
     superiority_p: float | None = None
     noninferiority_p: float | None = None
     inferiority_p: float | None = None
+    pair_scores: list[float] = field(default_factory=list)
+    superiority_log_e: float = 0.0
+    noninferiority_log_e: float = 0.0
+    inferiority_log_e: float = 0.0
+    superiority_max_log_e: float = 0.0
+    noninferiority_max_log_e: float = 0.0
+    inferiority_max_log_e: float = 0.0
 
     @property
     def completed_games(self) -> int:
@@ -157,7 +165,9 @@ class RatioResult:
             1.0 if game.outcome == "win" else 0.5 if game.outcome == "draw" else 0.0
             for game in games
         )
-        self.pair_score_sum += points / 2.0
+        score = points / 2.0
+        self.pair_score_sum += score
+        self.pair_scores.append(score)
         if points > 1.0:
             self.pair_wins += 1
         elif points < 1.0:
@@ -334,6 +344,93 @@ def hoeffding_upper_p(mean: float, samples: int, null_mean: float) -> float:
     return min(1.0, math.exp(-2.0 * samples * (mean - null_mean) ** 2))
 
 
+def bounded_mean_log_e(
+    samples: Iterable[float],
+    null_mean: float,
+    alternative_mean: float,
+) -> float:
+    """Return log evidence for an always-valid bounded-mean test.
+
+    Samples must lie in [0, 1].  An alternative above the null tests the
+    composite null E[X | past] <= null_mean; an alternative below it tests
+    E[X | past] >= null_mean.  Every multiplicative factor has conditional
+    expectation at most one under its null, making their product an e-process.
+    """
+
+    if not 0.0 < null_mean < 1.0:
+        raise ValueError("null mean must be between zero and one")
+    if not 0.0 < alternative_mean < 1.0 or alternative_mean == null_mean:
+        raise ValueError("alternative mean must differ and lie between zero and one")
+    bet = abs(alternative_mean - null_mean) / (
+        null_mean * (1.0 - null_mean)
+    )
+    direction = 1.0 if alternative_mean > null_mean else -1.0
+    log_e = 0.0
+    for sample in samples:
+        if not 0.0 <= sample <= 1.0:
+            raise ValueError("bounded-mean samples must lie in [0, 1]")
+        factor = 1.0 + bet * direction * (sample - null_mean)
+        log_e += math.log(factor)
+    return log_e
+
+
+def anytime_p_from_log_e(max_log_e: float) -> float:
+    """Return Ville's anytime-valid p-value from maximum evidence so far."""
+
+    return min(1.0, math.exp(-max_log_e))
+
+
+def update_anytime_evidence(
+    result: RatioResult,
+    noninferiority_margin: float,
+    superiority_target: float,
+) -> None:
+    scores = result.pair_scores
+    result.superiority_log_e = bounded_mean_log_e(
+        scores, 0.5, superiority_target
+    )
+    result.inferiority_log_e = bounded_mean_log_e(
+        scores, 0.5, 1.0 - superiority_target
+    )
+    result.noninferiority_log_e = bounded_mean_log_e(
+        scores, 0.5 - noninferiority_margin, 0.5
+    )
+    result.superiority_max_log_e = max(
+        result.superiority_max_log_e, result.superiority_log_e
+    )
+    result.noninferiority_max_log_e = max(
+        result.noninferiority_max_log_e, result.noninferiority_log_e
+    )
+    result.inferiority_max_log_e = max(
+        result.inferiority_max_log_e, result.inferiority_log_e
+    )
+    result.superiority_p = anytime_p_from_log_e(result.superiority_max_log_e)
+    result.noninferiority_p = anytime_p_from_log_e(
+        result.noninferiority_max_log_e
+    )
+    result.inferiority_p = anytime_p_from_log_e(result.inferiority_max_log_e)
+
+
+def evaluate_anytime_ratio(
+    result: RatioResult,
+    alpha: float,
+    noninferiority_margin: float,
+    superiority_target: float,
+) -> str | None:
+    update_anytime_evidence(result, noninferiority_margin, superiority_target)
+    boundary = math.log(1.0 / alpha)
+    if (
+        result.superiority_max_log_e >= boundary
+        and result.noninferiority_max_log_e >= boundary
+    ):
+        return "better"
+    if result.noninferiority_max_log_e >= boundary:
+        return "noninferior"
+    if result.inferiority_max_log_e >= boundary:
+        return "inferior"
+    return None
+
+
 def evaluate_ratio(
     result: RatioResult,
     alpha_at_look: float,
@@ -368,17 +465,38 @@ def format_ratio(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.3f}"
 
 
-def print_live(result: RatioResult, throughput: Throughput) -> None:
-    print(
+def format_evidence(log_e: float) -> str:
+    if log_e > math.log(sys.float_info.max):
+        return f"exp({log_e:.2f})"
+    return f"{math.exp(log_e):.4g}"
+
+
+def print_live(
+    result: RatioResult,
+    throughput: Throughput,
+    statistical_method: str,
+    pair_complete: bool = False,
+) -> None:
+    line = (
         f"[m={result.ratio:g}] games {result.completed_games}: "
         f"target {result.game_wins}-{result.game_draws}-{result.game_losses} "
         f"(void {result.void_games}); pairs "
         f"{result.pair_wins}-{result.pair_ties}-{result.pair_losses} "
         f"(void {result.void_pairs}, mean score "
         f"{format_ratio(result.mean_pair_score)}); target/zero IPS "
-        f"{format_ratio(throughput.aggregate_ratio)}",
-        flush=True,
+        f"{format_ratio(throughput.aggregate_ratio)}"
     )
+    if statistical_method == "anytime" and pair_complete and result.valid_pairs:
+        line += (
+            "; e-values superior/noninferior/inferior "
+            f"{format_evidence(result.superiority_log_e)}/"
+            f"{format_evidence(result.noninferiority_log_e)}/"
+            f"{format_evidence(result.inferiority_log_e)}; anytime p "
+            f"{format_probability(result.superiority_p)}/"
+            f"{format_probability(result.noninferiority_p)}/"
+            f"{format_probability(result.inferiority_p)}"
+        )
+    print(line, flush=True)
 
 
 async def start_engines(players: Iterable[autoplay.EngineProcess]) -> None:
@@ -654,12 +772,10 @@ async def play_pair(
         experiment.record_game(
             result.ratio, pair_number, game_number, seed, target_white, game
         )
-        print_live(result, experiment.throughput)
+        print_live(result, experiment.throughput, args.stat_method)
         return game
 
     games = await asyncio.gather(one(True), one(False))
-    result.add_pair(games)
-    print_live(result, experiment.throughput)
     return games
 
 
@@ -669,17 +785,24 @@ async def run_ratio(experiment: Experiment, ratio: float) -> RatioResult:
     experiment.results.append(result)
     semaphore = asyncio.Semaphore(args.workers)
     looks = args.look_pairs
-    # Spend more alpha at the larger, more informative looks while keeping
-    # the family-wise total bounded by args.alpha.
     alpha_at_looks = [args.alpha * look / sum(looks) for look in looks]
     next_look = 0
+    noninferiority_announced = False
     pair_number = 1
     parallel_pairs = max(1, math.ceil(args.workers / 2))
-    print(
-        f"\nStarting m={ratio:g}; planned pair looks={looks}, "
-        f"alpha spending={[round(value, 6) for value in alpha_at_looks]}",
-        flush=True,
-    )
+    if args.stat_method == "anytime":
+        print(
+            f"\nStarting m={ratio:g}; always-valid evidence after every pair, "
+            f"boundary e >= {1.0 / args.alpha:g} "
+            f"(anytime p <= {args.alpha:g})",
+            flush=True,
+        )
+    else:
+        print(
+            f"\nStarting m={ratio:g}; planned pair looks={looks}, "
+            f"alpha spending={[round(value, 6) for value in alpha_at_looks]}",
+            flush=True,
+        )
     while pair_number <= args.max_pairs:
         batch_size = min(parallel_pairs, args.max_pairs - pair_number + 1)
         tasks = [
@@ -688,8 +811,55 @@ async def run_ratio(experiment: Experiment, ratio: float) -> RatioResult:
             )
             for offset in range(batch_size)
         ]
-        await asyncio.gather(*tasks)
+        completed_pairs = await asyncio.gather(*tasks)
         pair_number += batch_size
+
+        # Apply pairs in pair-number order. Completion time can correlate with
+        # game outcome and therefore must not choose the statistical order.
+        for games in completed_pairs:
+            result.add_pair(games)
+            if args.stat_method == "anytime" and not any(
+                game.outcome == "void" for game in games
+            ):
+                update_anytime_evidence(
+                    result,
+                    args.noninferiority_margin,
+                    args.superiority_target,
+                )
+            print_live(
+                result,
+                experiment.throughput,
+                args.stat_method,
+                pair_complete=True,
+            )
+
+        if args.stat_method == "anytime":
+            decision = evaluate_anytime_ratio(
+                result,
+                args.alpha,
+                args.noninferiority_margin,
+                args.superiority_target,
+            )
+            should_stop = decision in ("better", "inferior") or (
+                decision == "noninferior" and args.advance_on == "noninferior"
+            )
+            if should_stop:
+                result.decision = decision
+                print(
+                    f"Always-valid decision after {result.valid_pairs} valid "
+                    f"pairs: {decision}; boundary={1.0 / args.alpha:g}",
+                    flush=True,
+                )
+                return result
+            if decision == "noninferior" and not noninferiority_announced:
+                noninferiority_announced = True
+                result.decision = "noninferior"
+                print(
+                    "Non-inferiority established; continuing because "
+                    "--advance-on=better requires superiority.",
+                    flush=True,
+                )
+            continue
 
         while next_look < len(looks) and result.valid_pairs >= looks[next_look]:
             alpha_at_look = alpha_at_looks[next_look]
@@ -707,38 +877,76 @@ async def run_ratio(experiment: Experiment, ratio: float) -> RatioResult:
                 flush=True,
             )
             next_look += 1
-            if decision:
+            should_stop = decision in ("better", "inferior") or (
+                decision == "noninferior" and args.advance_on == "noninferior"
+            )
+            if should_stop:
                 result.decision = decision
                 return result
+            if decision == "noninferior" and not noninferiority_announced:
+                noninferiority_announced = True
+                result.decision = "noninferior"
+                print(
+                    "Non-inferiority established; continuing because "
+                    "--advance-on=better requires superiority.",
+                    flush=True,
+                )
 
         if result.completed_games >= 2 * args.max_pairs:
             break
 
-    result.decision = "inconclusive"
-    if result.valid_pairs:
+    if result.valid_pairs and args.stat_method == "anytime":
+        update_anytime_evidence(
+            result, args.noninferiority_margin, args.superiority_target
+        )
+    elif result.valid_pairs:
         evaluate_ratio(result, alpha_at_looks[-1], args.noninferiority_margin)
+    anytime_noninferior = (
+        args.stat_method == "anytime"
+        and result.noninferiority_p is not None
+        and result.noninferiority_p <= args.alpha
+    )
+    if anytime_noninferior or noninferiority_announced:
+        result.decision = "noninferior"
+    else:
+        result.decision = "inconclusive"
     return result
 
 
 def print_final_summary(experiment: Experiment) -> None:
     print("\n=== Iteration-ratio summary ===")
     for result in experiment.results:
-        if result.valid_pairs and result.superiority_p is None:
+        if result.valid_pairs and experiment.args.stat_method == "anytime":
+            update_anytime_evidence(
+                result,
+                experiment.args.noninferiority_margin,
+                experiment.args.superiority_target,
+            )
+        elif result.valid_pairs:
             evaluate_ratio(
                 result,
                 experiment.args.alpha,
                 experiment.args.noninferiority_margin,
             )
-        print(
+        p_name = "anytime p" if experiment.args.stat_method == "anytime" else "p"
+        line = (
             f"m={result.ratio:g}: {result.decision}; games "
             f"{result.game_wins}-{result.game_draws}-{result.game_losses} "
             f"(void {result.void_games}); pairs "
             f"{result.pair_wins}-{result.pair_ties}-{result.pair_losses}, "
             f"mean score={format_ratio(result.mean_pair_score)}; "
-            f"p(superior)={format_probability(result.superiority_p)}, "
-            f"p(noninferior)={format_probability(result.noninferiority_p)}, "
-            f"p(inferior)={format_probability(result.inferiority_p)}"
+            f"{p_name}(superior)={format_probability(result.superiority_p)}, "
+            f"{p_name}(noninferior)={format_probability(result.noninferiority_p)}, "
+            f"{p_name}(inferior)={format_probability(result.inferiority_p)}"
         )
+        if experiment.args.stat_method == "anytime" and result.valid_pairs:
+            line += (
+                "; max e(superior/noninferior/inferior)="
+                f"{format_evidence(result.superiority_max_log_e)}/"
+                f"{format_evidence(result.noninferiority_max_log_e)}/"
+                f"{format_evidence(result.inferiority_max_log_e)}"
+            )
+        print(line)
     established = [
         result.ratio
         for result in experiment.results
@@ -768,7 +976,11 @@ async def run_experiment(experiment: Experiment) -> int:
         for ratio in experiment.args.ratios:
             result = await run_ratio(experiment, ratio)
             print(f"m={ratio:g} decision: {result.decision}", flush=True)
-            if result.decision not in ("better", "noninferior"):
+            passed = result.decision == "better" or (
+                result.decision == "noninferior"
+                and experiment.args.advance_on == "noninferior"
+            )
+            if not passed:
                 break
         return 0
     except asyncio.CancelledError:
@@ -838,13 +1050,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="starting 5DPGN; repeat for an opening cycle",
     )
     parser.add_argument(
+        "--stat-method",
+        choices=("anytime", "fixed-looks"),
+        default="anytime",
+        help="always-valid per-pair evidence (default) or legacy planned looks",
+    )
+    parser.add_argument(
+        "--advance-on",
+        choices=("noninferior", "better"),
+        default="noninferior",
+        help="advance to the next ratio after this strength claim",
+    )
+    parser.add_argument(
         "--look-pairs",
         type=parse_int_list,
         default=parse_int_list("8,16,32,64,128,256"),
-        help="predeclared valid-pair checkpoints",
+        help="predeclared valid-pair checkpoints for --stat-method fixed-looks",
     )
     parser.add_argument("--max-pairs", type=int, default=256)
     parser.add_argument("--alpha", type=float, default=0.05)
+    parser.add_argument(
+        "--superiority-target",
+        type=float,
+        default=0.60,
+        help="alternative mean used by the always-valid superiority bet",
+    )
     parser.add_argument(
         "--noninferiority-margin",
         type=float,
@@ -869,9 +1099,11 @@ def main() -> int:
         parser.error("cap factor, workers, and max actions must be positive")
     if not 0 < args.alpha < 1:
         parser.error("--alpha must be between zero and one")
+    if not 0.5 < args.superiority_target < 1:
+        parser.error("--superiority-target must be between 0.5 and one")
     if not 0 < args.noninferiority_margin < 0.5:
         parser.error("--noninferiority-margin must be between zero and 0.5")
-    if args.max_pairs < args.look_pairs[-1]:
+    if args.stat_method == "fixed-looks" and args.max_pairs < args.look_pairs[-1]:
         parser.error("--max-pairs must be at least the final --look-pairs value")
     if args.output_dir is None:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
