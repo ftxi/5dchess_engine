@@ -69,11 +69,67 @@ Note: for existing timelines, the semimove on them can be virtually anything. Fo
 Representing the Search Space
 -----------------------------
 
-A hypercuboid will be represented by a 2n-list of sets, where each set contains the possible semimoves for the corresponding timeline. 
+A hypercuboid will be represented by a 2n-list of sets, where each set contains the possible semimoves for the corresponding timeline.
+
+(Optimization hint: 2n can be optimized to n+k where k is the maximal number of possible new timelines that can be created in this turn. Or, k can be taken as the number of playble timelines that has a branching move departing from it.)
 
 We work on *search spaces*, which are subsets of the universe. Sometimes the search space looks like a hypercuboid, so we will represent it in the way just described. Otherwise, we will represent it as a list of hypercuboids, meaning that the search space is the disjoint union of all the listed hypercuboids.
 
-The problem to be removed are represented as *slices*, which are hypercuboids with some axes with few semimoves, while other axes with all allowed semimoves.
+The problem to be removed are represented as *slices*, which are hypercuboids with some axes with a few semimoves, while other axes with all allowed semimoves.
+
+### Example
+
+Suppose a hypercuboid is has 3 axes, where each axis have the following semimoves:
+* Axis 0: {a, b, c}
+* Axis 1: {d, e}
+* Axis 2: {f, g, h}
+The hypercuboid is in principle a 3-dimensional cube, with 3*2*3 = 18 points. However, in practice, we only need to store a dictionary (or list) of the axes and their semimoves, which is
+```
+{
+    0: {a, b, c},
+    1: {d, e},
+    2: {f, g, h}
+}
+```
+
+And we have a problem slice that is
+* on Axis 2: {g, h}
+* on other axes: all semimoves
+
+This problem slice can be read as: banish semimoves g and h on axis 2.
+
+The problem slice is a plane (with thickness 2) in the 3-dimensional space. Then removing the problem slice from the hypercuboid is equivalent to removing all points that has g or h on axis 2. The resulting hypercuboid is
+```
+{
+    0: {a, b, c},
+    1: {d, e},
+    2: {f}
+}
+```
+
+On the other hand, if the problem slice is
+* on Axis 0: {a}
+* on Axis 1: {d}
+* on Axis 2: all semimovess
+
+This problem slice can be read as: banish this combination: on axis 0, semimove a; on axis 1, semimove d. In other words, a and d cannot both in the remaining search space after removing this problem slice.
+
+The problem slice is a line. After removing it, the resulting space is no longer a hypercuboid. We will represent it as a list of two disjoint hypercuboids (a search space):
+```
+[
+    {
+        0: {b, c},
+        1: {d, e},
+        2: {f, g, h}
+    },
+    {
+        0: {a},
+        1: {e},
+        2: {f, g, h}
+    }
+]
+```
+(Think it as separating a plane from the cube first, then remove the line from the plane, and put the remaining two pieces together.)
 
 Building the Universe
 ----------------------
@@ -83,7 +139,7 @@ The semimoves on l is the collection of
 * exactly one null_semimove
 * all physical moves on l, recorded as a physical_semimove
 * all moves that leaves l, where for each move, we remove the information on the location where the piece lands, and only record a departure_semimove
-* all move that arrives on l at the Present, where all the infomation, including the departure location is retained in the arrival_semive
+* all moves that arrives on l at the Present, where all the infomation, including the departure location is retained in the arrival_semive
 
 ### If l is a newly created timeline
 The semimoves are not reliant on l. They are always the collection of
