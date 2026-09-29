@@ -71,7 +71,7 @@ Suppose the algorithm returns nil while there exists a matching M' that includes
 
 3. Otherwise, w is in S. Go back to step 1 with w in place of u.
 
-Note that we cannot have an infinite loop. A loop while create a minimal cycle in G where all vertices u ... x --- y === z ... t are distinct and y is the first vertex that occurs twice. So x and t are not the same vertex, and they cannot match to the same vertex in M'.
+Note that we cannot have an infinite loop. A loop will create a minimal cycle in G where all vertices u ... x --- y === z ... t are distinct and y is the first vertex that occurs twice. So x and t are not the same vertex, and they cannot match to the same vertex in M'.
 
 ```
 u ... x --- y === z
@@ -211,27 +211,46 @@ Suppose the algorithm returns an augmenting path P. Prove by induction on the nu
 
 *Q.E.D. (Soundness)*
 
-We abstract the pattern of ablossom general. A blossom is an odd-length cycle
+We abstract the pattern of a blossom (with respect to a specific root) in general. A blossom is an odd-length cycle
 + with a designated vertex called the base; and
 + the two vertices adjacent to the base are not matched to the base, but the walk
 ```
 base---v1===v2---...===vn---base
 ```
 form an alternating pattern of edges in M and not in M; and
-+ all vertices in the blossom pattern should be in S.
++ all vertices in the blossom pattern should be in S; and
++ there exists a even length path, with alternating edges not in M and in M, from root to the base of the blossom. The path intersect with the blossom at exactly one vertex: the base. This path is known as the stem of the blossom.
 
-**Lemma 1.** Suppose G' is obtained from G by contracting a blossom B and there exists an augmenting path P in G. Then there exists an augmenting path P' in G'.
+**Lemma 1.** Suppose G' is obtained from G by contracting a blossom B (with root r, base b, stem T) and there exists an augmenting path P starting from r in G. Then there exists an augmenting path P' starting from the respective root in G'=G/B.
 
-Suppose there exists an augmenting path P in G. If B is a blossom, the contracted path P' defined as follows:
-+ If P does not intersect with B, then P' = P.
-+ Otherwise, let P' be the path obtained by replacing the subpath of P that starts at the first vertex in B and ends at the last vertex in B with the contracted vertex b'.
+This observation, which is a slight improvement of the proof of the correctness of the outer program, will be helpful:
 
-We will show that P' is an augmenting path in G'.
-+ If P does not intersect with B, then there is nothing to prove.
-+ If P intersects B, then P must enter B at some vertex v1 and exit B at some vertex v2.
-    - Suppose P enters B at the base. Then the first vertex in the intersection must be the base, or a matched vertex. With the same reasoning in the proof of soundness, P cannot terminate inside B. 
-    - Suppose P enters B at a vertex v1 that is not the base. Then P enters through an unmatched edge, because the only possible edge that is matched to the outside is the base. For the same reason, P must exit B through base.
-+ Note that P crosses B at most once because each time it crosses it crosses the base. In either case, P' is obtained from P by removing even number of edges and remains to be an augmenting path.
+**Observation.** Suppose r is an element of S, and r is not matched in M. If there exists another match M' which covers r and also every vertex in the intersection S and set of vertices matched in M, then there is an augmenting path starting from r.
+
+Reason: use the same construction inside the proof of correctness in the outter algorithm.  
+
+*Proof (Lemma 1).*
+
+Suppose there exists an augmenting path P in G. If P does not intersect with B, we finish the proof by letting P' = P. Other case requires more careful treatment.
+
+Let N be a matching obtained by flipping M with respect to the stem T, i.e. N=(M\T) union (T\M). N is well-defined matching, as all affected vertices remain matched to at most one vertex after the adjustment: 
+
+|    Node    | Mate in M | Mate in N |
+|:----------:|:---------:|:---------:|
+|   root=t0  |  nothing  |     t1    |
+|   t{2k-1}  |  t{2k}    |  t{2k-2}  |
+|    t{2k}   |  t{2k-1}  |  t{2k+1}  |
+| base=t{2n} |  t{2n-1}  |  nothing  |
+
+Let K be the matching obtained by flipping M with respect to the augmenting path P. By the arguments of the outer algorithm, K is a matching that includes r and every previously covered vertex of S.
+
+Now, b is an element of S, which is not matched in N, but matching K covers b and and also every vertex in the intersection S and set of vertices matched in N. Therefore applying the observation we obtain an augmenting path Q of N which starts from b.
+
+Now Q starts at the base of B, it must leave B at some point. It cannot end within B: every vertice other than b is matched and in S. Let s be the last vertice in B and t be the next vertice in Q (no longer in B). 
+
+Define Q' by replacing the entire prefix b--s with the contracted vertex b'. Now Q' is an augmenting path in N/B.
+
+Define K' by flipping N/B with Q'. Now K' covers b', and every vertices in vertices of S' covered by N/B. On the other hand, r' is not matched in M/B. Apply the observation again to get an augmenting path P' of M/B.
 
 *Q.E.D. (Lemma 1)*
 
