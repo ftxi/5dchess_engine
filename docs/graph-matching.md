@@ -246,11 +246,11 @@ Let K be the matching obtained by flipping M with respect to the augmenting path
 
 Now, b is an element of S, which is not matched in N, but matching K covers b and and also every vertex in the intersection S and set of vertices matched in N. Therefore applying the observation we obtain an augmenting path Q of N which starts from b.
 
-Now Q starts at the base of B, it must leave B at some point. It cannot end within B: every vertice other than b is matched and in S. Let s be the last vertice in B and t be the next vertice in Q (no longer in B). 
+Now Q starts at the base of B, it must leave B at some point. It cannot end within B: every vertice other than b is matched and in S. Let s be the last vertice in B and t be the next vertice in Q (no longer in B). Moreover, it can only exit B after even length: it is the case where t need not be matched to s.
 
-Define Q' by replacing the entire prefix b--s with the contracted vertex b'. Now Q' is an augmenting path in N/B.
+Define Q' by replacing the entire prefix from b to s with the contracted vertex b'. Now Q' is an augmenting path in N/B.
 
-Define K' by flipping N/B with Q'. Now K' covers b', and every vertices in vertices of S' covered by N/B. On the other hand, r' is not matched in M/B. Apply the observation again to get an augmenting path P' of M/B.
+Define K' by flipping N/B with Q'. Now K' covers b' as well as every vertices in vertices of S' covered by N/B. Note the only difference between covered vertices of M/B and N/B is on r' and b'. On the other hand, r' is not matched in M/B. Apply the observation again to get an augmenting path P' of M/B.
 
 *Q.E.D. (Lemma 1)*
 
