@@ -139,30 +139,6 @@ graph::find_matching(const std::vector<index_t> &include) const
                     continue;
                 }
 
-                // Our path may end after a matching edge at a vertex outside S.
-                // Check that endpoint before comparing blossom bases: contraction
-                // may put the endpoint inside the current blossom while parent[]
-                // still describes the path that reaches it.
-                if(mate[neighbor] != nil_vertex && !must_include[mate[neighbor]])
-                {
-                    // If no route reaches neighbor in the odd role yet, record
-                    // the nonmatching edge from vertex.
-                    if(parent[neighbor] == nil_vertex)
-                    {
-                        // if neighbor and vertex are in the same blossom, skip
-                        if(base[vertex] == base[neighbor])
-                        {
-                            continue;
-                        }
-                        parent[neighbor] = vertex;
-                    }
-                    // otherwise, the path ends after neighbor's matching edge, at its
-                    // optional mate outside S.
-                    reconstruct_path(neighbor);
-                    path.push_back(mate[neighbor]);
-                    return true;
-                }
-
                 // if the edge is internal to a blossom, skip
                 if(base[vertex] == base[neighbor])
                 {
@@ -191,6 +167,13 @@ graph::find_matching(const std::vector<index_t> &include) const
                             // they will need to be added to the searching queue
                             if(!is_even_reachable[v])
                             {
+                                // A newly even-reachable vertex outside S is a valid endpoint.
+                                if(!must_include[v])
+                                {
+                                    reconstruct_path(mate[v]);
+                                    path.push_back(v);
+                                    return true;
+                                }
                                 is_even_reachable[v] = true;
                                 queue.push_back(v);
                             }
@@ -210,6 +193,12 @@ graph::find_matching(const std::vector<index_t> &include) const
                     // otherwise, add the neighbor's mate to the tree
                     // and add it to the searching queue
                     const index_t next = mate[neighbor];
+                    if(!must_include[next])
+                    {
+                        reconstruct_path(neighbor);
+                        path.push_back(next);
+                        return true;
+                    }
                     is_even_reachable[next] = true;
                     queue.push_back(next);
                 }
