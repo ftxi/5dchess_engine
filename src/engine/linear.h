@@ -119,11 +119,11 @@ public:
         int max_rollout_actions = default_mcts_rollout_max_actions,
         linear_cutoff_evaluation::weight_vector_t weights
             = linear_cutoff_evaluation::default_weights(),
-        float weight_temperature = default_move_info_temperature)
+        float weight_temperature = default_rollout_temperature)
         : weighted_linear_mcts_engine(
             weighted_linear_default_policy{
                 weighted_action_selection{
-                    default_move_info_weights, weight_temperature},
+                    default_move_evaluation_weights, weight_temperature},
                 linear_cutoff_evaluation{std::move(weights)},
                 static_cast<std::size_t>(std::max(0, max_rollout_actions)),
                 seed

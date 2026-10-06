@@ -4,9 +4,29 @@
 #include <limits>
 #include <set>
 #include "mcts_engines.h"
+#include "move_evaluation.h"
 #include "pgnparser.h"
 
 struct observer {};
+
+std::optional<move_score_table> build_score_table(
+    const HC_info& info, const move_evaluation_weights& weights,
+    std::stop_token stop = {})
+{
+    return move_evaluator(info, weights).build_score_table(stop);
+}
+
+std::optional<move_score_table> capture_weights_table(
+    const HC_info& info, std::stop_token stop = {})
+{
+    return move_evaluator(info, capture_weights).build_score_table(stop);
+}
+
+std::optional<move_score_table> capture_check_weights_table(
+    const HC_info& info, std::stop_token stop = {})
+{
+    return move_evaluator(info, capture_check_weights).build_score_table(stop);
+}
 
 state standard_position()
 {
@@ -59,8 +79,8 @@ void test_weighted_action_selection()
     multiverse_odd boards({{0, 1, false, "3k/4/1p2/KR2"}});
     const state position(boards);
 
-    move_info_weights weights{};
-    weights.values[move_info_weights::PAWN_CAPTURE] = 20.0f;
+    move_evaluation_weights weights{};
+    weights.values[move_evaluation_weights::PAWN_CAPTURE] = 20.0f;
     weighted_action_selection selector(weights, 1.0f);
     assert(selector.get_temperature() == 1.0f);
 
@@ -82,6 +102,19 @@ void test_weighted_action_selection()
         });
     }
     assert(capture_count >= 99);
+
+    // A zero profile gives every coordinate the same exponential weight.
+    weighted_action_selection neutral({}, 1.0f);
+    std::set<moveseq> neutral_choices;
+    for(unsigned int seed = 0; seed < 12; ++seed)
+    {
+        std::mt19937 rng(seed);
+        const auto selected = neutral(position, {}, &rng);
+        assert(selected);
+        assert(position.can_apply(action::from_moveseq(*selected, position)));
+        neutral_choices.insert(*selected);
+    }
+    assert(neutral_choices.size() > 1);
 
     selector.set_temperature(600.0f);
     assert(selector.get_temperature() == 600.0f);
@@ -154,13 +187,13 @@ void test_capture_ordering()
     const state position(boards);
     auto root = uct_tree_policy<scored_HC_ordering>::node_t::make_root(position);
     observer obs;
-    uct_tree_policy<scored_HC_ordering> policy(42, capture_feature_scores);
+    uct_tree_policy<scored_HC_ordering> policy(42, capture_weights_table);
     auto *selected = policy.select(root.get(), {}, obs);
     assert(selected && selected->get_parent() == root.get());
-    const auto scores = feature_coordinate_scores(
-        root->get_context()->hc_info, capture_ordering_weights(false));
+    const auto scores = build_score_table(
+        root->get_context()->hc_info, capture_weights);
     assert(scores && (*scores)[selected->get_n()][selected->get_i()]
-        == capture_feature_score);
+        == 480.0f);
 }
 
 void test_capture_check_progressive_widening()
@@ -171,49 +204,49 @@ void test_capture_check_progressive_widening()
     observer obs;
     using policy_t = progressive_widening_tree_policy<scored_HC_ordering>;
     auto root = policy_t::node_t::make_root(position);
-    const auto scores = feature_coordinate_scores(
-        root->get_context()->hc_info, capture_ordering_weights(true));
+    const auto scores = build_score_table(
+        root->get_context()->hc_info, capture_check_weights);
     assert(scores);
     bool capture = false, check = false;
     for(index_t axis = 0; axis < root->get_context()->hc_info.universe.dimension(); ++axis)
     {
         for(index_t coordinate : root->get_context()->hc_info.universe[axis])
         {
-            capture |= (*scores)[axis][coordinate] == capture_feature_score;
-            check |= (*scores)[axis][coordinate] == check_feature_score;
+            capture |= (*scores)[axis][coordinate] == 480.0f;
+            check |= (*scores)[axis][coordinate] == 300.0f;
         }
     }
     assert(capture && check);
 
     policy_t policy(42, default_progressive_widening_constant,
                     default_progressive_widening_alpha,
-                    capture_check_feature_scores);
+                    capture_check_weights_table);
     assert(policy.widening_limit(0) == 1);
     assert(policy.widening_limit(1) == 2);
     assert(policy.widening_limit(4) == 4);
     auto *selected = policy.select(root.get(), {}, obs);
     assert(selected && selected->get_parent() == root.get());
-    assert((*scores)[selected->get_n()][selected->get_i()] == capture_feature_score);
+    assert((*scores)[selected->get_n()][selected->get_i()] == 480.0f);
     auto *ceiling = policy.complete_to_ceiling(selected, {}, obs);
     assert(ceiling && ceiling->is_ceiling());
     assert(position.can_apply(action::from_moveseq(ceiling->to_action(), position)));
 }
 
-void test_feature_ordering_and_generic_policies()
+void test_score_table_and_generic_policies()
 {
     // Rxd2 both captures the pawn and checks the king on d4.
     multiverse_odd boards({{0, 1, false, "3k/4/3p/K2R"}});
     const state position(boards);
     auto [info, space] = HC_info::build_HC(position);
     (void)space;
-    const auto scores = feature_coordinate_scores(
-        info, capture_ordering_weights(true));
+    const auto scores = build_score_table(
+        info, capture_check_weights);
     assert(scores);
     bool combined = false;
     for(index_t axis = 0; axis < info.universe.dimension(); ++axis)
         for(index_t coordinate : info.universe[axis])
             combined |= (*scores)[axis][coordinate]
-                == capture_feature_score + check_feature_score;
+                == 480.0f + 300.0f;
     assert(combined);
 
     std::mt19937 rng(7);
@@ -222,9 +255,9 @@ void test_feature_ordering_and_generic_policies()
     std::stop_source stopped;
     stopped.request_stop();
     assert(!construct_hc_ordering<scored_HC_ordering>(
-        info, rng, stopped.get_token(), capture_check_feature_scores));
-    assert(!feature_coordinate_scores(
-        info, capture_ordering_weights(true), stopped.get_token()));
+        info, rng, stopped.get_token(), capture_check_weights_table));
+    assert(!build_score_table(
+        info, capture_check_weights, stopped.get_token()));
 
     observer obs;
     uct_tree_policy<natural_HC_ordering> natural(7);
@@ -249,8 +282,8 @@ void test_feature_ordering_and_generic_policies()
     // constructor that accepts HC_info.
     using scored_widening_t = progressive_widening_tree_policy<scored_HC_ordering>;
     auto scored_root = scored_widening_t::node_t::make_root(position);
-    auto scored_table = feature_coordinate_scores(
-        scored_root->get_context()->hc_info, capture_ordering_weights(true));
+    auto scored_table = build_score_table(
+        scored_root->get_context()->hc_info, capture_check_weights);
     assert(scored_table);
     std::mt19937 scored_rng(7);
     scored_widening_t::set_ordering(scored_root.get(), scored_HC_ordering(
@@ -258,7 +291,7 @@ void test_feature_ordering_and_generic_policies()
     scored_widening_t scored_policy(7);
     auto *scored_child = scored_policy.select(scored_root.get(), {}, obs);
     assert(scored_child && (*scored_table)[scored_child->get_n()][scored_child->get_i()]
-        == capture_feature_score + check_feature_score);
+        == 480.0f + 300.0f);
 
     auto fallback_root = scored_widening_t::node_t::make_root(position);
     auto *fallback_child = scored_policy.select(fallback_root.get(), {}, obs);
@@ -403,7 +436,7 @@ int main()
     test_completion();
     test_capture_ordering();
     test_capture_check_progressive_widening();
-    test_feature_ordering_and_generic_policies();
+    test_score_table_and_generic_policies();
     test_multiple_semimoves();
     test_interrupted_action_selection();
     test_engine<mcts_engine>();

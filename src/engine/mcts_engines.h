@@ -4,7 +4,7 @@
 #include <iomanip>
 #include <sstream>
 #include "uct.h"
-#include "feature_ordering.h"
+#include "move_evaluation.h"
 #include "progressive_widening.h"
 #include "backpropagation.h"
 #include "selection_policy.h"
@@ -128,7 +128,10 @@ public:
                         std::optional<std::uint32_t> seed = std::nullopt,
                         int = default_mcts_rollout_max_actions)
         : zero_capture_mcts_engine(
-            {}, uct_tree_policy<scored_HC_ordering>{seed, capture_feature_scores},
+            {}, uct_tree_policy<scored_HC_ordering>{seed,
+                [](const HC_info& info, std::stop_token stop) {
+                    return move_evaluator(info, capture_weights).build_score_table(stop);
+                }},
             {}, {}, {}, std::move(io)) {}
 };
 
@@ -141,8 +144,10 @@ public:
         double widening_alpha = default_progressive_widening_alpha)
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
-                seed,widening_constant,widening_alpha,
-                capture_check_feature_scores},
+                seed, widening_constant, widening_alpha,
+                [](const HC_info& info, std::stop_token stop) {
+                    return move_evaluator(info, capture_check_weights).build_score_table(stop);
+                }},
             {}, {}, {}, std::move(io)) {}
 };
 
@@ -153,11 +158,11 @@ public:
         std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed = std::nullopt,
         int max_actions = default_mcts_rollout_max_actions,
-        float weight_temperature = default_move_info_temperature)
+        float weight_temperature = default_rollout_temperature)
         : weighted_rollout_mcts_engine(
             weighted_rollout_default_policy{
                 weighted_action_selection{
-                    default_move_info_weights, weight_temperature},
+                    default_move_evaluation_weights, weight_temperature},
                 rollout_cutoff_evaluation{},
                 static_cast<std::size_t>(std::max(0, max_actions)), seed},
             uct_tree_policy<>{seed}, {}, {}, {}, std::move(io)) {}

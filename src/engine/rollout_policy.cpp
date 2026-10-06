@@ -138,7 +138,7 @@ std::optional<moveseq> weighted_action_selection::operator()(
     if(stop.stop_requested()) return std::nullopt;
     auto [info, space] = HC_info::build_HC(s);
     const float weight_temperature = get_temperature();
-    semimove_feature features(info);
+    move_evaluator evaluator(info, weights);
     std::vector<std::vector<float>> coordinate_weights(info.universe.dimension());
     for(index_t axis = 0; axis < info.universe.dimension(); ++axis)
     {
@@ -147,8 +147,8 @@ std::optional<moveseq> weighted_action_selection::operator()(
         for(index_t coordinate : info.universe[axis])
         {
             if(stop.stop_requested()) return std::nullopt;
-            axis_weights.push_back(hc_move_info_weight(
-                info, features, axis, coordinate, weights, weight_temperature));
+            axis_weights.push_back(std::exp(
+                evaluator.score(axis, coordinate) / weight_temperature));
         }
     }
     auto order = rng

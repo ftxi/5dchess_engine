@@ -472,7 +472,7 @@ std::string game::show_pgn(
     bool standard_metadata_only)
 {
     std::ostringstream oss;
-    constexpr static std::array<std::string, 11> ordered_keys = {
+    const static std::array<std::string, 11> ordered_keys = {
         "event", "site", "date", "round", "white", "black", "result",
         "variant", "size", "timeline", "promotions"
     };

@@ -76,9 +76,10 @@ The three `*-weighted` engines use move metadata to bias rollout selection
 toward tactically promising moves. `zero` is MCTS with a constant-zero default
 policy.
 
-`zero-capture` expands captures before quiet moves. `zero-capture-check-pw`
-adds check-aware ordering and progressive widening; its widening constant and
-exponent can be changed with `--pw-constant` and `--pw-alpha`.
+`zero-capture` and `zero-capture-check-pw` share move evaluation with different
+capture/check weight profiles. `zero-capture-check-pw` also uses progressive
+widening; its widening constant and exponent can be changed with
+`--pw-constant` and `--pw-alpha`.
 
 The Linear engines evaluate inconclusive rollout positions with the same
 bounded 64-feature model. `linear` and `linear-weighted` use hand-written

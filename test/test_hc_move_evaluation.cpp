@@ -2,7 +2,8 @@
 #include <cassert>
 #include <cstddef>
 
-#include "move_info_evaluation.h"
+#include "move_evaluation.h"
+#include "hypercuboid.h"
 #include "pgnparser.h"
 
 namespace
@@ -10,6 +11,9 @@ namespace
 struct coverage
 {
     std::size_t moves = 0;
+    std::size_t arrivals = 0;
+    std::size_t departures = 0;
+    std::size_t nulls = 0;
     bool check = false;
     bool jump = false;
     bool promotion = false;
@@ -25,17 +29,35 @@ void compare(const state &position, coverage &seen)
     auto [info, space] = HC_info::build_HC(position);
     (void)space;
     semimove_feature evaluator(info);
+    move_evaluator scoring(info, default_move_evaluation_weights);
+    move_evaluation_weights jump_weights{};
+    jump_weights.values[move_evaluation_weights::SUPERPHYSICAL] = 1.0f;
+    move_evaluator jump_scoring(info, jump_weights);
     for(index_t axis = 0; axis < info.universe.dimension(); ++axis)
     {
         for(index_t coordinate : info.universe[axis])
         {
+            const semimove candidate = info.get_semimove(axis, coordinate);
             const auto cached = info.get_move_boards(axis, coordinate);
             if(!cached)
             {
                 assert(!evaluator.is_check(axis, coordinate));
-                assert(hc_move_info_score(info, evaluator, axis, coordinate,
-                                          default_move_info_weights) == 0.0f);
+                assert(scoring.score(axis, coordinate) == 0.0f);
+                assert(jump_scoring.score(axis, coordinate) == 0.0f);
+                if(candidate.is<departing_move>()) ++seen.departures;
+                else if(candidate.is<null_move>()) ++seen.nulls;
+                else assert(false && "unscored coordinate has unexpected kind");
                 continue;
+            }
+            if(candidate.is<arriving_move>())
+            {
+                assert(jump_scoring.score(axis, coordinate) == 1.0f);
+                ++seen.arrivals;
+            }
+            else
+            {
+                assert(candidate.is<physical_move>());
+                assert(jump_scoring.score(axis, coordinate) == 0.0f);
             }
             state after = position;
             const ext_move prepared(cached->move, position);
@@ -117,6 +139,9 @@ int main()
     compare(state(jump_boards, promotion_options::QUEEN), seen);
 
     assert(seen.moves > 0);
+    assert(seen.arrivals > 0);
+    assert(seen.departures > 0);
+    assert(seen.nulls > 0);
     assert(seen.check);
     assert(seen.jump);
     assert(seen.promotion);

@@ -21,7 +21,7 @@ struct command_line_options
 {
     std::optional<std::uint32_t> seed;
     int rollout_max_actions = default_mcts_rollout_max_actions;
-    float weight_temperature = default_move_info_temperature;
+    float weight_temperature = default_rollout_temperature;
     double progressive_widening_constant
         = default_progressive_widening_constant;
     double progressive_widening_alpha = default_progressive_widening_alpha;
@@ -44,7 +44,7 @@ void print_usage(std::ostream &out)
     out << "Usage: 5dchess <engine> [options]\n"
         << "\nEngines:\n"
         << "  mcts               Monte Carlo tree search with randomized rollouts\n"
-        << "  mcts-weighted      MCTS with move-info-weighted rollouts\n"
+        << "  mcts-weighted      MCTS with move-weighted rollouts\n"
         << "  zero               MCTS with no rollout and zero cutoff evaluation\n"
         << "  zero-capture       zero with capture-biased tree expansion\n"
         << "  zero-capture-check-pw  capture/check ordering with progressive widening\n"
@@ -59,7 +59,7 @@ void print_usage(std::ostream &out)
         << "  -r, --rollout-max-actions <n>   search rollout action limit (default "
         << default_mcts_rollout_max_actions << ")\n"
         << "  -wt, --weight-temperature <n>   weighted rollout temperature (default "
-        << default_move_info_temperature << ")\n"
+        << default_rollout_temperature << ")\n"
         << "  --pw-constant <n>               widening constant for capture/check PW"
            " (default 2)\n"
         << "  --pw-alpha <n>                  widening exponent in (0, 1] for"

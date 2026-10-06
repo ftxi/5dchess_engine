@@ -4,7 +4,9 @@
 #include <utility>
 
 #include "default_policy.h"
-#include "move_info_evaluation.h"
+#include "move_evaluation.h"
+
+inline constexpr float default_rollout_temperature = 1200.0f;
 
 struct rollout_details
 {
@@ -21,16 +23,16 @@ struct random_action_selection
 
 class weighted_action_selection
 {
-    move_info_weights weights;
+    move_evaluation_weights weights;
     std::unique_ptr<std::atomic<float>> temperature;
 
 public:
     weighted_action_selection(
-        move_info_weights weights = default_move_info_weights,
-        float temperature_value = default_move_info_temperature)
+        move_evaluation_weights weights = default_move_evaluation_weights,
+        float temperature_value = default_rollout_temperature)
         : weights{std::move(weights)},
           temperature{std::make_unique<std::atomic<float>>(
-              default_move_info_temperature)}
+              default_rollout_temperature)}
     {
         set_temperature(temperature_value);
     }
