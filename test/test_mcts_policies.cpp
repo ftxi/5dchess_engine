@@ -114,16 +114,16 @@ void test_weighted_action_selection()
 void test_completion()
 {
     observer obs;
-    auto root = uct_tree_policy::node_t::make_root(standard_position());
+    auto root = uct_tree_policy<>::node_t::make_root(standard_position());
     // Pre-materialize multiple legal branches: completion must randomize these,
     // independently of the HC ordering used to discover them.
     natural_HC_ordering natural;
     for(auto index : root->search(natural)) (void)index;
     assert(root->get_children().size() > 1);
-    std::set<uct_tree_policy::node_t *> selected;
+    std::set<uct_tree_policy<>::node_t *> selected;
     for(unsigned seed = 0; seed < 32; ++seed)
     {
-        uct_tree_policy a(seed), b(seed);
+        uct_tree_policy<> a(seed), b(seed);
         auto *first = a.complete_to_ceiling(root.get(), {}, obs);
         auto *second = b.complete_to_ceiling(root.get(), {}, obs);
         assert(first && first->is_ceiling() && first == second);
@@ -131,7 +131,7 @@ void test_completion()
         selected.insert(first);
     }
     assert(selected.size() > 1);
-    uct_tree_policy policy(9);
+    uct_tree_policy<> policy(9);
     auto *ceiling = policy.complete_to_ceiling(root.get(), {}, obs);
     sum_backpropagation{}.backpropagate(ceiling, reward_t<>{0.5f, {}}, obs);
     assert(root->get_info().visits == 1);
@@ -153,14 +153,15 @@ void test_capture_ordering()
 {
     multiverse_odd boards({{0, 1, false, "3k/4/1p2/KR2"}});
     const state position(boards);
-    auto root = capture_uct_tree_policy::node_t::make_root(position);
+    auto root = uct_tree_policy<scored_HC_ordering>::node_t::make_root(position);
     observer obs;
-    capture_uct_tree_policy policy(42);
+    uct_tree_policy<scored_HC_ordering> policy(42, capture_feature_scores);
     auto *selected = policy.select(root.get(), {}, obs);
     assert(selected && selected->get_parent() == root.get());
-    const semimove move = root->get_context()->hc_info.get_semimove(
-        selected->get_n(), selected->get_i());
-    assert(capture_semimove_score(position, move) == capture_ordering_score);
+    const auto scores = feature_coordinate_scores(
+        root->get_context()->hc_info, capture_ordering_weights(false));
+    assert(scores && (*scores)[selected->get_n()][selected->get_i()]
+        == capture_feature_score);
 }
 
 void test_capture_check_progressive_widening()
@@ -169,31 +170,100 @@ void test_capture_check_progressive_widening()
     multiverse_odd boards({{0, 1, false, "3k/4/Kp2/1R2"}});
     const state position(boards);
     observer obs;
-    auto root = capture_pw_uct_tree_policy::node_t::make_root(position);
-    const auto scores = capture_check_coordinate_scores(
-        root->get_context()->hc_info);
+    using policy_t = progressive_widening_tree_policy<scored_HC_ordering>;
+    auto root = policy_t::node_t::make_root(position);
+    const auto scores = feature_coordinate_scores(
+        root->get_context()->hc_info, capture_ordering_weights(true));
     assert(scores);
     bool capture = false, check = false;
     for(index_t axis = 0; axis < root->get_context()->hc_info.universe.dimension(); ++axis)
     {
         for(index_t coordinate : root->get_context()->hc_info.universe[axis])
         {
-            capture |= (*scores)[axis][coordinate] == 480.0f;
-            check |= (*scores)[axis][coordinate] == 300.0f;
+            capture |= (*scores)[axis][coordinate] == capture_feature_score;
+            check |= (*scores)[axis][coordinate] == check_feature_score;
         }
     }
     assert(capture && check);
 
-    capture_pw_uct_tree_policy policy(42);
+    policy_t policy(42, default_progressive_widening_constant,
+                    default_progressive_widening_alpha,
+                    capture_check_feature_scores);
     assert(policy.widening_limit(0) == 1);
     assert(policy.widening_limit(1) == 2);
     assert(policy.widening_limit(4) == 4);
     auto *selected = policy.select(root.get(), {}, obs);
     assert(selected && selected->get_parent() == root.get());
-    assert((*scores)[selected->get_n()][selected->get_i()] == 480.0f);
+    assert((*scores)[selected->get_n()][selected->get_i()] == capture_feature_score);
     auto *ceiling = policy.complete_to_ceiling(selected, {}, obs);
     assert(ceiling && ceiling->is_ceiling());
     assert(position.can_apply(action::from_moveseq(ceiling->to_action(), position)));
+}
+
+void test_feature_ordering_and_generic_policies()
+{
+    // Rxd2 both captures the pawn and checks the king on d4.
+    multiverse_odd boards({{0, 1, false, "3k/4/3p/K2R"}});
+    const state position(boards);
+    auto [info, space] = HC_info::build_HC(position);
+    (void)space;
+    const auto scores = feature_coordinate_scores(
+        info, capture_ordering_weights(true));
+    assert(scores);
+    bool combined = false;
+    for(index_t axis = 0; axis < info.universe.dimension(); ++axis)
+        for(index_t coordinate : info.universe[axis])
+            combined |= (*scores)[axis][coordinate]
+                == capture_feature_score + check_feature_score;
+    assert(combined);
+
+    std::mt19937 rng(7);
+    assert(construct_hc_ordering<natural_HC_ordering>(info, rng));
+    assert(construct_hc_ordering<random_HC_ordering>(info, rng));
+    std::stop_source stopped;
+    stopped.request_stop();
+    assert(!construct_hc_ordering<scored_HC_ordering>(
+        info, rng, stopped.get_token(), capture_check_feature_scores));
+    assert(!feature_coordinate_scores(
+        info, capture_ordering_weights(true), stopped.get_token()));
+
+    observer obs;
+    uct_tree_policy<natural_HC_ordering> natural(7);
+    auto natural_root = uct_tree_policy<natural_HC_ordering>::node_t::make_root(position);
+    auto *natural_child = natural.select(natural_root.get(), {}, obs);
+    assert(natural_child);
+    auto *natural_ceiling = natural.complete_to_ceiling(natural_child, {}, obs);
+    assert(natural_ceiling && natural_ceiling->is_ceiling());
+
+    using widening_t = progressive_widening_tree_policy<natural_HC_ordering>;
+    auto widening_root = widening_t::node_t::make_root(position);
+    widening_t::set_ordering(widening_root.get(), natural_HC_ordering{});
+    widening_t widening(7);
+    auto *widening_child = widening.select(widening_root.get(), {}, obs);
+    assert(widening_child);
+    auto *widening_ceiling = widening.complete_to_ceiling(widening_child, {}, obs);
+    assert(widening_ceiling && widening_ceiling->is_ceiling());
+    assert(position.can_apply(action::from_moveseq(
+        widening_ceiling->to_action(), position)));
+
+    // A precomputed ordering can be supplied even when its type has no
+    // constructor that accepts HC_info.
+    using scored_widening_t = progressive_widening_tree_policy<scored_HC_ordering>;
+    auto scored_root = scored_widening_t::node_t::make_root(position);
+    auto scored_table = feature_coordinate_scores(
+        scored_root->get_context()->hc_info, capture_ordering_weights(true));
+    assert(scored_table);
+    std::mt19937 scored_rng(7);
+    scored_widening_t::set_ordering(scored_root.get(), scored_HC_ordering(
+        scored_root->get_context()->hc_info.universe, *scored_table, scored_rng));
+    scored_widening_t scored_policy(7);
+    auto *scored_child = scored_policy.select(scored_root.get(), {}, obs);
+    assert(scored_child && (*scored_table)[scored_child->get_n()][scored_child->get_i()]
+        == capture_feature_score + check_feature_score);
+
+    auto fallback_root = scored_widening_t::node_t::make_root(position);
+    auto *fallback_child = scored_policy.select(fallback_root.get(), {}, obs);
+    assert(fallback_child);
 }
 
 void test_multiple_semimoves()
@@ -205,9 +275,9 @@ void test_multiple_semimoves()
 2. N>>xd3 / (1T1)Bc3+
 3. Bb2
 )").parse_game());
-    auto root = uct_tree_policy::node_t::make_root(position);
+    auto root = uct_tree_policy<>::node_t::make_root(position);
     observer obs;
-    uct_tree_policy policy(42);
+    uct_tree_policy<> policy(42);
     bool saw_multiple = false;
     for(int iteration = 0; iteration < 30; ++iteration)
     {
@@ -290,7 +360,7 @@ void test_promotion_paths()
             policy({move}, {{}, &expected}, 1);
         assert(policy.evaluate(before, {}, obs));
 
-        auto root = uct_tree_policy::node_t::make_root(before);
+        auto root = uct_tree_policy<>::node_t::make_root(before);
         bool found = false;
         for(auto index : root->search(natural_HC_ordering{}))
         {
@@ -334,6 +404,7 @@ int main()
     test_completion();
     test_capture_ordering();
     test_capture_check_progressive_widening();
+    test_feature_ordering_and_generic_policies();
     test_multiple_semimoves();
     test_interrupted_action_selection();
     test_engine<mcts_engine>();

@@ -78,13 +78,13 @@ using weighted_linear_default_policy = default_policy_t<
     linear_cutoff_evaluation>;
 
 using linear_mcts_engine = basic_mcts_engine<
-    uct_tree_policy,
+    uct_tree_policy<>,
     linear_default_policy,
     sum_backpropagation,
     most_visited_selection,
     mcts_observer>;
 using weighted_linear_mcts_engine = basic_mcts_engine<
-    uct_tree_policy,
+    uct_tree_policy<>,
     weighted_linear_default_policy,
     sum_backpropagation,
     most_visited_selection,
@@ -106,7 +106,7 @@ public:
                     static_cast<std::size_t>(std::max(0, max_rollout_actions)),
                     seed
                 },
-                uct_tree_policy{seed}, {}, {}, {}, std::move(io_handler)
+                uct_tree_policy<>{seed}, {}, {}, {}, std::move(io_handler)
             ) {}
 };
 
@@ -128,7 +128,7 @@ public:
                 static_cast<std::size_t>(std::max(0, max_rollout_actions)),
                 seed
             },
-            uct_tree_policy{seed}, {}, {}, {}, std::move(io_handler)
+            uct_tree_policy<>{seed}, {}, {}, {}, std::move(io_handler)
         ) {}
 };
 

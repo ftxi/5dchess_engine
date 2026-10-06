@@ -4,8 +4,8 @@
 #include <iomanip>
 #include <sstream>
 #include "uct.h"
-#include "capture_uct.h"
-#include "capture_pw_uct.h"
+#include "feature_ordering.h"
+#include "progressive_widening.h"
 #include "backpropagation.h"
 #include "selection_policy.h"
 #include "rollout_policy.h"
@@ -65,35 +65,35 @@ struct mcts_observer
 };
 
 using rollout_mcts_engine = basic_mcts_engine<
-    uct_tree_policy,
+    uct_tree_policy<>,
     rollout_default_policy,
     sum_backpropagation,
     most_visited_selection,
     mcts_observer
 >;
 using zero_mcts_engine = basic_mcts_engine<
-    uct_tree_policy,
+    uct_tree_policy<>,
     zero_default_policy,
     sum_backpropagation,
     most_visited_selection,
     mcts_observer
 >;
 using zero_capture_mcts_engine = basic_mcts_engine<
-    capture_uct_tree_policy,
+    uct_tree_policy<scored_HC_ordering>,
     zero_default_policy,
     sum_backpropagation,
     most_visited_selection,
     mcts_observer
 >;
 using zero_capture_pw_mcts_engine = basic_mcts_engine<
-    capture_pw_uct_tree_policy,
+    progressive_widening_tree_policy<scored_HC_ordering>,
     zero_default_policy,
     sum_backpropagation,
     most_visited_selection,
     mcts_observer
 >;
 using weighted_rollout_mcts_engine = basic_mcts_engine<
-    uct_tree_policy,
+    uct_tree_policy<>,
     weighted_rollout_default_policy,
     sum_backpropagation,
     most_visited_selection,
@@ -109,7 +109,7 @@ public:
         : rollout_mcts_engine(
             rollout_default_policy{random_action_selection{}, rollout_cutoff_evaluation{},
                 static_cast<std::size_t>(std::max(0, max_actions)), seed},
-            uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
+            uct_tree_policy<>{seed}, {}, {}, {}, std::move(io)) {}
 };
 
 class zero_engine final : public zero_mcts_engine
@@ -118,7 +118,7 @@ public:
     zero_engine(std::unique_ptr<io_handler> io,
                 std::optional<std::uint32_t> seed = std::nullopt,
                 int = default_mcts_rollout_max_actions)
-        : zero_mcts_engine({}, uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
+        : zero_mcts_engine({}, uct_tree_policy<>{seed}, {}, {}, {}, std::move(io)) {}
 };
 
 class zero_capture_engine final : public zero_capture_mcts_engine
@@ -128,7 +128,8 @@ public:
                         std::optional<std::uint32_t> seed = std::nullopt,
                         int = default_mcts_rollout_max_actions)
         : zero_capture_mcts_engine(
-            {}, capture_uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
+            {}, uct_tree_policy<scored_HC_ordering>{seed, capture_feature_scores},
+            {}, {}, {}, std::move(io)) {}
 };
 
 class zero_capture_check_pw_engine final : public zero_capture_pw_mcts_engine
@@ -139,7 +140,9 @@ public:
         double widening_constant = default_progressive_widening_constant,
         double widening_alpha = default_progressive_widening_alpha)
         : zero_capture_pw_mcts_engine(
-            {}, capture_pw_uct_tree_policy{seed,widening_constant,widening_alpha},
+            {}, progressive_widening_tree_policy<scored_HC_ordering>{
+                seed,widening_constant,widening_alpha,
+                capture_check_feature_scores},
             {}, {}, {}, std::move(io)) {}
 };
 
@@ -157,12 +160,15 @@ public:
                     default_move_info_weights, weight_temperature},
                 rollout_cutoff_evaluation{},
                 static_cast<std::size_t>(std::max(0, max_actions)), seed},
-            uct_tree_policy{seed}, {}, {}, {}, std::move(io)) {}
+            uct_tree_policy<>{seed}, {}, {}, {}, std::move(io)) {}
 };
 
-static_assert(TreePolicy<uct_tree_policy, mcts_observer>);
-static_assert(TreePolicy<capture_uct_tree_policy, mcts_observer>);
-static_assert(TreePolicy<capture_pw_uct_tree_policy, mcts_observer>);
+static_assert(TreePolicy<uct_tree_policy<>, mcts_observer>);
+static_assert(TreePolicy<uct_tree_policy<natural_HC_ordering>, mcts_observer>);
+static_assert(TreePolicy<uct_tree_policy<scored_HC_ordering>, mcts_observer>);
+static_assert(TreePolicy<progressive_widening_tree_policy<>, mcts_observer>);
+static_assert(TreePolicy<progressive_widening_tree_policy<natural_HC_ordering>, mcts_observer>);
+static_assert(TreePolicy<progressive_widening_tree_policy<scored_HC_ordering>, mcts_observer>);
 static_assert(DefaultPolicy<rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<weighted_rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<zero_default_policy, mcts_observer>);

@@ -86,7 +86,7 @@ int main()
     test_option_dispatch();
     test_default_policy_options();
     static_assert(std::has_virtual_destructor_v<zero_engine>);
-    using info_t = mcts_node_info<uct_tree_policy::node_data>;
+    using info_t = mcts_node_info<uct_tree_policy<>::node_data>;
     static_assert(!std::is_copy_constructible_v<info_t>);
     static_assert(!std::is_copy_assignable_v<info_t>);
     info_t child;
