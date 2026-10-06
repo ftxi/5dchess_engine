@@ -107,6 +107,22 @@ Check Detection
 =============
 Check detection is not automatically triggered when applying moves or submitting.
 
+For one generated `full_move`, `new_position(state)`, `moved_piece(state)`,
+`captured_piece(state)`, and `move_type(state)` describe the move without
+applying it. `captured_piece()` returns the pawn removed by en passant and
+`NO_PIECE` for castling. `move_type()` contains capture, en passant, promotion,
+castling, superphysical, and branching flags; it does not calculate checks or
+king-danger heuristics. These methods take a read-only `state`.
+
+For PGN generation after applying a move, extend the opponent's endpoint
+boards with `after.phantom(!moving_player)`, then call
+`find_checks(moving_player).first()` on that view. For HC coordinates,
+`semimove_feature(info)` reuses the HC's result boards and offers
+`is_physical_check(axis, coordinate)`, `is_sp_check(...)`,
+`is_historical_check(...)`, and `is_check(...)`. A historical check is a
+superphysical attack on a non-endpoint board. Move-level results are false for
+departing and null coordinates; a jump is scored on its arriving coordinate.
+
 For general check detection, use `state::find_checks(color)`. It generates every move by `color` that captures an enemy royal piece in the current state.
 
 ```cpp

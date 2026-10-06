@@ -12,7 +12,7 @@ namespace
 consteval move_info_weights make_default_move_info_weights()
 {
     move_info_weights weights{};
-    weights.values[move_info_weights::DANGEROUS_KING_MOVE] = -50000.0f;
+    weights.values[move_info_weights::LATENT_KING_THREAT] = -50000.0f;
     weights.values[move_info_weights::NORMAL_KING_MOVE] = -1200.0f;
     weights.values[move_info_weights::KING_BRANCH] = -8000.0f;
 
@@ -43,16 +43,15 @@ const move_info_weights default_move_info_weights
     = make_default_move_info_weights();
 
 std::array<float, move_info_weights::COUNT> extract_move_info_features(
-    const state::move_info &info)
+    const move_info_input &info)
 {
     std::array<float, move_info_weights::COUNT> features{};
     const piece_t moved_piece = to_white(piece_name(info.moved_piece));
     const bool king_move = moved_piece == KING_W || moved_piece == COMMON_KING_W;
 
-    if(static_cast<bool>(
-           info.special_move & special_move_t::DANGEROUS_KING_MOVE))
+    if(info.latent_king_threat)
     {
-        features[move_info_weights::DANGEROUS_KING_MOVE] = 1.0f;
+        features[move_info_weights::LATENT_KING_THREAT] = 1.0f;
     }
     else if(king_move)
     {
@@ -60,12 +59,12 @@ std::array<float, move_info_weights::COUNT> extract_move_info_features(
     }
 
     if(king_move
-       && static_cast<bool>(info.special_move & special_move_t::BRANCHING))
+       && static_cast<bool>(info.move_type & special_move_t::BRANCHING))
     {
         features[move_info_weights::KING_BRANCH] = 1.0f;
     }
 
-    if(static_cast<bool>(info.special_move & special_move_t::CAPTURE))
+    if(info.captured_piece != NO_PIECE)
     {
         switch(to_white(piece_name(info.captured_piece)))
         {
@@ -99,12 +98,12 @@ std::array<float, move_info_weights::COUNT> extract_move_info_features(
         }
     }
 
-    if(static_cast<bool>(info.check_type))
+    if(info.checking)
     {
         features[move_info_weights::CHECK] = 1.0f;
     }
 
-    if(static_cast<bool>(info.special_move & special_move_t::SUPERPHYSICAL))
+    if(static_cast<bool>(info.move_type & special_move_t::SUPERPHYSICAL))
     {
         features[move_info_weights::SUPERPHYSICAL] = 1.0f;
     }
@@ -113,7 +112,7 @@ std::array<float, move_info_weights::COUNT> extract_move_info_features(
 }
 
 float move_info_score(
-    const state::move_info &info,
+    const move_info_input &info,
     const move_info_weights &weights)
 {
     const auto features = extract_move_info_features(info);
@@ -135,7 +134,7 @@ float move_info_score_to_weight(float score, float temperature)
 }
 
 float move_info_weight(
-    const state::move_info &info,
+    const move_info_input &info,
     const move_info_weights &weights,
     float temperature)
 {
@@ -143,53 +142,30 @@ float move_info_weight(
         move_info_score(info, weights), temperature);
 }
 
-hc_move_evaluation::hc_move_evaluation(const HC_info& info, bool evaluate_checks)
-    : info(info)
-{
-    if (evaluate_checks) checks.emplace(check_position::for_move_scoring(info.s));
-}
-
-std::array<float, move_info_weights::COUNT> hc_move_evaluation::features(
-    index_t axis, index_t coordinate)
+float hc_move_info_score(const HC_info& info, semimove_feature& features,
+                         index_t axis, index_t coordinate,
+                         const move_info_weights& weights)
 {
     const auto cached = info.get_move_boards(axis, coordinate);
-    if (!cached) return {}; // Departures and null coordinates remain neutral.
-    const state& s = info.s;
-    const bool player = s.get_present().second;
-    const auto [p,q] = cached->move;
-    const bool physical = p.tl() == q.tl();
-    const bool branching = !physical && s.get_timeline_end(q.l()) != turn_t{q.t(),player};
-    const int destination = branching ? s.new_line() : q.l();
-    const board* source = s.get_board_ptr(p.l(),p.t(),player);
-    piece_t captured = s.get_piece(q,player);
-    special_move_t special = special_move_t::NONE;
-    if (!physical) special |= special_move_t::SUPERPHYSICAL;
-    if (branching) special |= special_move_t::BRANCHING;
-    if (physical && (source->lpawn() & pmask(p.xy())) && p.x()!=q.x() && captured==NO_PIECE)
-        captured = source->get_piece(ppos(q.x(),p.y()));
-    if (physical && (source->king() & pmask(p.xy())) && std::abs(p.x()-q.x()) > 1)
-        captured = NO_PIECE; // Castling is not a capture, including small boards.
-    if (captured != NO_PIECE) special |= special_move_t::CAPTURE;
-    const piece_t moved = source->get_piece(p.xy());
-    if (to_white(moved) == KING_W) {
-        const board& result = *cached->result;
-        const bitboard_t enemy = player ? result.white() : result.black();
-        const int xy = q.xy();
-        if ((knight_jump1_attack(xy) & enemy & result.knight())
-            | (rook_copy_mask(xy,1) & enemy & result.lbishop())
-            | (bishop_copy_mask(xy,1) & enemy & result.lunicorn()))
-            special |= special_move_t::DANGEROUS_KING_MOVE;
-    }
-    bool checking = false;
-    if (checks) {
-        std::array<check_position::scoring_board,2> updates{{
-            {destination, next_turn({q.t(),player}), {q.t()+1,player}, cached->result},
-            {p.l(), next_turn({p.t(),player}), {p.t()+1,player}, cached->departure}
-        }};
-        checking = checks->gives_check(std::span(updates).first(physical ? 1 : 2),player);
-    }
-    // Only the features consumed by weighting are constructed. No successor state
-    // or detailed check classification is needed for this boolean check feature.
-    return extract_move_info_features({nullptr, vec4(q.x(),q.y(),q.t()+1,destination),
-        moved, captured, special, checking ? check_type_t::PHYSICAL_CHECK : check_type_t::NONE});
+    if (!cached) return 0.0f; // Departures and null coordinates are neutral.
+    const full_move& move = cached->move;
+    const move_info_input input{
+        move.moved_piece(info.s),
+        move.captured_piece(info.s),
+        move.move_type(info.s),
+        weights.values[move_info_weights::CHECK] != 0.0f
+            && features.is_check(axis, coordinate),
+        weights.values[move_info_weights::LATENT_KING_THREAT] != 0.0f
+            && features.has_latent_king_threat(axis, coordinate)
+    };
+    return move_info_score(input, weights);
+}
+
+float hc_move_info_weight(const HC_info& info, semimove_feature& features,
+                          index_t axis, index_t coordinate,
+                          const move_info_weights& weights, float temperature)
+{
+    return move_info_score_to_weight(
+        hc_move_info_score(info, features, axis, coordinate, weights),
+        temperature);
 }

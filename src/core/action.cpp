@@ -91,6 +91,83 @@ std::string full_move::to_string() const
     return os.str();
 }
 
+vec4 full_move::new_position(const state &s) const
+{
+    const bool player = s.get_present().second;
+    const bool branching = from.tl() != to.tl()
+        && s.get_timeline_end(to.l()) != turn_t{to.t(), player};
+    return vec4(to.x(), to.y(), to.t() + 1,
+                branching ? s.new_line() : to.l());
+}
+
+piece_t full_move::moved_piece(const state &s) const
+{
+    return s.get_piece(from, s.get_present().second);
+}
+
+piece_t full_move::captured_piece(const state &s) const
+{
+    const bool player = s.get_present().second;
+    if (from.tl() == to.tl()) {
+        const board* source = s.get_board_ptr(from.l(), from.t(), player);
+        const bitboard_t origin = pmask(from.xy());
+        if ((source->king() & origin)
+            && std::abs(from.x() - to.x()) > 1)
+        {
+            return NO_PIECE;
+        }
+        const piece_t destination = source->get_piece(to.xy());
+        if ((source->lpawn() & origin)
+            && from.x() != to.x()
+            && destination == NO_PIECE)
+        {
+            return source->get_piece(ppos(to.x(), from.y()));
+        }
+        return destination;
+    }
+    return s.get_piece(to, player);
+}
+
+special_move_t full_move::move_type(const state &s) const
+{
+    special_move_t result = special_move_t::NONE;
+    const bool player = s.get_present().second;
+    const board* source = s.get_board_ptr(from.l(), from.t(), player);
+    const bitboard_t origin = pmask(from.xy());
+    const auto height = s.get_board_size().second;
+    const bool physical = from.tl() == to.tl();
+    if (!physical)
+    {
+        result |= special_move_t::SUPERPHYSICAL;
+        if (s.get_timeline_end(to.l()) != turn_t{to.t(), player})
+            result |= special_move_t::BRANCHING;
+    }
+    if (captured_piece(s) != NO_PIECE)
+    {
+        result |= special_move_t::CAPTURE;
+    }
+    if (physical && (source->lpawn() & origin))
+    {
+        if (from.x() != to.x() && source->get_piece(to.xy()) == NO_PIECE)
+            result |= special_move_t::EN_PASSANT;
+        else if (to.y() == 0 || to.y() == height - 1)
+            result |= special_move_t::PROMOTION;
+    }
+    else if (!physical && (source->lrawn() & origin)
+               && (to.y() == 0 || to.y() == height - 1))
+    {
+        result |= special_move_t::PROMOTION;
+    }
+    else if (physical && (source->king() & origin)
+               && std::abs(from.x() - to.x()) > 1)
+    {
+        result |= to.x() > from.x()
+            ? special_move_t::CASTLE_KINGSIDE
+            : special_move_t::CASTLE_QUEENSIDE;
+    }
+    return result;
+}
+
 std::string full_move::lan(const state &s, piece_t promote_to) const
 {
     const bool player = s.get_present().second;
@@ -267,10 +344,15 @@ std::string full_move::pgn(const state &s, piece_t pt, pgn_options options) cons
     char check_symbol = 0;
     if(static_cast<bool>(options & pgn_options::SHOW_MATE))
     {
-        state::move_info mi = s.get_move_info(*this, pt);
-        if(static_cast<bool>(mi.check_type))
+        state after = s;
+        const ext_move prepared = pt == NO_PIECE
+            ? ext_move(*this, s) : ext_move(*this, pt);
+        const bool applied = after.apply_move<true>(prepared);
+        if (applied)
         {
-            check_symbol = '+';
+            const bool moving_player = s.get_present().second;
+            const state check_view = after.phantom(!moving_player);
+            if (check_view.find_checks(moving_player).first()) check_symbol = '+';
         }
     }
     return pgn_impl(s, pt, options, check_symbol, false);
@@ -330,7 +412,8 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
             {
                 /* pawn captures include the file letter of the originating square
                 of the capturing pawn immediately prior to the "x" character. */
-                if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE) && s.get_piece(q, player) != NO_PIECE)
+                if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE)
+                   && captured_piece(s) != NO_PIECE)
                 {
                     oss << static_cast<char>(p.x() + 'a');
                 }
@@ -358,7 +441,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
             }
             if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE))
             {
-                if(s.get_piece(q, player) != NO_PIECE)
+                if(captured_piece(s) != NO_PIECE)
                 {
                     oss << "x";
                 }
@@ -393,7 +476,7 @@ std::string full_move::pgn_impl(const state &s, piece_t pt, pgn_options options,
             //physical move
             if(static_cast<bool>(options & pgn_options::SHOW_CAPTURE))
             {
-                if(s.get_piece(q, player) != NO_PIECE)
+                if(captured_piece(s) != NO_PIECE)
                 {
                     oss << "x";
                 }
@@ -558,16 +641,18 @@ std::pair<std::string, std::optional<mate_type>> action::pgn_advanced(
         for(size_t i = 0; i < mvs.size(); ++i)
         {
             const auto &[move, promote_to] = mvs[i];
-            state::move_info mi = final_state.get_move_info(move, promote_to);
-            if(!mi.new_state)
+            const bool moving_player = final_state.get_present().second;
+            const ext_move prepared = promote_to == NO_PIECE
+                ? ext_move(move, final_state) : ext_move(move, promote_to);
+            if(!final_state.apply_move<false>(prepared))
             {
                 return {"---INVALID ACTION---", std::nullopt};
             }
-            if(static_cast<bool>(mi.check_type))
+            const state check_view = final_state.phantom(!moving_player);
+            if(check_view.find_checks(moving_player).first())
             {
                 check_symbols[i] = '+';
             }
-            final_state = std::move(*mi.new_state);
         }
         if(!final_state.submit())
         {

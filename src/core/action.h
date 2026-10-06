@@ -43,22 +43,10 @@ enum class special_move_t : uint8_t
     CASTLE = (1 << 3) | (1 << 4),
     SUPERPHYSICAL = 1 << 5,
     BRANCHING = 1 << 6,
-    DANGEROUS_KING_MOVE = 1 << 7,
 };
 
 template <>
 inline constexpr bool enable_bitmask_operators<special_move_t> = true;
-
-enum class check_type_t : uint8_t
-{
-    NONE = 0,
-    PHYSICAL_CHECK = 1,
-    SP_CHECK = 1 << 1,
-    HISTORICAL_CHECK = 1 << 2,
-};
-
-template <>
-inline constexpr bool enable_bitmask_operators<check_type_t> = true;
 
 /*
  In this implementation, I use `full_move` instead of `move` to avoid confusion with `std::move`.
@@ -70,6 +58,11 @@ struct full_move
     full_move(vec4 from, vec4 to) : from(from), to(to) {}
     full_move(std::string);
     std::string to_string() const;
+    vec4 new_position(const state &s) const;
+    piece_t moved_piece(const state &s) const;
+    // En passant returns the removed pawn; castling never captures.
+    piece_t captured_piece(const state &s) const;
+    special_move_t move_type(const state &s) const;
     std::string lan(const state &, piece_t promote_to=QUEEN_W) const;
     std::string pgn(const state &, piece_t promote_to=QUEEN_W,
                     pgn_options options=pgn_options::SHOW_CAPTURE | pgn_options::SHOW_PROMOTION) const;

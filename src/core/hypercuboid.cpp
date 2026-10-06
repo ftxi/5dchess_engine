@@ -1,6 +1,7 @@
 
 #include "hypercuboid.h"
 #include "check_position.h"
+#include "move_feature.h"
 
 #include <algorithm>
 #include <cassert>
@@ -98,22 +99,6 @@ std::tuple<std::vector<vec4>, int> get_move_path(const check_position &s, full_m
     {
         return std::make_tuple(std::vector<vec4>(), 0);
     }
-}
-
-// test if a royal piece with color c is under attack
-bool has_physical_check(const board &b, bool c)
-{
-    bitboard_t friendly =  c ? b.black() : b.white();
-    for(int pos : marked_pos(b.royal() & friendly))
-    {
-        if([[maybe_unused]] auto x = b.is_under_attack(pos, c))
-        {
-            dprint("physical check", full_move(vec4(marked_pos(x)[0],vec4(0,0,0,0)),vec4(pos, vec4(0,0,0,0))));
-            return true;
-        }
-    }
-    dprint("no check for", c?"black":"white", "in", "\n"+b.to_string());
-    return false;
 }
 
 std::tuple<HC_info, search_space> HC_info::build_HC(const state& s)

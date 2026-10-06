@@ -399,223 +399,6 @@ std::optional<ext_move> state::normalize_promotion(ext_move move) const
     return move;
 }
 
-state::move_info state::get_move_info(full_move fm, piece_t pt) const
-{
-    dprint("get_move_info", fm);
-    const vec4 p = fm.from;
-    const vec4 q = fm.to;
-    const vec4 d = q - p;
-
-    special_move_t special_move = special_move_t::NONE;
-    const piece_t moved_piece = m->get_piece(p, player);
-    piece_t captured_piece = NO_PIECE;
-
-    // Like other unchecked callers, an explicit promotion is trusted. Only
-    // an omitted choice needs state-dependent preparation.
-    const ext_move prepared = pt == NO_PIECE ? ext_move(fm, *this) : ext_move(fm, pt);
-    pt = prepared.promote_to;
-    auto new_state = std::make_unique<state>(*this);
-    [[maybe_unused]] const bool applied = new_state->apply_move<true>(prepared);
-    assert(applied);
-    vec4 new_pos(0,0,0,0);
-    check_type_t check_type = check_type_t::NONE;
-    
-    auto find_board_checks = [](const state &s, int l) -> check_type_t {
-        auto [t,c] = s.get_timeline_end(l);
-        assert(c==s.player);
-        check_type_t result = check_type_t::NONE;
-        //find checks on the source board
-        std::shared_ptr<board> b = s.get_board(l, t, c);
-        bitboard_t pieces = c ? b->black()&~b->white() : b->white()&~b->black();
-        // for each friendly piece on this board
-        for (int src_pos : marked_pos(pieces))
-        {
-            vec4 p = vec4(src_pos, vec4(0,0,t,l));
-            // generate the aviliable moves
-            auto moves = c ? s.m->gen_moves<true>(p) : s.m->gen_moves<false>(p);
-            // for each destination board and bit location
-            for (const auto& [q0, bb] : moves)
-            {
-                std::shared_ptr<board> b1_ptr = s.m->get_board(q0.l(), q0.t(), c);
-                if (bb)
-                {
-                    // if the destination square is royal, this is a check
-                    bitboard_t c_pieces = bb & b1_ptr->royal();
-                    if (c_pieces)
-                    {
-                        if(p.tl() == q0.tl())
-                        {
-                            result |= check_type_t::PHYSICAL_CHECK;
-                        }
-                        else
-                        {
-                            result |= check_type_t::SP_CHECK;
-                        }
-                        if(std::make_pair(q0.t(), c) != s.get_timeline_end(q0.l()))
-                        {
-                            result |= check_type_t::HISTORICAL_CHECK;
-                        }
-                    }
-                }
-            }
-        }
-        return result;
-    };
-
-    state s = *new_state;
-    const auto [l_min, l_max] = s.get_lines_range();
-    for(int l = l_min; l <= l_max; l++)
-    {
-        auto [t,c] = s.get_timeline_end(l);
-        if(c == !s.player)
-        {
-            dprint("duplicated board on line", l, "turn", t, c?"b":"w");
-            s.m->append_board(l, s.m->get_board(l, t, c));
-        }
-    }
-
-    /* WARNING: similar logic is used in hypercuboid.cpp for applying semimoves.
-       If move logic changes here, update HC_info::build_HC() as well. */
-    // physical move, no time travel
-    if(d.l() == 0 && d.t() == 0)
-    {
-        dprint(" ... physical move");
-        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
-        bitboard_t z = pmask(p.xy());
-        const auto &[size_x, size_y] = m->get_board_size();
-        // en passant
-        if((b_ptr->lpawn()&z) && d.x()!=0 && b_ptr->get_piece(q.xy()) == NO_PIECE)
-        {
-            captured_piece = b_ptr->get_piece(ppos(q.x(), p.y()));
-            special_move |= special_move_t::CAPTURE | special_move_t::EN_PASSANT;
-        }
-        // promotion
-        else if((b_ptr->lpawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
-        {
-            captured_piece = b_ptr->get_piece(q.xy());
-            if(captured_piece != NO_PIECE)
-            {
-                special_move |= special_move_t::CAPTURE;
-            }
-            special_move |= special_move_t::PROMOTION;
-        }
-        // castling
-        else if((b_ptr->king()&z) && abs(d.x()) > 1)
-        {
-            special_move |= d.x() > 0
-                ? special_move_t::CASTLE_KINGSIDE
-                : special_move_t::CASTLE_QUEENSIDE;
-        }
-        // normal move or capture
-        else
-        {
-            captured_piece = b_ptr->get_piece(q.xy());
-            if(captured_piece != NO_PIECE)
-            {
-                special_move |= special_move_t::CAPTURE;
-            }
-        }
-        new_pos = q + vec4(0,0,1,0);
-        check_type |= find_board_checks(s, q.l());
-    }
-    // non-branching superphysical move
-    else if(std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
-    {
-        dprint(" ... non-branching superphysical move");
-        special_move |= special_move_t::SUPERPHYSICAL;
-        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
-        bitboard_t z = pmask(p.xy());
-        const auto &[size_x, size_y] = m->get_board_size();
-        (void)size_x;
-        const std::shared_ptr<board>& c_ptr = m->get_board(q.l(), q.t(), player);
-        // promotion (only brawns can do)
-        if((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
-        {
-            captured_piece = c_ptr->get_piece(q.xy());
-            if(captured_piece != NO_PIECE)
-            {
-                special_move |= special_move_t::CAPTURE;
-            }
-            special_move |= special_move_t::PROMOTION;
-        }
-        // normal non-branching move
-        else
-        {
-            captured_piece = c_ptr->get_piece(q.xy());
-            if(captured_piece != NO_PIECE)
-            {
-                special_move |= special_move_t::CAPTURE;
-            }
-        }
-        new_pos = q + vec4(0,0,1,0);
-        check_type |= find_board_checks(s, q.l());
-        if(p.l() != q.l())
-        {
-            check_type |= find_board_checks(s, p.l());
-        }
-    }
-    else
-    {
-        dprint(" ... branching superphysical move");
-        special_move |= special_move_t::SUPERPHYSICAL | special_move_t::BRANCHING;
-        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
-        bitboard_t z = pmask(p.xy());
-        const auto &[size_x, size_y] = m->get_board_size();
-        (void)size_x;
-        const std::shared_ptr<board>& x_ptr = m->get_board(q.l(), q.t(), player);
-        // promotion (only brawns can do)
-        if((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
-        {
-            captured_piece = x_ptr->get_piece(q.xy());
-            if(captured_piece != NO_PIECE)
-            {
-                special_move |= special_move_t::CAPTURE;
-            }
-            special_move |= special_move_t::PROMOTION;
-        }
-        // normal branching move
-        else
-        {
-            captured_piece = x_ptr->get_piece(q.xy());
-            if(captured_piece != NO_PIECE)
-            {
-                special_move |= special_move_t::CAPTURE;
-            }
-        }
-        const int branch_line = new_line();
-        new_pos = vec4(q.x(), q.y(), q.t()+1, branch_line);
-        check_type |= find_board_checks(s, branch_line);
-        check_type |= find_board_checks(s, p.l());
-    }
-
-    if(to_white(moved_piece) == KING_W)
-    {
-        const auto [king_t, king_c] = new_state->get_timeline_end(new_pos.l());
-        const std::shared_ptr<board> king_board =
-            new_state->get_board(new_pos.l(), king_t, king_c);
-        const bitboard_t enemy = player ? king_board->white() : king_board->black();
-        const int king_pos = new_pos.xy();
-        const bitboard_t latent_attack =
-              (knight_jump1_attack(king_pos) & enemy & king_board->knight())
-            | (rook_copy_mask(king_pos, 1) & enemy & king_board->lbishop())
-            | (bishop_copy_mask(king_pos, 1) & enemy & king_board->lunicorn());
-        if(latent_attack)
-        {
-            special_move |= special_move_t::DANGEROUS_KING_MOVE;
-        }
-    }
-
-    dprint(static_cast<bool>(check_type) ? "checking" : "not checking");
-    return {
-        std::move(new_state),
-        new_pos,
-        moved_piece,
-        captured_piece,
-        special_move,
-        check_type
-    };
-}
-
 template <bool UNSAFE>
 bool state::submit()
 {
@@ -639,12 +422,17 @@ bool state::has_phantom_check() const
 
 state state::phantom() const
 {
+    return phantom(player);
+}
+
+state state::phantom(bool endpoint_color) const
+{
     const auto [l_min, l_max] = get_lines_range();
     state s = *this;
     for(int l = l_min; l <= l_max; l++)
     {
         auto [t,c] = get_timeline_end(l);
-        if(c == player)
+        if(c == endpoint_color)
         {
             s.m->append_board(l, m->get_board(l, t, c));
         }

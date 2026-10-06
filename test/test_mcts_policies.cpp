@@ -78,8 +78,7 @@ void test_weighted_action_selection()
         const action legal_action = action::from_moveseq(*selected, position);
         assert(position.can_apply(legal_action));
         capture_count += std::ranges::any_of(*selected, [&](const full_move &move) {
-            return static_cast<bool>(position.get_move_info(move).special_move
-                                     & special_move_t::CAPTURE);
+            return move.captured_piece(position) != NO_PIECE;
         });
     }
     assert(capture_count >= 99);

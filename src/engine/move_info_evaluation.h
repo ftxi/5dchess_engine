@@ -3,15 +3,14 @@
 
 #include <array>
 
-#include "state.h"
 #include "hypercuboid.h"
-#include "check_position.h"
+#include "move_feature.h"
 
 struct move_info_weights
 {
     enum indices
     {
-        DANGEROUS_KING_MOVE,
+        LATENT_KING_THREAT,
         NORMAL_KING_MOVE,
         KING_BRANCH,
         QUEEN_CAPTURE,
@@ -32,28 +31,36 @@ struct move_info_weights
 extern const move_info_weights default_move_info_weights;
 constexpr float default_move_info_temperature = 1200.0f;
 
+struct move_info_input
+{
+    piece_t moved_piece;
+    piece_t captured_piece;
+    special_move_t move_type;
+    bool checking;
+    bool latent_king_threat;
+};
+
 std::array<float, move_info_weights::COUNT> extract_move_info_features(
-    const state::move_info &info);
+    const move_info_input &info);
 
 float move_info_score(
-    const state::move_info &info,
+    const move_info_input &info,
     const move_info_weights &weights);
 
 float move_info_score_to_weight(float score, float temperature);
 
 float move_info_weight(
-    const state::move_info &info,
+    const move_info_input &info,
     const move_info_weights &weights,
     float temperature);
 
-// One scoring context per HC; borrows all result boards from it.
-class hc_move_evaluation
-{
-    const HC_info& info;
-    std::optional<check_position> checks;
-public:
-    explicit hc_move_evaluation(const HC_info& info, bool evaluate_checks = true);
-    std::array<float, move_info_weights::COUNT> features(index_t axis, index_t coordinate);
-};
+// Scores only features with nonzero weights. The context reuses check metadata.
+float hc_move_info_score(const HC_info& info, semimove_feature& features,
+                         index_t axis, index_t coordinate,
+                         const move_info_weights& weights);
+
+float hc_move_info_weight(const HC_info& info, semimove_feature& features,
+                          index_t axis, index_t coordinate,
+                          const move_info_weights& weights, float temperature);
 
 #endif /* MOVE_INFO_EVALUATION_H */

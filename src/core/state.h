@@ -82,26 +82,11 @@ public:
     bool submit();
     
     /*
-     move_info: given a generated move, apply it and describe the result.
-     get_move_info assumes that the move is pseudolegal and applies it in unsafe mode.
-     An omitted promotion is resolved against this state; an explicit choice is trusted.
-     In a castling move, it is considered a check if either moved piece checks an
-     opponent royal piece.
-     */
-    struct move_info {
-        std::unique_ptr<state> new_state;
-        vec4 new_pos;
-        piece_t moved_piece;
-        piece_t captured_piece;
-        special_move_t special_move;
-        check_type_t check_type;
-    };
-    move_info get_move_info(full_move fm, piece_t promote_to = NO_PIECE) const;
-    
-    /*
      phantom: state used for deciding whether the current is a checkmate or stalemate
      */
     state phantom() const;
+    // Repeat endpoint boards of this color on the following turn.
+    state phantom(bool endpoint_color) const;
     // Equivalent to phantom().find_checks(!get_present().second).first(),
     // tested for presence, without cloning the multiverse. Includes physical checks.
     bool has_phantom_check() const;

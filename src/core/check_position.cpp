@@ -2,6 +2,7 @@
 #include "magic.h"
 #include "move_geometry.h"
 #include <algorithm>
+#include <array>
 #include <cassert>
 
 check_position::check_position(const state& s)
@@ -34,7 +35,7 @@ check_position check_position::for_phantom(const state& s)
     return result;
 }
 
-check_position check_position::for_move_scoring(const state& s)
+check_position check_position::for_move_candidates(const state& s)
 {
     const auto [lo, hi] = s.get_lines_range();
     const int branch = s.new_line();
@@ -48,23 +49,31 @@ check_position check_position::for_move_scoring(const state& s)
     return result;
 }
 
-bool check_position::gives_check(std::span<const scoring_board> boards, bool attacker)
+template<check_position::check_kind Kind>
+bool check_position::gives_check(board_overlay move_overlay, bool attacker,
+                                 std::optional<board_overlay> departure_overlay)
 {
-    assert(!boards.empty() && boards.size() <= 2);
+    static_assert(Kind == check_kind::physical || Kind == check_kind::superphysical
+                  || Kind == check_kind::historical);
+    const std::array<board_overlay,2> boards{
+        move_overlay, departure_overlay.value_or(move_overlay)
+    };
+    const std::size_t count = departure_overlay ? 2 : 1;
     std::array<int,2> sources{};
     std::array<line_view,2> saved{};
-    for (std::size_t i = 0; i < boards.size(); ++i) {
+    for (std::size_t i = 0; i < count; ++i) {
         const auto& update = boards[i];
-        assert(update.value && update.start <= update.end);
-        assert(update.line >= first_line && update.line-first_line < static_cast<int>(lines.size()));
-        assert(i == 0 || update.line != sources[0]);
-        sources[i] = update.line;
-        auto& line = lines[update.line-first_line];
+        const turn_t start{update.t, update.c};
+        assert(update.value);
+        assert(update.l >= first_line && update.l-first_line < static_cast<int>(lines.size()));
+        assert(i == 0 || update.l != sources[0]);
+        sources[i] = update.l;
+        auto& line = lines[update.l-first_line];
         saved[i] = line;
-        if (!line.exists) line.start = update.start;
+        if (!line.exists) line.start = start;
         line.exists = true;
-        line.added_start = update.start;
-        line.end = update.end;
+        line.added_start = start;
+        line.end = next_turn(start);
         line.added = update.value;
     }
     struct restore {
@@ -75,11 +84,31 @@ bool check_position::gives_check(std::span<const scoring_board> boards, bool att
             for (std::size_t i = 0; i < sources.size(); ++i)
                 view.lines[sources[i]-view.first_line] = saved[i];
         }
-    } guard{*this, std::span(sources).first(boards.size()), saved};
-    auto emit = [](full_move) { return true; };
-    return attacker ? scan<true>(true,emit,guard.sources)
-                    : scan<false>(true,emit,guard.sources);
+    } guard{*this, std::span(sources).first(count), saved};
+    auto emit = [&](full_move move) {
+        if constexpr (Kind == check_kind::physical) {
+            return move.from.tl() == move.to.tl();
+        } else if constexpr (Kind == check_kind::superphysical) {
+            return move.from.tl() != move.to.tl();
+        } else {
+            const auto& target = lines[move.to.l()-first_line];
+            return turn_t{move.to.t(),attacker} != target.end;
+        }
+    };
+    constexpr bool include_physical = Kind == check_kind::physical;
+    constexpr bool include_superphysical = Kind != check_kind::physical;
+    return attacker ? scan<true>(include_physical,emit,guard.sources,
+                                  include_superphysical)
+                    : scan<false>(include_physical,emit,guard.sources,
+                                   include_superphysical);
 }
+
+template bool check_position::gives_check<check_position::check_kind::physical>(
+    check_position::board_overlay, bool, std::optional<check_position::board_overlay>);
+template bool check_position::gives_check<check_position::check_kind::superphysical>(
+    check_position::board_overlay, bool, std::optional<check_position::board_overlay>);
+template bool check_position::gives_check<check_position::check_kind::historical>(
+    check_position::board_overlay, bool, std::optional<check_position::board_overlay>);
 
 void check_position::add_board(int l, turn_t at, const board& b)
 {
@@ -264,7 +293,9 @@ bool check_position::scan_jumps(vec4 p0, const board& source,
 }
 
 template<bool C, check_emitter Emit>
-bool check_position::scan(bool include_physical, Emit&& emit, std::span<const int> sources) const
+bool check_position::scan(bool include_physical, Emit&& emit,
+                           std::span<const int> sources,
+                           bool include_superphysical) const
 {
     auto scan_line = [&](int i) {
         const auto& line = lines[i];
@@ -273,9 +304,10 @@ bool check_position::scan(bool include_physical, Emit&& emit, std::span<const in
         const board& source = *board_at(p0.l(),p0.t(),C);
         const bitboard_t friendly = source.hostile<!C>(); // excludes walls
         if ((include_physical && scan_physical<C>(p0,source,friendly,emit))
-            || scan_pure_sliders<C>(p0,source,friendly,emit)
-            || scan_compound_sliders<C>(p0,source,friendly,emit)
-            || scan_jumps<C>(p0,source,friendly,emit)) {
+            || (include_superphysical
+                && (scan_pure_sliders<C>(p0,source,friendly,emit)
+                    || scan_compound_sliders<C>(p0,source,friendly,emit)
+                    || scan_jumps<C>(p0,source,friendly,emit)))) {
             return true;
         }
         return false;

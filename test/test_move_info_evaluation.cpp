@@ -24,7 +24,7 @@ state position(std::string board)
 void test_default_weights()
 {
     const auto &weights = default_move_info_weights.values;
-    assert(weights[move_info_weights::DANGEROUS_KING_MOVE] == -50000.0f);
+    assert(weights[move_info_weights::LATENT_KING_THREAT] == -50000.0f);
     assert(weights[move_info_weights::NORMAL_KING_MOVE] == -1200.0f);
     assert(weights[move_info_weights::KING_BRANCH] == -8000.0f);
     assert(weights[move_info_weights::QUEEN_CAPTURE] == 1584.0f);
@@ -40,15 +40,14 @@ void test_default_weights()
 
 void test_scores_and_temperature()
 {
-    state::move_info info{
-        nullptr,
-        vec4(0, 0, 0, 0),
+    move_info_input info{
         KING_W,
         QUEEN_B,
         special_move_t::CAPTURE
             | special_move_t::SUPERPHYSICAL
             | special_move_t::BRANCHING,
-        check_type_t::SP_CHECK | check_type_t::HISTORICAL_CHECK,
+        true,
+        false,
     };
 
     const auto features = extract_move_info_features(info);
@@ -62,7 +61,7 @@ void test_scores_and_temperature()
     // and -700 time travel.
     assert(close(move_info_score(info, default_move_info_weights), -7116.0f));
 
-    info.special_move |= special_move_t::DANGEROUS_KING_MOVE;
+    info.latent_king_threat = true;
     assert(close(move_info_score(info, default_move_info_weights), -55916.0f));
 
     assert(close(
@@ -84,13 +83,12 @@ void test_custom_weights()
 {
     move_info_weights weights{};
     weights.values[move_info_weights::CHECK] = 3.5f;
-    state::move_info info{
-        nullptr,
-        vec4(0, 0, 0, 0),
+    move_info_input info{
         ROOK_W,
         NO_PIECE,
         special_move_t::NONE,
-        check_type_t::PHYSICAL_CHECK,
+        true,
+        false,
     };
     assert(move_info_score(info, weights) == 3.5f);
     assert(move_info_weight(info, weights, 1.0f) == std::exp(3.5f));
@@ -98,20 +96,18 @@ void test_custom_weights()
 
 void test_latent_king_danger()
 {
-    const auto knight_info = position("3k/nK2/4/4").get_move_info(
-        full_move("(0T1)b3c3"));
-    assert(static_cast<bool>(
-        knight_info.special_move & special_move_t::DANGEROUS_KING_MOVE));
-
-    const auto bishop_info = position("3k/1K2/b3/4").get_move_info(
-        full_move("(0T1)b3b2"));
-    assert(static_cast<bool>(
-        bishop_info.special_move & special_move_t::DANGEROUS_KING_MOVE));
-
-    const auto unicorn_info = position("3k/1K2/4/u3").get_move_info(
-        full_move("(0T1)b3b2"));
-    assert(static_cast<bool>(
-        unicorn_info.special_move & special_move_t::DANGEROUS_KING_MOVE));
+    const auto has_threat = [](const state& before, full_move move) {
+        state after = before;
+        assert(after.apply_move<true>(move));
+        const bool player = before.get_present().second;
+        const auto [t, c] = next_turn({move.to.t(), player});
+        const board* result = after.get_board_ptr(move.new_position(before).l(),
+                                                   t, c);
+        return has_latent_king_threat(*result, move.to.xy(), player);
+    };
+    assert(has_threat(position("3k/nK2/4/4"), full_move("(0T1)b3c3")));
+    assert(has_threat(position("3k/1K2/b3/4"), full_move("(0T1)b3b2")));
+    assert(has_threat(position("3k/1K2/4/u3"), full_move("(0T1)b3b2")));
 }
 
 } /* anonymous namespace */

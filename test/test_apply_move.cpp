@@ -32,9 +32,6 @@ void compare_overloads(const state &before, full_move move)
     assert_same(checked, unchecked);
     assert_same(checked, checked_extended);
     assert_same(checked, unchecked_extended);
-    const auto info = before.get_move_info(move);
-    assert(info.new_state);
-    assert_same(checked, *info.new_state);
 }
 
 int main()
@@ -82,9 +79,6 @@ int main()
             assert(checked.apply_move<false>(knight));
             assert(unchecked.apply_move<true>(knight));
             assert_same(checked, unchecked);
-            const auto info = before.get_move_info(promotion, KNIGHT_W);
-            assert(info.new_state);
-            assert_same(checked, *info.new_state);
         }
     }
 }
