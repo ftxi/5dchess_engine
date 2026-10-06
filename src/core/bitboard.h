@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 #include <bit>
+#include <iterator>
 #include "piece.h"
 #include "utils.h"
 
@@ -78,7 +79,64 @@ constexpr int bb_get_pos(bitboard_t b)
     int n = std::countl_zero(b);
     return std::numeric_limits<bitboard_t>::digits - 1 - n;
 }
-std::vector<int> marked_pos(bitboard_t b);
+
+class marked_pos_range
+{
+public:
+    class iterator
+    {
+    public:
+        using value_type = int;
+        using difference_type = std::ptrdiff_t;
+        using iterator_concept = std::input_iterator_tag;
+
+        constexpr explicit iterator(bitboard_t bits) noexcept : bits_(bits) {}
+
+        constexpr int operator*() const noexcept
+        {
+            return bb_get_pos(bits_);
+        }
+
+        constexpr iterator& operator++() noexcept
+        {
+            bits_ &= ~(bitboard_t{1} << bb_get_pos(bits_));
+            return *this;
+        }
+
+        constexpr void operator++(int) noexcept
+        {
+            ++*this;
+        }
+
+        constexpr bool operator==(std::default_sentinel_t) const noexcept
+        {
+            return bits_ == 0;
+        }
+
+    private:
+        bitboard_t bits_;
+    };
+
+    constexpr explicit marked_pos_range(bitboard_t bits) noexcept : bits_(bits) {}
+
+    constexpr iterator begin() const noexcept
+    {
+        return iterator(bits_);
+    }
+
+    constexpr std::default_sentinel_t end() const noexcept
+    {
+        return {};
+    }
+
+private:
+    bitboard_t bits_;
+};
+
+constexpr marked_pos_range marked_pos(bitboard_t bits) noexcept
+{
+    return marked_pos_range(bits);
+}
 
 inline bitboard_t white_pawn_attack(int pos)
 {

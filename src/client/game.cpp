@@ -238,7 +238,7 @@ match_status_t game::get_match_status() const
 std::vector<vec4> game::get_movable_pieces() const
 {
     state s = get_current_state();
-    return s.gen_movable_pieces();
+    return s.get_movable_pieces();
 }
 
 bool game::is_playable(vec4 p) const

@@ -18,18 +18,6 @@ std::string bb_to_string(bitboard_t bb)
     return ss.str();
 }
 
-std::vector<int> marked_pos(bitboard_t b)
-{
-    std::vector<int> result;
-    while(b)
-    {
-        int n = bb_get_pos(b);
-        result.push_back(n);
-        b &= ~(bitboard_t(1) << n);
-    }
-    return result;
-}
-
 const std::array<bitboard_t, BOARD_SIZE> knight_attack_data = generate_array(std::make_index_sequence<BOARD_SIZE>{}, [](size_t pos) -> bitboard_t
 {
     bitboard_t z = bitboard_t(1) << pos, bb = 0;

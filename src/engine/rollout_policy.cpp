@@ -122,6 +122,26 @@ std::optional<moveseq> random_action_selection::operator()(
     return mixed_search(info, std::move(space), std::move(order), stop).first();
 }
 
+std::optional<reward_t<rollout_details>> evaluate_zero_position(
+    state s, std::stop_token stop)
+{
+    if(stop.stop_requested()) return std::nullopt;
+    auto [info, space] = HC_info::build_HC(s);
+    auto moves = mixed_search(
+        info, std::move(space), natural_HC_ordering{}, stop).first();
+    if(stop.stop_requested()) return std::nullopt;
+
+    rollout_cutoff_evaluation evaluation;
+    if(!moves)
+    {
+        std::optional<bool> winner;
+        if(s.get_mate_type() == mate_type::CHECKMATE)
+            winner = !s.get_present().second;
+        return evaluation.mate_reward(winner, 0);
+    }
+    return evaluation.cutoff_reward(std::move(s), 0, stop, nullptr);
+}
+
 void weighted_action_selection::set_temperature(float value)
 {
     if(!(value > 0.0f) || !std::isfinite(value))

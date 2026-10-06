@@ -25,7 +25,7 @@ generator<moveseq> naive_search_impl(state s, moveseq mvs, int k, bool b)
         co_return;
     if(s.can_submit())
         co_yield mvs;
-    for(vec4 p : s.gen_movable_pieces())
+    for(vec4 p : s.get_movable_pieces())
     {
         for(vec4 q : s.gen_piece_move(p))
         {
@@ -100,29 +100,6 @@ std::size_t count_iterative(state s, int limit)
     auto [w, ss] = HC_info::build_HC(s);
     std::size_t count = 0;
     for(auto x : w.iterative_search(ss))
-    {
-        if constexpr(PRINT)
-        {
-            state t = s;
-            for(full_move m : x)
-            {
-                std::cout << m.pgn(t, QUEEN_W, pgn_options::SHOW_CAPTURE) << " ";
-                t.apply_move(m);
-            }
-            std::cout << "\n";
-        }
-        ++count;
-        if(count == static_cast<std::size_t>(limit)) break;
-    }
-    return count;
-}
-
-template<bool PRINT>
-std::size_t count_mixed(state s, int limit)
-{
-    auto [w, ss] = HC_info::build_HC(s);
-    std::size_t count = 0;
-    for(auto x : w.mixed_search(ss))
     {
         if constexpr(PRINT)
         {
@@ -221,7 +198,6 @@ std::pair<search_mode, int> parse_search_args(
         else if(arg == "naive") mode = search_mode::naive;
         else if(arg == "stable") mode = search_mode::stable;
         else if(arg == "iterative") mode = search_mode::iterative;
-        else if(arg == "mixed") mode = search_mode::mixed;
         else max = std::stoi(arg);
     }
     return {mode, max};
@@ -245,10 +221,6 @@ std::optional<moveseq> find_first_action(state &s, search_mode mode)
             auto [w, ss] = HC_info::build_HC(s);
             return w.iterative_search(ss).first();
         }
-        case search_mode::mixed: {
-            auto [w, ss] = HC_info::build_HC(s);
-            return w.mixed_search(ss).first();
-        }
     }
     return std::nullopt;
 }
@@ -259,7 +231,5 @@ template std::size_t count_stable<false>(state, int);
 template std::size_t count_stable<true>(state, int);
 template std::size_t count_iterative<false>(state, int);
 template std::size_t count_iterative<true>(state, int);
-template std::size_t count_mixed<false>(state, int);
-template std::size_t count_mixed<true>(state, int);
 template std::size_t count_naive<false>(state, int);
 template std::size_t count_naive<true>(state, int);
