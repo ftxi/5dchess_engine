@@ -77,7 +77,7 @@ std::optional<HC_info::move_boards> HC_info::get_move_boards(index_t axis, index
 std::tuple<std::vector<vec4>, int> get_move_path(const check_position &s, full_move fm, int c)
 {
     const vec4 p = fm.from, q = fm.to, d = q - p;
-    const board* b_ptr = s.board_at(p.l(), p.t(), c);
+    const board* b_ptr = s.get_board_ptr(p.l(), p.t(), c);
     if(b_ptr->sliding() & pmask(p.xy()))
     {
         // this piece is sliding, makes sense to talk about path
@@ -257,7 +257,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
         {
             vec4 p = m.from, q = m.to;
             vec4 d = q - p;
-            const board& source_board = *s.get_board(p.l(), p.t(), player);
+            const board& source_board = *s.get_board_ptr(p.l(), p.t(), player);
             dprint(locs.size(), "physical", m);
             locs.emplace_back(std::in_place_type<physical_entry>, m, source_board);
             board& newboard = std::get<physical_entry>(locs.back()).b;
@@ -315,7 +315,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
             const index_t entry_index = static_cast<index_t>(locs.size());
             locs.emplace_back(
                 std::in_place_type<departing_entry>, p,
-                *s.get_board(p.l(), p.t(), player));
+                *s.get_board_ptr(p.l(), p.t(), player));
             board& newboard = std::get<departing_entry>(locs.back()).b;
             newboard.set_piece(p.xy(), NO_PIECE);
             dprint(entry_index, "depart", p);
@@ -344,7 +344,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
                         const piece_t promotion = ext_move(m,s).promote_to;
                         if (promotion != NO_PIECE) pic = player ? to_black(promotion) : promotion;
                     }
-                    const board& destination_board = *s.get_board(q.l(), q.t(), player);
+                    const board& destination_board = *s.get_board_ptr(q.l(), q.t(), player);
 
                     dprint(" ... nonbranching jump");
                     dprint(locs.size(), "arrive", m);
@@ -387,7 +387,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state& s)
                 const piece_t promotion = ext_move(m,s).promote_to;
                 if (promotion != NO_PIECE) pic = player ? to_black(promotion) : promotion;
             }
-            const board& destination_board = *s.get_board(q.l(), q.t(), player);
+            const board& destination_board = *s.get_board_ptr(q.l(), q.t(), player);
             
             dprint(" ... branching jump");
             if(const index_t* departure = find_jump_index(m.from))

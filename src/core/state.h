@@ -31,9 +31,9 @@ class state
     std::vector<vec4> gen_movable_pieces_impl(const std::vector<int> &lines) const;
     
     /*
-     find_check_impl<C>(lines)
+     find_checks_impl<C>(lines)
      For all boards on the end of timelines specified in `lines` with color `C`,
-     test if one of piece on that board with color `C` can capture an enermy royal piece.
+     test if one of piece on that board with color `C` can capture an enemy royal piece.
      */
     template<bool C>
     generator<full_move> find_checks_impl(std::vector<int> lines) const;
@@ -107,9 +107,9 @@ public:
     std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> get_timeline_status(int present_t, bool present_c) const;
     
     /*
-     find_checks(): Test if that player with color `c` is able to capture an enermy royal piece.
+     find_checks(): Generate moves by `attacker` that capture an enemy royal piece.
      */
-    generator<full_move> find_checks(bool c) const;
+    generator<full_move> find_checks(bool attacker) const;
     
     std::vector<vec4> get_movable_pieces() const;
     std::vector<vec4> get_movable_pieces(const std::vector<int> &lines) const;
@@ -137,7 +137,8 @@ public:
     turn_t get_timeline_end(int l) const;
     piece_t get_piece(vec4 p, bool color) const;
     std::shared_ptr<board> get_board(int l, int t, bool c) const;
-    const board* get_board_ptr(int l, int t, bool c) const {
+    // Borrow a board, or return nullptr when the turn is absent.
+    const board* get_board_ptr(int l, int t, bool c) const noexcept {
         return m->get_board_ptr(l,t,c);
     }
     std::vector<std::tuple<int,int,bool,std::string>> get_boards() const;

@@ -126,7 +126,7 @@ void check_position::add_board(int l, turn_t at, const board& b)
     line.added = &b;
 }
 
-const board* check_position::board_at(int l, int t, bool c) const
+const board* check_position::get_board_ptr(int l, int t, bool c) const
 {
     if (l < first_line || l - first_line >= static_cast<int>(lines.size()))
         return nullptr;
@@ -141,7 +141,7 @@ const board* check_position::board_at(int l, int t, bool c) const
 
 piece_t check_position::get_piece(vec4 p, bool c) const
 {
-    const board* b = board_at(p.l(), p.t(), c);
+    const board* b = get_board_ptr(p.l(), p.t(), c);
     assert(b);
     return b->get_piece(p.xy());
 }
@@ -164,7 +164,7 @@ bool check_position::scan_pure_sliders(vec4 p0, const board& source,
 {
     auto scan_direction = [&](vec4 direction, bitboard_t pieces) {
         for (vec4 q = p0+direction; pieces; q = q+direction) {
-            const board* b = board_at(q.l(),q.t(),C);
+            const board* b = get_board_ptr(q.l(),q.t(),C);
             if (!b) break;
             const bitboard_t hits = pieces & b->royal() & b->hostile<C>();
             for (int xy : marked_pos(hits)) {
@@ -194,7 +194,7 @@ bool check_position::scan_compound_sliders(vec4 p0, const board& source,
         int count = 0;
         bitboard_t any_royal = 0;
         for (vec4 q = p0+direction; count < 7; q = q+direction) {
-            const board* b = board_at(q.l(),q.t(),C);
+            const board* b = get_board_ptr(q.l(),q.t(),C);
             if (!b) break;
             ++count;
             occupied_boards[count] = b->occupied();
@@ -255,7 +255,7 @@ bool check_position::scan_jumps(vec4 p0, const board& source,
     {
         if (!pieces) return false;
         const vec4 q = p0+direction;
-        const board* b = board_at(q.l(),q.t(),C);
+        const board* b = get_board_ptr(q.l(),q.t(),C);
         if (!b) return false;
         const bitboard_t royals = b->royal() & b->hostile<C>();
         if (!royals) return false;
@@ -301,7 +301,7 @@ bool check_position::scan(bool include_physical, Emit&& emit,
         const auto& line = lines[i];
         if (!line.exists || line.end.second != C) return false;
         const vec4 p0(0,0,line.end.first,first_line+i);
-        const board& source = *board_at(p0.l(),p0.t(),C);
+        const board& source = *get_board_ptr(p0.l(),p0.t(),C);
         const bitboard_t friendly = source.hostile<!C>(); // excludes walls
         if ((include_physical && scan_physical<C>(p0,source,friendly,emit))
             || (include_superphysical

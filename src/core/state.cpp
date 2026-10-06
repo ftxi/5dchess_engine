@@ -233,7 +233,7 @@ bool state::apply_move(ext_move mv)
     // physical move, no time travel
     if(d.tl() == vec4(0,0,0,0))
     {
-        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        const board* b_ptr = m->get_board_ptr(p.l(), p.t(), player);
         bitboard_t z = pmask(p.xy());
         const auto &[size_x, size_y] = m->get_board_size();
         // en passant
@@ -281,13 +281,13 @@ bool state::apply_move(ext_move mv)
     // non-branching superphysical move
     else if (std::make_pair(q.t(), player) == m->get_timeline_end(q.l()))
     {
-        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        const board* b_ptr = m->get_board_ptr(p.l(), p.t(), player);
         const piece_t& pic = static_cast<piece_t>(piece_name(b_ptr->get_piece(p.xy())));
         m->append_board(p.l(), b_ptr->replace_piece(p.xy(), NO_PIECE));
         
         bitboard_t z = pmask(p.xy());
         const auto &[size_x, size_y] = m->get_board_size();
-        const std::shared_ptr<board>& c_ptr = m->get_board(q.l(), q.t(), player);
+        const board* c_ptr = m->get_board_ptr(q.l(), q.t(), player);
         
         // promotion (only brawns can do)
         if ((b_ptr->lrawn()&z) && (q.y() == 0 || q.y() == size_y - 1))
@@ -314,10 +314,10 @@ bool state::apply_move(ext_move mv)
     //branching move
     else
     {
-        const std::shared_ptr<board>& b_ptr = m->get_board(p.l(), p.t(), player);
+        const board* b_ptr = m->get_board_ptr(p.l(), p.t(), player);
         const piece_t& pic = static_cast<piece_t>(piece_name(b_ptr->get_piece(p.xy())));
         m->append_board(p.l(), b_ptr->replace_piece(p.xy(), NO_PIECE));
-        const std::shared_ptr<board>& x_ptr = m->get_board(q.l(), q.t(), player);
+        const board* x_ptr = m->get_board_ptr(q.l(), q.t(), player);
         auto [t, c] = next_turn({q.t(), player});
         
         bitboard_t z = pmask(p.xy());
@@ -486,19 +486,19 @@ std::tuple<std::vector<int>, std::vector<int>, std::vector<int>> state::get_time
  **
  */
 
-generator<full_move> state::find_checks(bool c) const
+generator<full_move> state::find_checks(bool attacker) const
 {
     auto [l_min, l_max] = m->get_lines_range();
     std::vector<int> lines;
     for(int i = l_min; i <= l_max; i++)
     {
         auto [t, color] = m->get_timeline_end(i);
-        if(color == c)
+        if(color == attacker)
         {
             lines.push_back(i);
         }
     }
-    if (c)
+    if (attacker)
     {
         return find_checks_impl<true>(lines);
     }
@@ -517,7 +517,7 @@ generator<full_move> state::find_checks_impl(std::vector<int> lines) const
         // take the active board
         auto [t, c] = m->get_timeline_end(l);
         assert(c == C);
-        std::shared_ptr<board> b_ptr = m->get_board(l, t, C);
+        const board* b_ptr = m->get_board_ptr(l, t, C);
         bitboard_t b_pieces = b_ptr->friendly<C>() & ~b_ptr->wall();
         // for each friendly piece on this board
         for (int src_pos : marked_pos(b_pieces))
@@ -528,7 +528,7 @@ generator<full_move> state::find_checks_impl(std::vector<int> lines) const
             // for each destination board and bit location
             for (const auto& [q0, bb] : moves)
             {
-                std::shared_ptr<board> b1_ptr = m->get_board(q0.l(), q0.t(), C);
+                const board* b1_ptr = m->get_board_ptr(q0.l(), q0.t(), C);
                 if (bb)
                 {
                     // if the destination square is royal, this is a check
@@ -575,7 +575,7 @@ std::vector<vec4> state::get_all_pieces(const std::vector<int> &lines) const
     {
         const int t = get_timeline_end(l).first;
         const vec4 p0(0, 0, t, l);
-        const std::shared_ptr<board> &b = m->get_board(l, t, player);
+        const board* b = m->get_board_ptr(l, t, player);
         const bitboard_t pieces = (player ? b->black() : b->white()) & ~b->wall();
         for(int pos : marked_pos(pieces))
         {
@@ -596,7 +596,7 @@ std::vector<vec4> state::gen_movable_pieces_impl(const std::vector<int> &lines) 
         auto [t, c] = get_timeline_end(l);
         const vec4 p0 = vec4(0,0,t,l);
 //        assert(c == C);
-        std::shared_ptr<board> b_ptr = m->get_board(l, t, C);
+        const board* b_ptr = m->get_board_ptr(l, t, C);
         bitboard_t b_pieces = b_ptr->friendly<C>() & ~b_ptr->wall();
         // for each friendly piece on this board
         for (int src_pos : marked_pos(b_pieces))

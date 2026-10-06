@@ -90,7 +90,7 @@ public:
     void add_board(int l, turn_t at, const board& b);
 
     /* Return nullptr when the turn is absent from this view. */
-    const board* board_at(int l, int t, bool c) const;
+    const board* get_board_ptr(int l, int t, bool c) const;
 
     piece_t get_piece(vec4 p, bool c) const;
 

@@ -115,7 +115,7 @@ material_data<int> count_material_sum(const state &s)
     for(int line: lines)
     {
         auto [t, c] = s.get_timeline_end(line);
-        std::shared_ptr<board> b = s.get_board(line, t, c);
+        const board *b = s.get_board_ptr(line, t, c);
         lpawn += std::popcount(b->lpawn());
         lknight += std::popcount(b->lknight());
         lrook += std::popcount(b->lrook());
@@ -158,7 +158,7 @@ material_data<int> count_material_diff(const state &s)
     for(int line: lines)
     {
         auto [t, c] = s.get_timeline_end(line);
-        std::shared_ptr<board> b = s.get_board(line, t, c);
+        const board *b = s.get_board_ptr(line, t, c);
         bitboard_t friendly = c ? b->black() : b->white();
         bitboard_t hostile = c ? b->white() : b->black();
         lpawn += std::popcount(b->lpawn() & friendly) - std::popcount(b->lpawn() & hostile);

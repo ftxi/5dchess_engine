@@ -126,9 +126,16 @@ std::shared_ptr<board> multiverse::get_board(int l, int t, bool c) const
     }
 }
 
-const board* multiverse::get_board_ptr(int l, int t, bool c) const
+const board* multiverse::get_board_ptr(int l, int t, bool c) const noexcept
 {
-    return boards.at(l_to_u(l)).at(tc_to_v(t,c)).get();
+    const auto u = static_cast<std::size_t>(l_to_u(l));
+    if (u >= boards.size() || t < 0)
+        return nullptr;
+    const auto& timeline = boards[u];
+    const auto v = static_cast<std::size_t>(t) * 2 + static_cast<std::size_t>(c);
+    if (v >= timeline.size())
+        return nullptr;
+    return timeline[v].get();
 }
 
 void multiverse::append_board(int l, const std::shared_ptr<board>& b_ptr)
@@ -282,7 +289,9 @@ bool multiverse::get_umove_flag(vec4 a, bool color) const
 template<bool C>
 bitboard_t multiverse::gen_physical_moves(vec4 p) const
 {
-    std::shared_ptr<board> b_ptr = get_board(p.l(), p.t(), C);
+    const board* b_ptr = get_board_ptr(p.l(), p.t(), C);
+    // Preserve the throwing contract for invalid source coordinates.
+    if (!b_ptr) b_ptr = get_board(p.l(), p.t(), C).get();
     piece_t p_piece = b_ptr->get_piece(p.xy());
     if (b_ptr->umove() & pmask(p.xy()))
     {
@@ -335,7 +344,9 @@ bitboard_t multiverse::gen_physical_moves(vec4 p) const
 template<bool C>
 movegen_t multiverse::gen_superphysical_moves(vec4 p) const
 {
-    std::shared_ptr<board> b_ptr = get_board(p.l(), p.t(), C);
+    const board* b_ptr = get_board_ptr(p.l(), p.t(), C);
+    // Preserve the throwing contract for invalid source coordinates.
+    if (!b_ptr) b_ptr = get_board(p.l(), p.t(), C).get();
     piece_t p_piece = b_ptr->get_piece(p.xy());
     if (b_ptr->umove() & pmask(p.xy()))
     {
@@ -388,7 +399,9 @@ movegen_t multiverse::gen_superphysical_moves(vec4 p) const
 template<bool C>
 movegen_t multiverse::gen_moves(vec4 p) const
 {
-    std::shared_ptr<board> b_ptr = get_board(p.l(), p.t(), C);
+    const board* b_ptr = get_board_ptr(p.l(), p.t(), C);
+    // Preserve the throwing contract for invalid source coordinates.
+    if (!b_ptr) b_ptr = get_board(p.l(), p.t(), C).get();
     piece_t p_piece = b_ptr->get_piece(p.xy());
     if (b_ptr->umove() & pmask(p.xy()))
     {
@@ -459,14 +472,14 @@ template<bool C>
 std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_rook_moves(vec4 p0) const
 {
     std::vector<std::pair<vec4, bitboard_t>> result;
-    std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
+    const board* b0_ptr = get_board_ptr(p0.l(), p0.t(), C);
     bitboard_t lrook = b0_ptr->lrook() & b0_ptr->friendly<C>();
     for(auto d : orthogonal_tl_directions)
     {
         bitboard_t remaining = lrook;
         for(vec4 p1 = p0 + d; remaining && inbound(p1, C); p1 = p1 + d)
         {
-            std::shared_ptr<board> b1_ptr = get_board(p1.l(), p1.t(), C);
+            const board* b1_ptr = get_board_ptr(p1.l(), p1.t(), C);
             remaining &= ~b1_ptr->friendly<C>();
             if(remaining)
             {
@@ -484,14 +497,14 @@ template<bool C>
 std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_bishop_moves(vec4 p0) const
 {
     std::vector<std::pair<vec4, bitboard_t>> result;
-    std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
+    const board* b0_ptr = get_board_ptr(p0.l(), p0.t(), C);
     bitboard_t lbishop = b0_ptr->lbishop() & b0_ptr->friendly<C>();
     for(auto d : diagonal_tl_directions)
     {
         bitboard_t remaining = lbishop;
         for(vec4 p1 = p0 + d; remaining && inbound(p1, C); p1 = p1 + d)
         {
-            std::shared_ptr<board> b1_ptr = get_board(p1.l(), p1.t(), C);
+            const board* b1_ptr = get_board_ptr(p1.l(), p1.t(), C);
             remaining &= ~b1_ptr->friendly<C>();
             if(remaining)
             {
@@ -509,14 +522,14 @@ template<bool C>
 std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_knight_moves(vec4 p0) const
 {
     std::vector<std::pair<vec4, bitboard_t>> result;
-    std::shared_ptr<board> b0_ptr = get_board(p0.l(), p0.t(), C);
+    const board* b0_ptr = get_board_ptr(p0.l(), p0.t(), C);
     bitboard_t lknight = b0_ptr->lknight() & b0_ptr->friendly<C>();
     for(vec4 delta : purely_superphysical_knight_directions)
     {
         vec4 p1 = p0 + delta;
         if(inbound(p1, C))
         {
-            std::shared_ptr<board> b1_ptr = get_board(p1.l(), p1.t(), C);
+            const board* b1_ptr = get_board_ptr(p1.l(), p1.t(), C);
             bitboard_t remaining = lknight;
             remaining &= ~b1_ptr->friendly<C>();
             if(remaining)
@@ -532,7 +545,7 @@ std::vector<std::pair<vec4, bitboard_t>> multiverse::gen_purely_sp_knight_moves(
 template<piece_t P, bool C>
 bitboard_t multiverse::gen_physical_moves_impl(vec4 p) const
 {
-	std::shared_ptr<board> b_ptr = get_board(p.l(), p.t(), C);
+	const board* b_ptr = get_board_ptr(p.l(), p.t(), C);
     bitboard_t friendly = b_ptr->friendly<C>();
     bitboard_t hostile = b_ptr->hostile<C>();
     bitboard_t a;
@@ -607,7 +620,7 @@ bitboard_t multiverse::gen_physical_moves_impl(vec4 p) const
             vec4 q = p+vec4(0, 2, -1, 0);
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b1_ptr = get_board(q.l(), q.t(), C);
+                const board* b1_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t j = s & b1_ptr->umove() & ~friendly & b1_ptr->pawn();
                 a |= shift_south(j);
             }
@@ -631,7 +644,7 @@ bitboard_t multiverse::gen_physical_moves_impl(vec4 p) const
             vec4 q = p+vec4(0, 2, -1, 0);
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b1_ptr = get_board(q.l(), q.t(), C);
+                const board* b1_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t j = s & b1_ptr->umove() & ~friendly & b1_ptr->pawn();
                 a |= shift_north(j);
             }
@@ -682,7 +695,7 @@ void multiverse::gen_compound_moves(vec4 p, std::map<vec4, bitboard_t>& result) 
             // if the corresponding board exists, copy the cone slice
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
                 occ |= copy_mask & b_ptr->occupied();
                 fri |= copy_mask & b_ptr->friendly<C>();
             }
@@ -744,7 +757,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
             vec4 q = p+d;
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t bb = king_jump_attack(p.xy()) & ~b_ptr->friendly<C>();
                 if(bb)
                 {
@@ -845,7 +858,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
             vec4 q = p + d;
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t bb = z & b_ptr->hostile<C>();
                 if(bb)
                 {
@@ -857,7 +870,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
         vec4 q = p + vec4(0,0,0,-1);
         if(inbound(q, C))
         {
-            std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+            const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
             bitboard_t bb = z & ~b_ptr->occupied();
             if(bb)
             {
@@ -867,7 +880,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                     vec4 r = q + vec4(0,0,0,-1);
                     if(inbound(r,C))
                     {
-                        std::shared_ptr<board> b1_ptr = get_board(r.l(), r.t(), C);
+                        const board* b1_ptr = get_board_ptr(r.l(), r.t(), C);
                         bitboard_t bc = z & ~b1_ptr->occupied();
                         if(bc)
                         {
@@ -896,7 +909,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                 vec4 s = p + d;
                 if(inbound(s, C))
                 {
-                    std::shared_ptr<board> b2_ptr = get_board(s.l(), s.t(), C);
+                    const board* b2_ptr = get_board_ptr(s.l(), s.t(), C);
                     bitboard_t bd = shift_north(z) & ~b2_ptr->occupied();
                     if(bd)
                     {
@@ -916,7 +929,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
             vec4 q = p + d;
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t bb = z & b_ptr->hostile<C>();
                 if(bb)
                 {
@@ -929,7 +942,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
 //        std::cout << p << " " << q << inbound(q,C) << "\n";
         if(inbound(q, C))
         {
-            std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+            const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
             bitboard_t bb = z & ~b_ptr->occupied();
             if(bb)
             {
@@ -939,7 +952,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                     vec4 r = q + vec4(0,0,0,1);
                     if(inbound(r,C))
                     {
-                        std::shared_ptr<board> b1_ptr = get_board(r.l(), r.t(), C);
+                        const board* b1_ptr = get_board_ptr(r.l(), r.t(), C);
                         bitboard_t bc = z & ~b1_ptr->occupied();
                         if(bc)
                         {
@@ -967,7 +980,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
                 vec4 s = p + d;
                 if(inbound(s, C))
                 {
-                    std::shared_ptr<board> b2_ptr = get_board(s.l(), s.t(), C);
+                    const board* b2_ptr = get_board_ptr(s.l(), s.t(), C);
                     bitboard_t bd = shift_north(z) & ~b2_ptr->occupied();
                     if(bd)
                     {
@@ -992,7 +1005,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
             vec4 q = p+d;
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t bb = knight_jump1_attack(p.xy()) & ~b_ptr->friendly<C>();
                 if(bb)
                 {
@@ -1005,7 +1018,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
             vec4 q = p+d;
             if(inbound(q, C))
             {
-                std::shared_ptr<board> b_ptr = get_board(q.l(), q.t(), C);
+                const board* b_ptr = get_board_ptr(q.l(), q.t(), C);
                 bitboard_t bb = knight_jump2_attack(p.xy()) & ~b_ptr->friendly<C>();
                 if(bb)
                 {
@@ -1046,7 +1059,7 @@ movegen_t multiverse::gen_moves_impl(vec4 p) const
 template <bool C>
 generator<vec4> multiverse::gen_board_move_impl(vec4 p0) const
 {
-    std::shared_ptr<board> b_ptr = get_board(p0.l(), p0.t(), C);
+    const board* b_ptr = get_board_ptr(p0.l(), p0.t(), C);
     bitboard_t bb = b_ptr->friendly<C>() & ~b_ptr->wall();
     for(int pos : marked_pos(bb))
     {

@@ -40,12 +40,12 @@ void compare_phantom(const state& s)
     for (int l = lo; l <= hi; ++l) {
         const auto end = expected.get_timeline_end(l);
         for (auto at = s.get_timeline_start(l); at <= end; at = next_turn(at)) {
-            const auto* b = view.board_at(l,at.first,at.second);
+            const auto* b = view.get_board_ptr(l,at.first,at.second);
             assert(b);
             assert(b->get_fen<true>() == expected.get_board_ptr(l,at.first,at.second)->get_fen<true>());
         }
         const auto after = next_turn(end);
-        assert(!view.board_at(l,after.first,after.second));
+        assert(!view.get_board_ptr(l,after.first,after.second));
     }
 }
 
@@ -79,7 +79,7 @@ void test_phantom_cases()
         for (int l : {0,1}) {
             const auto end = partial.get_timeline_end(l);
             const auto after = next_turn(end);
-            assert(!before_submit.board_at(l,after.first,after.second));
+            assert(!before_submit.get_board_ptr(l,after.first,after.second));
         }
         assert(partial.submit());
         compare_phantom(partial);

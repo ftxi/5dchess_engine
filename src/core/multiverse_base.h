@@ -95,8 +95,8 @@ public:
     
     std::shared_ptr<board> get_board(int l, int t, bool c) const;
     // Borrow an existing board without changing its shared ownership count.
-    // Coordinates must name an existing board; valid while this multiverse lives.
-    const board* get_board_ptr(int l, int t, bool c) const;
+    // Return nullptr when the turn is absent; valid while this multiverse lives.
+    const board* get_board_ptr(int l, int t, bool c) const noexcept;
     
     template<bool SHOW_UMOVE=false>
     std::vector<boards_info_t> get_boards() const;

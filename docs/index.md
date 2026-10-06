@@ -107,7 +107,7 @@ Check Detection
 =============
 Check detection is not automatically triggered when applying moves or submitting.
 
-For general check detection, use `state::find_checks(color)`. It generates every move by `color` that captures an enemy royal piece in the current state.
+For general check detection, use `state::find_checks(attacker)`. It generates every move by `attacker` that captures an enemy royal piece in the current state.
 
 ```cpp
 const state &base = /* a state */;

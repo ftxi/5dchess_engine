@@ -43,7 +43,7 @@ void compare_phantom(const state& s)
         const auto [t, c] = s.get_timeline_end(l);
         const auto end = expected.get_timeline_end(l);
         for (turn_t at = start; at <= end; at = next_turn(at)) {
-            const board* actual = view.board_at(l,at.first,at.second);
+            const board* actual = view.get_board_ptr(l,at.first,at.second);
             assert(actual);
             assert(actual->get_fen<true>() ==
                    expected.get_board_ptr(l,at.first,at.second)->get_fen<true>());
@@ -52,7 +52,7 @@ void compare_phantom(const state& s)
             assert(actual == borrowed);
         }
         const auto after_end = next_turn(end);
-        assert(!view.board_at(l,after_end.first,after_end.second));
+        assert(!view.get_board_ptr(l,after_end.first,after_end.second));
     }
     const bool checked = expected.find_checks(!s.get_present().second).first().has_value();
     assert(s.has_phantom_check() == checked);
@@ -169,8 +169,8 @@ void new_boards_check_each_other()
         compare(view,state(*expected));
         assert(view.first_check(!mover,false));
         // A branch has no inherited history and uncreated reserved lines are absent.
-        assert(!view.board_at(1,2,mover));
-        assert(!view.board_at(-1,at.first,at.second));
+        assert(!view.get_board_ptr(1,2,mover));
+        assert(!view.get_board_ptr(-1,at.first,at.second));
     }
 }
 }
