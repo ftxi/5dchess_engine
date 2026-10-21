@@ -18,6 +18,8 @@
 
 #include "finetree.h"
 #include "uci.h"
+#include "search_control.h"
+#include "search_trace.h"
 
 /*
 This files define the behavioral boundaries for components of Monte Carlo tree search (MCTS).

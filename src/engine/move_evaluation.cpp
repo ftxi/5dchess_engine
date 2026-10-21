@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "hypercuboid.h"
+#include "search_trace.h"
 
 namespace
 {
@@ -171,6 +172,7 @@ std::optional<move_score_table> move_evaluator::build_score_table(
     std::stop_token stop)
 {
     if(stop.stop_requested()) return std::nullopt;
+    search_trace_phase phase("move_score_table", &info.get_state());
     move_score_table result(info.get_universe().dimension());
     for(index_t axis = 0; axis < info.get_universe().dimension(); ++axis)
     {

@@ -15,7 +15,7 @@ The engine is built as `build/5dchess`, and the general command-line utility is 
 -  `diff [--at <turn>]`: compare the output of two algorithms
 -  `perftest [<policy>]`: on each intermediate state, print 1 if it is checkmate/stalemate, 0 otherwise
 -  `rollout [options]`: run and report random rollout simulations
--  `replay-log <log> [seed]`: replay and time a protocol failure log
+-  `replay-log <log-or-snapshot.5dpgn> [seed] [--movetime ms] [--engine name [options...]]`: replay a protocol failure or captured position with configurable search settings; see [search diagnostics](../engine/testing.md#search-deadlines-and-slow-position-traces)
 
 For `print`, `stats`, `count`, `all`, `checkmate`, and `diff`, `--at 0` and
 `--at 0b` select the initial

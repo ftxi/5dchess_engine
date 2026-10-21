@@ -7,6 +7,8 @@
 
 #include "hypercuboid.h"
 #include "uct.h"
+#include "search_control.h"
+#include "search_trace.h"
 
 namespace
 {
@@ -43,21 +45,40 @@ template<class DefaultPolicy>
 std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
     std::optional<int> depth_limit,
     std::optional<int> time_limit_ms,
-    std::stop_token stop_token)
+    std::stop_token external_stop)
 {
     const auto search_started = std::chrono::steady_clock::now();
+    const auto deadline = time_limit_ms
+        ? std::optional{search_started + std::chrono::milliseconds(*time_limit_ms)}
+        : std::nullopt;
+    search_stop_scope control(external_stop, deadline);
+    const auto stop_token = control.get_token();
     const state &root = get_current_state().value();
-    auto [hypercuboid, search_state] = HC_info::build_HC(root);
+    search_trace trace(root, stop_token, deadline);
+    if(trace.enabled()) trace.set_configuration(
+        "depth_limit=" + (depth_limit ? std::to_string(*depth_limit) : "none")
+        + "\nmovetime_ms=" + (time_limit_ms ? std::to_string(*time_limit_ms) : "none")
+        + "\n" + search_configuration());
+    auto [hypercuboid, search_state] = [&] {
+        search_trace_phase phase("flat_build_HC", &root);
+        return HC_info::build_HC(root);
+    }();
     std::vector<flat_child> children;
-    for(const moveseq &moves : hypercuboid.search(search_state))
     {
-        state position = root;
-        for(const full_move &move : moves)
+        search_trace_phase phase("flat_root_enumeration", &root);
+        // The core generator remains non-interruptible internally. Poll between
+        // yielded actions, preserving any legal fallback already discovered.
+        for(const moveseq &moves : hypercuboid.search(search_state))
         {
-            position.apply_move<true>(move);
+            state position = root;
+            for(const full_move &move : moves)
+            {
+                position.apply_move<true>(move);
+            }
+            position.submit<true>();
+            children.push_back({moves, std::move(position)});
+            if(stop_token.stop_requested()) break;
         }
-        position.submit<true>();
-        children.push_back({moves, std::move(position)});
     }
     if(children.empty())
     {
@@ -70,19 +91,12 @@ std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
         iteration_limit = static_cast<std::size_t>(*depth_limit)
             * depth_to_iteration_multiplier;
     }
-    std::optional<std::chrono::steady_clock::time_point> deadline;
-    if(time_limit_ms.has_value())
-    {
-        deadline = std::chrono::steady_clock::now()
-            + std::chrono::milliseconds(*time_limit_ms);
-    }
-
     flat_ucb_observer observer;
     const bool maximizing_player = !root.get_present().c();
     std::size_t total_visits = 0;
     while(!stop_token.stop_requested()
           && (!iteration_limit.has_value() || total_visits < *iteration_limit)
-          && (!deadline.has_value() || std::chrono::steady_clock::now() < *deadline))
+          && !control.deadline_expired())
     {
         std::size_t selected = 0;
         float best_score = maximizing_player
@@ -99,10 +113,11 @@ std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
                 best_score = score;
             }
         }
-        const auto result = default_policy.evaluate(
-            children[selected].position,
-            stop_token,
-            observer);
+        trace.set_iteration(total_visits);
+        const auto result = [&] {
+            search_trace_phase phase("evaluation", &children[selected].position);
+            return default_policy.evaluate(children[selected].position, stop_token, observer);
+        }();
         if(!result)
         {
             break;

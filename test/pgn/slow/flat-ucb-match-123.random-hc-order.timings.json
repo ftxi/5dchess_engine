@@ -1,0 +1,30 @@
+{
+  "execution": "three concurrent native processes",
+  "timeout_seconds": 120,
+  "results": [
+    {
+      "seed": 7,
+      "status": "timeout",
+      "wall_seconds": 120.00266529095825,
+      "exit_code": -9,
+      "stdout": "parse_ms=42.497 boards=365\nbuild_HC_ms=2.12 dimensions=116 HCs=58\nSEARCH_STARTED\n",
+      "stderr": ""
+    },
+    {
+      "seed": 42,
+      "status": "timeout",
+      "wall_seconds": 120.00240970798768,
+      "exit_code": -9,
+      "stdout": "parse_ms=42.902 boards=365\nbuild_HC_ms=1.77 dimensions=116 HCs=58\nSEARCH_STARTED\n",
+      "stderr": ""
+    },
+    {
+      "seed": 123,
+      "status": "timeout",
+      "wall_seconds": 120.002864375012,
+      "exit_code": -9,
+      "stdout": "parse_ms=42.565 boards=365\nbuild_HC_ms=2.043 dimensions=116 HCs=58\nSEARCH_STARTED\n",
+      "stderr": ""
+    }
+  ]
+}

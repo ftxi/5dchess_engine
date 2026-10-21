@@ -166,3 +166,71 @@ This includes root construction and is a short operational cost measurement,
 not a universal cost model. Selection timings depend on the machine and load;
 the committed manifest and snapshots, rather than rerunning selection, define
 the canonical suite.
+
+## Search deadlines and slow-position traces
+
+MCTS (including Linear and progressive widening variants) and flat UCB combine
+external `stop` and movetime expiry into one search-local cancellation token.
+A deadline watchdog wakes existing cooperative checks during an iteration. Its
+wait is interrupted when search finishes early; untimed searches need no timer.
+The deadline starts before root construction and, for flat UCB, root enumeration.
+Fine-tree and HC construction APIs remain unchanged, so those operations can
+still delay cancellation. A legal move already discovered remains available for
+final selection. Stopping before discovering any legal move can return
+`nobestmove`; this does not establish that the position is terminal.
+
+Enable diagnostics for a match by setting these environment variables on the
+engine process (or on the matchmaker, whose engine subprocesses inherit them):
+
+```sh
+export FIVEDCHESS_SEARCH_TRACE_DIR="$PWD/logs/search-traces"
+export FIVEDCHESS_SEARCH_TRACE_MS=10
+```
+
+Diagnostics are disabled by default. The threshold is in milliseconds (default
+10; zero records every phase). Each search with slow work creates a unique
+subdirectory containing:
+
+- `root.5dpgn`: the original search position.
+- `<n>.txt`: phase, iteration, duration, stop state, deadline overshoot, engine
+  command including explicit seed/options, and current protocol options.
+- `<n>.5dpgn`: the phase's input position, including the actual descendant or
+  rollout position for evaluation and legality-search phases. Snapshots retain
+  historical boards, unmoved flags, board size, timeline parity, and promotions.
+
+Phases distinguish root construction, tree selection, ceiling completion, state
+construction, evaluation, HC construction, move-score tables, legality search, terminal
+classification, final selection, and action conversion. Legality-search records
+also report candidate/rejection counts, initial/peak/remaining hypercuboid counts,
+whether a legal action was found, and total time in point selection, problem
+checking, and pruning. Phase durations are inclusive: do not add parent and child
+measurements together. Tree selection snapshots identify the search root;
+evaluation and legality snapshots identify their actual input position.
+
+Records are buffered until the search unwinds, capped at 64 phase records per
+search, then written before returning the move. Tracing adds snapshot/timing
+work and output latency; use it to find cases, and benchmark captured cases again
+with tracing disabled. A process killed during a stuck operation cannot flush
+its buffered trace; retain protocol failure logs as well. Use an explicit seed
+for reproducible fresh searches. Reused engines advance their random generators
+between searches, so matching a prior tree path also requires the same search
+history. Native library callers may set an engine's
+search description; command-line engines record their invocation automatically.
+
+Replay a failure log with the same engine, seed, and budget:
+
+```sh
+./build-gcc/5dtools replay-log logs/protocol-failure-0026.txt \
+  --movetime 200 --engine mvvlva-exposure --seed 42 \
+  --pw-constant 2 --pw-alpha 0.5
+```
+
+The same command accepts a captured `.5dpgn` instead of a log. `--engine` and
+its standard `5dchess` options must come last. The legacy positional seed is
+still accepted; defaults remain `mcts` and 1,000 ms. For snapshots and logs with
+partial PGNs, replay also measures uncapped zero evaluation and fine-tree first
+expansion separately. These uncapped probes deliberately run to completion and
+may take much longer than movetime. A descendant snapshot isolates its legality
+cost; replaying the original root with the original configuration runs
+the configured search; an identical tree path also requires matching RNG history.
+Disable trace variables for ordinary performance measurements.

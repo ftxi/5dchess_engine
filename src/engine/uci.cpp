@@ -568,3 +568,25 @@ void engine::on_option_changed(const std::string & /*key*/, const option_value_t
 {
     // Default no-op — derived engines override to react to specific options.
 }
+
+void engine::set_search_description(std::string description)
+{
+    std::lock_guard lock(options_mutex);
+    search_description = std::move(description);
+}
+
+std::string engine::search_configuration() const
+{
+    std::lock_guard lock(options_mutex);
+    std::ostringstream out;
+    out << "engine_command=" << search_description;
+    for(const auto &[key, value] : options)
+    {
+        out << "\noption " << key << '=';
+        std::visit([&](const auto &entry) {
+            if constexpr(!std::is_same_v<std::decay_t<decltype(entry)>, std::monostate>)
+                out << entry;
+        }, value);
+    }
+    return out.str();
+}

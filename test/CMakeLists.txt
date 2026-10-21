@@ -25,3 +25,6 @@ foreach(TEST_FILE ${TEST_SOURCES})
     # Register test with ctest
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()
+
+# Bound cancellation regressions even if timer shutdown deadlocks.
+set_tests_properties(test_search_control PROPERTIES TIMEOUT 15)

@@ -1,6 +1,6 @@
 if(ENGINE)
     message(STATUS ">>> Building engine...")
-    add_executable(5dchess 5dchess.cpp)
+    add_executable(5dchess 5dchess.cpp engine_cli.cpp)
     target_link_libraries(5dchess PRIVATE 5dchess_engine)
     set_target_properties(5dchess PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"

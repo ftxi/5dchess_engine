@@ -50,15 +50,22 @@ inline std::optional<action>
 basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     std::optional<int> depth_limit,
     std::optional<int> time_limit_ms,
-    std::stop_token stop_token
+    std::stop_token external_stop
 )
 {
     constexpr static int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
 
     const auto time_search_start = std::chrono::steady_clock::now();
-    const auto time_stop = time_limit_ms.has_value()
-        ? time_search_start + std::chrono::milliseconds(time_limit_ms.value())
-        : std::chrono::steady_clock::time_point::max();
+    const auto deadline = time_limit_ms
+        ? std::optional{time_search_start + std::chrono::milliseconds(*time_limit_ms)}
+        : std::nullopt;
+    search_stop_scope control(external_stop, deadline);
+    const auto stop_token = control.get_token();
+    search_trace trace(*get_current_state(), stop_token, deadline);
+    if(trace.enabled()) trace.set_configuration(
+        "depth_limit=" + (depth_limit ? std::to_string(*depth_limit) : "none")
+        + "\nmovetime_ms=" + (time_limit_ms ? std::to_string(*time_limit_ms) : "none")
+        + "\n" + search_configuration());
     // Convert depth_limit to iteration budget if provided
     std::optional<std::size_t> iteration_limit;
     if(depth_limit.has_value())
@@ -67,15 +74,19 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     }
 
     if constexpr(requires { observer.reset(); }) observer.reset();
-    root = node_t::make_root(*get_current_state());
+    {
+        search_trace_phase phase("make_root", &*get_current_state());
+        root = node_t::make_root(*get_current_state());
+    }
     std::size_t iteration_count = 0;
     while(true)
     {
+        trace.set_iteration(iteration_count);
         if(stop_token.stop_requested())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
-                .reason = "stop requested"
+                .reason = control.deadline_expired() ? "time limit reached" : "stop requested"
             });
             break;
         }
@@ -88,7 +99,7 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             });
             break;
         }
-        if(time_limit_ms.has_value() && std::chrono::steady_clock::now() >= time_stop)
+        if(control.deadline_expired())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
@@ -97,12 +108,18 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             break;
         }
         // core logic
-        node_t *node = tree_policy.select(root.get(), stop_token, observer);
+        node_t *node;
+        {
+            search_trace_phase phase("tree_selection", &*get_current_state());
+            node = tree_policy.select(root.get(), stop_token, observer);
+        }
         if(stop_token.stop_requested())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
-                .reason = "stop requested during tree policy selection"
+                .reason = control.deadline_expired()
+                    ? "time limit reached during tree policy selection"
+                    : "stop requested during tree policy selection"
             });
             break;
         }
@@ -114,15 +131,18 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             });
             break;
         }
-        node_t *ceiling_node = tree_policy.complete_to_ceiling(
-            node,
-            stop_token,
-            observer);
+        node_t *ceiling_node;
+        {
+            search_trace_phase phase("ceiling_completion", &node->get_hc_info().get_state());
+            ceiling_node = tree_policy.complete_to_ceiling(node, stop_token, observer);
+        }
         if(stop_token.stop_requested())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
-                .reason = "stop requested during ceiling completion"
+                .reason = control.deadline_expired()
+                    ? "time limit reached during ceiling completion"
+                    : "stop requested during ceiling completion"
             });
             break;
         }
@@ -135,16 +155,22 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             break;
         }
         assert(ceiling_node->is_ceiling());
-        std::optional<typename DP::result_type> result = default_policy.evaluate(
-            detail::state_at_ceiling(*ceiling_node),
-            stop_token,
-            observer);
+        state evaluation_position = [&] {
+            search_trace_phase phase("state_at_ceiling", &ceiling_node->get_hc_info().get_state());
+            return detail::state_at_ceiling(*ceiling_node);
+        }();
+        auto result = [&] {
+            search_trace_phase phase("evaluation", &evaluation_position);
+            return default_policy.evaluate(std::move(evaluation_position), stop_token, observer);
+        }();
         if(!result.has_value())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
                 .reason = stop_token.stop_requested()
-                    ? "stop requested during default policy evaluation"
+                    ? (control.deadline_expired()
+                        ? "time limit reached during default policy evaluation"
+                        : "stop requested during default policy evaluation")
                     : "default policy returned no result"
             });
             break;
@@ -164,7 +190,11 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     }
     
     // Final selection must still run after a search stop request.
-    node_t *best_node = selection_policy.select_ceiling(root.get(), observer);
+    node_t *best_node;
+    {
+        search_trace_phase phase("final_selection", &*get_current_state());
+        best_node = selection_policy.select_ceiling(root.get(), observer);
+    }
     watch_event(observer, event::bestmove_selected{
         .iteration = iteration_count,
         .duration = std::chrono::steady_clock::now() - time_search_start,
@@ -182,6 +212,7 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     }
     assert(best_node->is_ceiling());
     const state &s = root->get_hc_info().get_state();
+    search_trace_phase phase("action_conversion", &s);
     action best_action = action::from_moveseq(best_node->to_action(), s);
     return best_action;
 }

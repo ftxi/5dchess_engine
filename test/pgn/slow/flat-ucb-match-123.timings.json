@@ -1,0 +1,18 @@
+[
+  {
+    "mode": "search",
+    "status": "timeout",
+    "wall_seconds": 120.00240891694557,
+    "exit_code": -9,
+    "stdout": "parse_ms=43.491 boards=365\nbuild_HC_ms=2.074 dimensions=116 HCs=58\nSEARCH_STARTED\n",
+    "stderr": ""
+  },
+  {
+    "mode": "stable",
+    "status": "timeout",
+    "wall_seconds": 120.14226287498605,
+    "exit_code": -9,
+    "stdout": "parse_ms=36.527 boards=365\nbuild_HC_ms=1.657 dimensions=116 HCs=58\nSEARCH_STARTED\n",
+    "stderr": ""
+  }
+]
