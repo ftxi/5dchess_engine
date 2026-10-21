@@ -10,15 +10,6 @@ From `scripts/`, use `python -m unittest discover -s test -v`.
 
 ## Tested files
 
-`test_canonical_workflow.py` verifies the frozen 64-position suite, nested
-side balances, changed-file rejection, and source identities. With the
-`engine-testing` CMake preset built, it also checks native snapshot loading,
-eight short real-engine games on an extension subset, immutable run outputs,
-and rejection of a changed reference executable. A separate smoke test verifies
-a custom frozen MVV-LVA reference is preserved and used by the runner. Set
-`CANONICAL_BUILD_DIR` to use another compatible build. The real-engine checks
-skip when that build is absent; the manifest checks still run.
-
 `test_uci2pgn.py` checks the converter CLI with adjacent and separated FEN
 blocks, signed timeline labels, a complete two-timeline history, even-timeline
 jumps and promotions, odd timelines, and invalid text between FEN blocks.
@@ -27,13 +18,22 @@ jumps and promotions, odd timelines, and invalid text between FEN blocks.
 pool coverage, affinity fallback, and prevention of repeated explicit engine
 seeds.
 
+`test_engine_process.py` checks missing executables before CPU-affinity launch,
+both startup handshake barriers, startup exits and timeouts, rejection of
+non-engine programs, and preservation of early stderr errors before long
+usage messages. These checks use small Python subprocesses and need no native
+build.
+
 `test_ratio_matchmaker.py` checks provisional descent, refinement after a
 setback, retained evidence, superiority mode, budget exhaustion, the shared
 noninferiority boundary, continuous worker refill, ordered pair commitment,
 and cleanup on cancellation or a formal stop. Its scheduling checks control
 completion with events rather than timing-dependent performance assertions.
-Output checks cover the compact format, five-second throttling, combined pair
-updates, buffered counts, immediate decisions, and fixed-look p values.
+Output checks cover separate game and pair lines, five-second throttling,
+combined pair updates without repeated game totals, buffered and void counts,
+immediate decisions, fixed-look p values, and concise final summaries.
+Calibration checks verify the Standard startpos, configured search time, and
+fixed mean of actual target iteration counts across worker CPUs.
 
 `test_public_api.py` checks these files through their public interfaces:
 
@@ -42,7 +42,7 @@ updates, buffered counts, immediate decisions, and fixed-look p values.
 | [`scripts/elo.py`](../elo.py) | Registry edits, enable/disable, scheduling, reporting, ratings, history, and cancellation through CLI output. |
 | [`scripts/autoplay.py`](../autoplay.py) | Legal games, PGN metadata, metrics, history sent to engines, path handling, shutdown, and diagnostics for illegal moves, missing moves, exits, errors, and timeouts. |
 | [`scripts/elo_matchmaker.py`](../elo_matchmaker.py) | Concurrent queued games, resume, saved results/files, capped games recorded as draws, and recovery after disabling a failed engine. |
-| [`scripts/ratio_matchmaker.py`](../ratio_matchmaker.py) | Both statistical modes, color reversal, distinct process seeds, outgoing iteration budgets, baseline CLI names, explanatory header, actual child CPU masks where supported, logs, and summaries for known outcomes. |
+| [`scripts/ratio_matchmaker.py`](../ratio_matchmaker.py) | Both statistical modes, color reversal, distinct process seeds, outgoing iteration budgets, baseline CLI names, explanatory header, actual child CPU masks where supported, logs, summaries for known outcomes, and actionable startup errors. |
 | [`scripts/host.py`](../host.py) | HTTP HTML response and socket messages for loading, moving, undo/redo, submission, navigation, cancellation, PGN export/reload, and hints. |
 | [`pymodule.cpp`](../../pymodule.cpp), through compiled `engine` | Coordinate/move objects, legal and illegal moves, undo/redo, submission, history navigation, comments, and PGN round trips. |
 

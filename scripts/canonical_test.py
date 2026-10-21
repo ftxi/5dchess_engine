@@ -2,7 +2,7 @@
 """Select, verify, freeze, and run the versioned human-position engine suite.
 
 Only `select` changes the tracked suite. Experiments use its frozen order and
-the existing iteration_ratio_match controller, saving evidence under logs/.
+the ratio_matchmaker controller, saving evidence under logs/.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import subprocess
 import sys
 
 import autoplay
-import iteration_ratio_match as ratio_match
+import ratio_matchmaker as ratio_match
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -445,14 +445,15 @@ def run(args):
         shutil.copy2(path, rules_dir / path.name)
     for r in rows:
         shutil.copy2(args.suite / r["file"], openings / f"{r['id']}.5dpgn")
-    command = [sys.executable, str(ROOT / "scripts/iteration_ratio_match.py"),
+    controller_output = args.output / "controller"
+    command = [sys.executable, str(ROOT / "scripts/ratio_matchmaker.py"),
         "--target", shlex.join([str(candidate), *shlex.split(args.engine)]),
-        "--zero", shlex.join([str(ref_binary), *shlex.split(reference["engine"])]),
-        "--ratios", args.ratios, "--max-pairs", str(len(rows)), "--workers", "1",
-        "--zero-movetime", str(args.movetime), "--max-target-movetime", str(args.target_cap),
+        "--baseline", shlex.join([str(ref_binary), *shlex.split(reference["engine"])]),
+        "--ratios", args.ratios, "--max-pairs", str(len(rows)), "--jobs", "1",
+        "--baseline-movetime", str(args.movetime), "--max-target-movetime", str(args.target_cap),
         "--timeout", "2000", "--max-actions", str(args.max_actions),
-        "--seed-start", str(SEED + int(rows[0]["id"][1:]) - 1), "--module-dir", str(rules_dir),
-        "--output-dir", str(args.output)]
+        "--module-dir", str(rules_dir),
+        "--output-dir", str(controller_output)]
     for r in rows:
         command.extend(["--opening", str(openings / f"{r['id']}.5dpgn")])
     provenance = {"schema_version": 1, "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -460,7 +461,7 @@ def run(args):
         "skip_first": args.skip_first, "candidate_engine": args.engine,
         "positions": rows, "reference": reference, "candidate": build,
         "candidate_sha256": digest(candidate), "command": command,
-        "controller_sha256": digest(ROOT / "scripts/iteration_ratio_match.py"),
+        "controller_sha256": digest(ROOT / "scripts/ratio_matchmaker.py"),
         "runner_sha256": digest(Path(__file__)),
         "autoplay_sha256": digest(ROOT / "scripts/autoplay.py"),
         "binding_sha256": {p.name: digest(p) for p in rules_dir.iterdir()},
@@ -480,7 +481,8 @@ def run(args):
             except KeyboardInterrupt:
                 process.wait(timeout=10)
     finally:
-        result = summarize(args.output, rows)
+        result = summarize(controller_output, rows)
+        save(args.output / "summary.json", result)
         provenance["controller_exit_code"] = code
         if code == 0 and any(r["failures"] for r in result["by_ratio"].values()):
             code = 2

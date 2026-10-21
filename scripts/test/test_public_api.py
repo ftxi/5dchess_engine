@@ -40,6 +40,11 @@ def scripted_engine(arguments):
     our capped games; this is not a chess implementation.
     """
     mode, trace, iterations, seed = arguments
+    if mode == "unknown-engine":
+        print("Unknown engine: ghost", file=sys.stderr, flush=True)
+        for number in range(40):
+            print(f"usage line {number}", file=sys.stderr, flush=True)
+        return 2
     sys.path.insert(0, str(SCRIPTS))
     try:
         import cpu_affinity
@@ -380,6 +385,28 @@ class MatchmakerContracts(ContractCase):
 class RatioContracts(ContractCase):
     """Known metrics produce observable budgets; pairs/logs/summaries agree."""
 
+    def test_startup_failures_are_actionable_cli_errors(self):
+        self.require_bindings()
+        missing = shlex.join([str(self.work / "missing-engine"), "ghost"])
+        for label, command, expected in (
+            ("missing", missing, "was not found"),
+            ("unknown", self.peer("unknown", "unknown-engine"), "Unknown engine: ghost"),
+        ):
+            with self.subTest(label=label):
+                result = self.command(
+                    "ratio_matchmaker.py", "--target", command,
+                    "--baseline", self.peer("baseline"), "--jobs", "1",
+                    "--timeout", "500", "--max-pairs", "1", "--max-actions", "2",
+                    "--output-dir", f"startup-{label}", expected_code=2,
+                )
+                self.assertIn("Ratio matcher failed:", result.stderr)
+                self.assertIn("target:", result.stderr)
+                self.assertIn(expected, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                if label == "unknown":
+                    self.assertIn("expected '5duciok'", result.stderr)
+                self.assertEqual(self.csv_rows(self.work / f"startup-{label}" / "searches.csv"), [])
+
     def run_ratio(self, mode="legal", method="anytime"):
         self.require_bindings()
         shutil.rmtree(self.work / "ratio-output", ignore_errors=True)
@@ -402,7 +429,9 @@ class RatioContracts(ContractCase):
                 self.assertLess(result.stdout.index("Output guide:"), result.stdout.index("Calibration CPU"))
                 self.assertIn("wins-draws-losses", result.stdout)
                 self.assertIn("ips-ratio", result.stdout)
-                self.assertIn("Pairs used:", result.stdout)
+                self.assertIn("pairs=1 W:T:L=0:1:0", result.stdout)
+                self.assertIn("target-iters=200 (startpos)", result.stdout)
+                self.assertNotIn("Finished games:", result.stdout)
                 self.assertIn("Baseline:", result.stdout)
                 self.assertIn("Most aggressive established ratio: none", result.stdout)
                 output = self.work / "ratio-output"
@@ -470,8 +499,8 @@ class RatioContracts(ContractCase):
         self.assertEqual(len(games), 2)
         self.assertEqual({row["outcome"] for row in games}, {"loss"})
         self.assertTrue(all("target illegal action" in row["reason"] for row in games))
-        self.assertIn("Target: 0 wins, 0 draws, 2 losses", result.stdout)
-        self.assertIn("Mean pair score: 0.0%", result.stdout)
+        self.assertIn("games=2 W:D:L=0:0:2 (void 0)", result.stdout)
+        self.assertIn("score=0.0%", result.stdout)
 
 
 class BindingContracts(ContractCase):

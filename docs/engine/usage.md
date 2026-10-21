@@ -95,6 +95,15 @@ python autoplay.py --white "../build/5dchess mcts" --black "../build/5dchess mon
 
 This writes logs under `scripts/logs/`, which Git ignores.
 
+Autoplay and both matchmakers check engine startup with `5duci` / `5duciok`,
+then `isready` / `readyok`, before searching. A missing executable reports the
+engine role, command, and working directory, including when CPU pinning is
+enabled. An invalid engine name or other startup failure reports the command,
+failed handshake step, exit status or timeout, and captured engine output.
+The initial stderr error is preserved even if followed by a long usage message,
+so a command such as `build/5dchess ghost` includes `Unknown engine: ghost`.
+`--timeout` controls how long each handshake response may take.
+
 Autoplay records standard PGN match headers. Use `--event` and `--site` to
 name a standalone run; both default to `Autoplay` and `Local`. In a series,
 `Round` is the one-based game number.

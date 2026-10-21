@@ -38,6 +38,7 @@ from elo import DefaultsHelpArgumentParser
 
 
 DEPTH_TO_ITERATIONS = 10
+STARTPOS_PGN = '[Board "Standard - Turn Zero"]'
 
 
 @dataclass(frozen=True)
@@ -192,8 +193,15 @@ class Experiment:
     cpu_throughput: dict[int | None, Throughput] = field(default_factory=dict)
     results: list[RatioResult] = field(default_factory=list)
     interrupted: bool = False
+    calibration: dict[int | None, SearchSample] = field(default_factory=dict)
     progress: ProgressReporter | None = field(default=None, repr=False)
     engine_seeds: common.EngineSeeds = field(default_factory=common.EngineSeeds)
+
+    @property
+    def startpos_target_iterations(self) -> int | None:
+        if not self.calibration:
+            return None
+        return round(statistics.mean(sample.iterations for sample in self.calibration.values()))
 
     def engine(self, role: str, command: str, cpu: int | None, **context) -> autoplay.EngineProcess:
         command, seed = self.engine_seeds.prepare(command)
@@ -501,47 +509,68 @@ def format_score(value: float | None) -> str:
     return "n/a" if value is None else f"{100 * value:.1f}%"
 
 
+def format_noninferiority(result: RatioResult, args: argparse.Namespace,
+                          look_alpha: float | None = None) -> str:
+    if args.stat_method == "anytime":
+        return (f"noninferior-E current={format_evidence(result.noninferiority_log_e)} "
+                f"peak={format_evidence(result.noninferiority_max_log_e)}/{1 / args.test_alpha:g}")
+    return (f"noninferior-p current={format_probability(result.noninferiority_p)} "
+            f"required<={format_probability(look_alpha)}")
+
+
 class ProgressReporter:
-    """Coalesce routine updates; important events bypass the progress timer."""
+    """Report finished games and ordered pair evidence independently."""
 
     def __init__(self, experiment: Experiment, states: list[RatioState]):
         self.experiment = experiment
         self.states = states
         self.last_report = time.monotonic()
         self.previous_pairs = {state.result.ratio: state.result.valid_pairs for state in states}
-        self.snapshots = {state.result.ratio: self.snapshot(state) for state in states}
+        self.game_snapshots = {state.result.ratio: self.game_snapshot(state) for state in states}
+        self.pair_snapshots = {state.result.ratio: self.pair_snapshot(state) for state in states}
 
     @staticmethod
-    def snapshot(state: RatioState) -> tuple:
+    def game_snapshot(state: RatioState) -> tuple:
         result = state.result
-        return (result.game_wins, result.game_draws, result.game_losses, result.void_games,
-                result.pair_wins, result.pair_ties, result.pair_losses, result.void_pairs,
-                len(state.completed), result.decision)
+        return (result.game_wins, result.game_draws, result.game_losses, result.void_games)
 
-    def remember(self, state: RatioState) -> None:
-        self.previous_pairs[state.result.ratio] = state.result.valid_pairs
-        self.snapshots[state.result.ratio] = self.snapshot(state)
+    @staticmethod
+    def pair_snapshot(state: RatioState) -> tuple:
+        result = state.result
+        return (result.pair_wins, result.pair_ties, result.pair_losses, result.void_pairs,
+                len(state.completed), state.next_look)
 
-    def compact(self, state: RatioState) -> str:
-        args = self.experiment.args
+    def games(self, state: RatioState) -> str:
+        result = state.result
+        return (
+            f"[m={result.ratio:g}] games={result.completed_games} "
+            f"W:D:L={result.game_wins}:{result.game_draws}:{result.game_losses} "
+            f"(void {result.void_games}) "
+            f"ips-ratio={format_ratio(self.experiment.throughput.aggregate_ratio)}"
+        )
+
+    def pairs(self, state: RatioState) -> str:
         result = state.result
         committed = result.valid_pairs - self.previous_pairs[result.ratio]
         line = (
-            f"[m={result.ratio:g}] games={result.completed_games} pairs={result.valid_pairs} "
-            f"buffered={len(state.completed)} score={format_score(result.mean_pair_score)} "
-            f"ips-ratio={format_ratio(self.experiment.throughput.aggregate_ratio)}"
+            f"[m={result.ratio:g}] pairs={result.valid_pairs} "
+            f"W:T:L={result.pair_wins}:{result.pair_ties}:{result.pair_losses} "
+            f"score={format_score(result.mean_pair_score)} buffered={len(state.completed)}"
         )
-        if result.void_games or result.void_pairs:
-            line += f" void-games={result.void_games} void-pairs={result.void_pairs}"
-        if args.stat_method == "anytime":
-            line += (
-                f" | noninferior-E current={format_evidence(result.noninferiority_log_e)} "
-                f"peak={format_evidence(result.noninferiority_max_log_e)}/{1 / args.test_alpha:g}"
-            )
-        else:
-            line += (f" | noninferior-p current={format_probability(result.noninferiority_p)} "
-                     f"required<={format_probability(state.look_alpha)}")
-        return line + f" (committed +{committed} pairs)"
+        if result.void_pairs:
+            line += f" (void {result.void_pairs})"
+        return (line + " | " + format_noninferiority(result, self.experiment.args, state.look_alpha)
+                + f" (added {committed} pairs)")
+
+    def report(self, state: RatioState) -> None:
+        ratio = state.result.ratio
+        if self.game_snapshot(state) != self.game_snapshots[ratio]:
+            print(self.games(state), flush=True)
+            self.game_snapshots[ratio] = self.game_snapshot(state)
+        if self.pair_snapshot(state) != self.pair_snapshots[ratio]:
+            print(self.pairs(state), flush=True)
+            self.pair_snapshots[ratio] = self.pair_snapshot(state)
+            self.previous_pairs[ratio] = state.result.valid_pairs
 
     def flush(self, *, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
@@ -549,47 +578,16 @@ class ProgressReporter:
             return
         self.last_report = now
         for state in self.states:
-            if self.snapshot(state) != self.snapshots[state.result.ratio]:
-                print(self.compact(state), flush=True)
-                self.remember(state)
+            self.report(state)
 
     async def run(self) -> None:
         while True:
             await asyncio.sleep(PROGRESS_INTERVAL_SECONDS)
             self.flush()
 
-    def detail(self, state: RatioState, reason: str) -> None:
-        args = self.experiment.args
-        result = state.result
-        print(f"\n[m={result.ratio:g}] {reason}")
-        print(f"  Finished games: {result.completed_games}   Target: "
-              f"{result.game_wins} wins, {result.game_draws} draws, {result.game_losses} losses")
-        print(f"  Pairs used:     {result.valid_pairs}   Target: "
-              f"{result.pair_wins} wins, {result.pair_ties} ties, {result.pair_losses} losses")
-        print(f"  Buffered pairs: {len(state.completed)}   "
-              f"Void games/pairs: {result.void_games}/{result.void_pairs}")
-        print(f"  Mean pair score: {format_score(result.mean_pair_score)}")
-        print(f"  Aggregate ips-ratio: {format_ratio(self.experiment.throughput.aggregate_ratio)}")
-        negative = "Unacceptable" if args.stat_method == "anytime" else "Inferior"
-        print(f"                     Superior   Noninferior   {negative}")
-        if args.stat_method == "anytime":
-            print("  Current E      " + " ".join(f"{format_evidence(value):>12}" for value in (
-                result.superiority_log_e, result.noninferiority_log_e, result.inferiority_log_e,
-            )))
-        label = "Anytime p" if args.stat_method == "anytime" else "p at last look"
-        print(f"  {label:<15}" + " ".join(f"{format_probability(value):>12}" for value in (
-            result.superiority_p, result.noninferiority_p, result.inferiority_p,
-        )))
-        status = ("established" if result.decision in ("noninferior", "better")
-                  else negative.lower() if result.decision == "inferior"
-                  else "pending" if result.decision == "running" else result.decision)
-        print(f"  Noninferiority: {status}")
-        if args.stat_method == "anytime":
-            print(f"  Peak E: {format_evidence(result.noninferiority_max_log_e)} "
-                  f"/ required {1 / args.test_alpha:g}", flush=True)
-        else:
-            print(f"  Required p at last look: {format_probability(state.look_alpha)}", flush=True)
-        self.remember(state)
+    def event(self, state: RatioState, reason: str) -> None:
+        print(f"[m={state.result.ratio:g}] {reason}", flush=True)
+        self.report(state)
 
 
 async def start_engines(players: Iterable[autoplay.EngineProcess]) -> None:
@@ -613,7 +611,7 @@ async def calibrate_on(experiment: Experiment, cpu: int | None) -> None:
     baseline = experiment.engine("baseline", args.baseline, cpu, phase="calibration")
     target = experiment.engine("target", args.target, cpu, phase="calibration")
     commands: asyncio.Queue[str] = asyncio.Queue()
-    game = experiment.rules.game.from_pgn(experiment.openings[0])
+    game = experiment.rules.game.from_pgn(STARTPOS_PGN)
     position = autoplay.uci_position(game)
     try:
         await start_engines((baseline, target))
@@ -623,12 +621,14 @@ async def calibrate_on(experiment: Experiment, cpu: int | None) -> None:
         await target.choose(position, [], args.baseline_movetime, commands)
         target_sample = search_sample(target)
         experiment.add_pair(cpu, target_sample, baseline_sample)
+        experiment.calibration[cpu] = target_sample
     finally:
         await asyncio.gather(baseline.close(), target.close())
     print(
         f"Calibration CPU {cpu if cpu is not None else 'unpinned'}: "
         f"baseline={baseline_sample.ips:.0f} IPS, target={target_sample.ips:.0f} IPS, "
-        f"target/baseline={target_sample.ips / baseline_sample.ips:.3f}",
+        f"ips-ratio={target_sample.ips / baseline_sample.ips:.3f}, "
+        f"target-iters={target_sample.iterations} (startpos)",
         flush=True,
     )
 
@@ -884,6 +884,7 @@ class RatioState:
     def commit(self, experiment: Experiment, reporter: ProgressReporter | None = None) -> None:
         args = experiment.args
         result = self.result
+        events = []
         while self.next_commit in self.completed:
             games = self.completed.pop(self.next_commit)
             self.next_commit += 1
@@ -916,8 +917,10 @@ class RatioState:
                              f"per-claim alpha={alpha:.4g}")
             if result.decision != previous:
                 event = f"{event}; decision: {result.decision}" if event else f"decision: {result.decision}"
-            if event and reporter is not None:
-                reporter.detail(self, event)
+            if event:
+                events.append(event)
+        if events and reporter is not None:
+            reporter.event(self, "; ".join(events))
 
 
 class SequentialPolicy:
@@ -1058,7 +1061,7 @@ async def run_matches(experiment: Experiment) -> None:
                         selected_state = states[selected_index]
                         if selected_state.result.decision == "not tested":
                             selected_state.result.decision = "running"
-                        reporter.detail(selected_state, "Ratio allocation changed")
+                        print(f"[m={selected_state.result.ratio:g}] Ratio allocation changed", flush=True)
                     selection = selected
                 if index is None:
                     break
@@ -1108,9 +1111,28 @@ def print_final_summary(experiment: Experiment) -> None:
             update_anytime_evidence(result, experiment.args.noninferiority_margin,
                                    experiment.args.superiority_target)
         if result.decision == "not tested":
-            print(f"[m={result.ratio:g}] not tested")
+            print(f"m={result.ratio:g}: not tested")
         else:
-            reporter.detail(state, f"Final: {result.decision}")
+            p_name = "anytime p" if experiment.args.stat_method == "anytime" else "p at last look"
+            negative = "unacceptable" if experiment.args.stat_method == "anytime" else "inferior"
+            line = (
+                f"m={result.ratio:g}: {result.decision}; games={result.completed_games} "
+                f"W:D:L={result.game_wins}:{result.game_draws}:{result.game_losses} "
+                f"(void {result.void_games}); pairs={result.valid_pairs} "
+                f"W:T:L={result.pair_wins}:{result.pair_ties}:{result.pair_losses} "
+                f"(void {result.void_pairs}) score={format_score(result.mean_pair_score)}; "
+                f"{format_noninferiority(result, experiment.args, state.look_alpha)}; "
+                f"{p_name}(superior/noninferior/{negative})="
+                f"{format_probability(result.superiority_p)}/"
+                f"{format_probability(result.noninferiority_p)}/"
+                f"{format_probability(result.inferiority_p)}"
+            )
+            if experiment.args.stat_method == "anytime":
+                line += ("; peak E(superior/noninferior/unacceptable)="
+                         f"{format_evidence(result.superiority_max_log_e)}/"
+                         f"{format_evidence(result.noninferiority_max_log_e)}/"
+                         f"{format_evidence(result.inferiority_max_log_e)}")
+            print(line)
     established = [
         result.ratio
         for result in experiment.results
@@ -1129,6 +1151,7 @@ def print_final_summary(experiment: Experiment) -> None:
         f"Actual aggregate baseline IPS:   {experiment.throughput.baseline_ips:.1f}\n"
         f"Aggregate ips-ratio: "
         f"{format_ratio(experiment.throughput.aggregate_ratio)}\n"
+        f"Startpos target-iters: {experiment.startpos_target_iterations if experiment.calibration else 'n/a'}\n"
         f"Paired geometric ips-ratio:   "
         f"{format_ratio(experiment.throughput.paired_geometric_ratio)}"
     )
@@ -1150,17 +1173,19 @@ def print_header(args: argparse.Namespace) -> None:
         "void pairs are excluded.\n"
         "  ips-ratio = aggregate target/baseline iterations per second across this run, "
         "including calibration and meter searches.\n"
-        "  (committed +N pairs) = valid pairs incorporated since the last report for this ratio.\n"
-        "  Changed ratios get a compact progress line at most every 5 seconds. "
-        "Allocation changes, decisions, and the final summary get immediate detailed blocks.\n"
-        "  Detailed blocks show target wins-draws-losses and pair wins-ties-losses; "
+        "  Calibration target-iters = actual target iterations at Standard startpos "
+        "for the baseline movetime on the named CPU.\n"
+        "  (added N pairs) = valid pairs incorporated since the last pairs line for this ratio.\n"
+        "  Game and pair lines update independently, at most every 5 seconds. "
+        "Decisions and fixed looks report immediately; final summaries use one line per ratio.\n"
+        "  W:D:L = game wins-draws-losses; W:T:L = pair wins-ties-losses; "
         "a pair tie has score 0.5.",
         flush=True,
     )
     if args.stat_method == "anytime":
         boundary = 0.5 - args.noninferiority_margin
         print(
-            f"  Detailed E superior/noninferior/unacceptable: evidence for mean score "
+            f"  E superior/noninferior/unacceptable: evidence for mean score "
             f"> 0.5 / > {boundary:g} / < {boundary:g}.\n"
             "  noninferior-E current = current noninferiority evidence; peak = historical "
             "maximum / required certification threshold.\n"
@@ -1354,7 +1379,7 @@ def main() -> int:
             except OSError as exc:
                 parser.error(f"cannot read opening {path}: {exc}")
     else:
-        openings.append(args.opening_text or '[Board "Standard - Turn Zero"]')
+        openings.append(args.opening_text or STARTPOS_PGN)
     try:
         args.output_dir = common.create_run_directory(args)
     except OSError as exc:

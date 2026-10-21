@@ -12,6 +12,7 @@ import importlib
 import multiprocessing
 import re
 import shlex
+import shutil
 import sys
 import time
 from datetime import date
@@ -49,6 +50,8 @@ class EngineProcess:
         self.phase = "created"
         self.protocol_log = deque(maxlen=24)
         self.stderr_log = deque(maxlen=24)
+        self.stderr_head: list[str] = []
+        self.stderr_lines = 0
         self.stderr_task: asyncio.Task | None = None
         self.last_engine_stats: dict[str, str] = {}
         self.last_engine_score: str = ""
@@ -63,10 +66,15 @@ class EngineProcess:
 
         protocol_tail = list(self.protocol_log)[-8:]
         stderr_tail = list(self.stderr_log)[-8:]
+        tail_start = max(0, self.stderr_lines - len(stderr_tail))
+        stderr = self.stderr_head[:tail_start]
+        if tail_start > len(stderr):
+            stderr.append("...")
+        stderr.extend(stderr_tail)
         return (
             f"phase={self.phase}, returncode={self.process.returncode if self.process else None}; "
             f"protocol={' | '.join(protocol_tail) or '<none>'}; "
-            f"stderr={' | '.join(stderr_tail) or '<none>'}"
+            f"stderr={' | '.join(stderr) or '<none>'}"
         )
 
     async def _drain_stderr(self) -> None:
@@ -77,11 +85,30 @@ class EngineProcess:
                 return
             line = raw.decode(errors="replace").rstrip()
             if line:
+                self.stderr_lines += 1
+                if len(self.stderr_head) < 8:
+                    self.stderr_head.append(line)
                 self.stderr_log.append(line)
 
     async def start(self) -> None:
         if not self.argv:
             raise ProtocolError(f"{self.name}: empty command")
+        self.phase = "launching"
+        executable = self.argv[0]
+        # Resolve the engine itself before the affinity launcher replaces it;
+        # otherwise a missing engine looks like a crashed Python launcher.
+        if shutil.which(executable) is None:
+            explicit_path = bool(Path(executable).parent != Path(".") or "/" in executable
+                                 or "\\" in executable)
+            if explicit_path and Path(executable).exists():
+                reason = f"engine executable {executable!r} is not executable; check its permissions"
+            else:
+                reason = (f"engine executable {executable!r} was not found; "
+                          "check the executable path or PATH")
+            raise ProtocolError(
+                f"{self.name}: {reason}; working directory={str(Path.cwd())!r}; "
+                f"engine command={self.command!r}"
+            )
         try:
             argv = self.argv
             if self.cpu is not None and sys.platform != "win32":
@@ -101,22 +128,37 @@ class EngineProcess:
         except OSError as exc:
             raise ProtocolError(f"{self.name}: cannot start {self.command!r}: {exc}") from exc
         self.stderr_task = asyncio.create_task(self._drain_stderr())
-        self.phase = "initializing"
-        await self.send("5duci")
-        await self.wait_for("5duciok", self.timeout_seconds)
-        self.phase = "readying"
-        await self.send("isready")
-        await self.wait_for("readyok", self.timeout_seconds)
+        for phase, request, expected in (("initializing", "5duci", "5duciok"),
+                                         ("readying", "isready", "readyok")):
+            self.phase = phase
+            try:
+                await self.send(request)
+                await self.wait_for(expected, self.timeout_seconds)
+            except ProtocolError as exc:
+                raise ProtocolError(
+                    f"{self.name}: engine command {self.command!r} failed the 5DUCI startup "
+                    f"handshake (sent {request!r}, expected {expected!r}). "
+                    f"Check the engine name/arguments and 5DUCI support. {exc}"
+                ) from exc
         self.phase = "idle"
 
     async def send(self, line: str) -> None:
         if not self.process or not self.process.stdin:
             raise ProtocolError(f"{self.name}: process is not started; {self.diagnostic()}")
         if self.process.returncode is not None:
+            if self.stderr_task:
+                await self.stderr_task
             raise ProtocolError(f"{self.name}: exited with {self.process.returncode}; {self.diagnostic()}")
         self._record(">", line)
-        self.process.stdin.write((line + "\n").encode())
-        await self.process.stdin.drain()
+        try:
+            self.process.stdin.write((line + "\n").encode())
+            await self.process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError) as exc:
+            if self.process.returncode is not None and self.stderr_task:
+                await self.stderr_task
+            raise ProtocolError(
+                f"{self.name}: connection closed while sending {line!r}; {self.diagnostic()}"
+            ) from exc
 
     async def wait_for(self, expected: str | tuple[str, ...], timeout: float) -> str:
         assert self.process and self.process.stdout
@@ -129,7 +171,14 @@ class EngineProcess:
                 raw = await self.process.stdout.readline()
                 if not raw:
                     code = await self.process.wait()
-                    raise ProtocolError(f"{self.name}: exited with {code}; {self.diagnostic()}")
+                    # Reap stderr before formatting the error, so an engine's
+                    # rejection of its command line is not lost to a race.
+                    if self.stderr_task:
+                        await self.stderr_task
+                    raise ProtocolError(
+                        f"{self.name}: exited with {code} while waiting for {'/'.join(choices)}; "
+                        f"{self.diagnostic()}"
+                    )
                 line = raw.decode(errors="replace").strip()
                 self._record("<", line)
                 if line.startswith("info string error"):

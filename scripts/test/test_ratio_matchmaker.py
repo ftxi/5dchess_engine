@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import ratio_matchmaker as matcher
@@ -137,6 +137,7 @@ class ProgressOutputTests(unittest.TestCase):
     def reporter(self, state, **overrides):
         args = settings(**overrides)
         experiment = matcher.Experiment(args, None, [], Path("unused"))
+        experiment.calibration[None] = matcher.SearchSample(3301, .2)
         experiment.throughput = matcher.Throughput(
             target_iterations=1013, target_seconds=1,
             baseline_iterations=1000, baseline_seconds=1,
@@ -146,11 +147,11 @@ class ProgressOutputTests(unittest.TestCase):
         return experiment, reporter
 
     def test_exact_agreed_format_coalesces_the_example_catchup(self):
-        result = matcher.RatioResult(1, game_wins=48, game_draws=7, game_losses=47,
-                                     pair_wins=3, pair_ties=22, pair_losses=2)
+        result = matcher.RatioResult(1, pair_wins=3, pair_ties=22, pair_losses=2)
         state = matcher.RatioState(result)
         state.completed = {pair: outcomes("draw") for pair in range(28, 52)}
         _, reporter = self.reporter(state)
+        result.game_wins, result.game_draws, result.game_losses = 48, 7, 47
         result.pair_wins, result.pair_ties, result.pair_losses = 9, 34, 8
         result.pair_score_sum = 25.75
         result.noninferiority_log_e = math.log(6.364)
@@ -160,8 +161,17 @@ class ProgressOutputTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             reporter.flush(now=5)
         self.assertEqual(output.getvalue(),
-            "[m=1] games=102 pairs=51 buffered=0 score=50.5% ips-ratio=1.013 "
-            "| noninferior-E current=6.364 peak=8.798/240 (committed +24 pairs)\n")
+            "[m=1] games=102 W:D:L=48:7:47 (void 0) ips-ratio=1.013\n"
+            "[m=1] pairs=51 W:T:L=9:34:8 score=50.5% buffered=0 "
+            "| noninferior-E current=6.364 peak=8.798/240 (added 24 pairs)\n")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result.pair_ties += 1
+            result.pair_score_sum += .5
+            reporter.flush(now=10)
+        self.assertIn("[m=1] pairs=52", output.getvalue())
+        self.assertIn("(added 1 pairs)", output.getvalue())
+        self.assertNotIn("games=", output.getvalue())
 
     def test_routine_updates_are_throttled_without_losing_pair_deltas(self):
         state = matcher.RatioState(matcher.RatioResult(1))
@@ -180,29 +190,31 @@ class ProgressOutputTests(unittest.TestCase):
             reporter.flush(now=10)
             reporter.flush(now=15)  # No new data: no duplicate report.
         lines = output.getvalue().splitlines()
-        self.assertEqual(len(lines), 2)
-        self.assertIn("games=1 pairs=0", lines[0])
-        self.assertIn("games=2 pairs=1", lines[1])
-        self.assertIn("(committed +1 pairs)", lines[1])
+        self.assertEqual(len(lines), 3)
+        self.assertIn("games=1 W:D:L=0:1:0", lines[0])
+        self.assertIn("games=2 W:D:L=0:2:0", lines[1])
+        self.assertIn("pairs=1 W:T:L=0:1:0", lines[2])
+        self.assertIn("(added 1 pairs)", lines[2])
+        self.assertNotIn("pairs=", lines[0])
+        self.assertNotIn("games=", lines[2])
 
     def test_buffered_pairs_are_counted_and_drained_in_one_report(self):
-        state = matcher.RatioState(matcher.RatioResult(1, game_draws=2))
+        state = matcher.RatioState(matcher.RatioResult(1, game_draws=4))
         experiment, reporter = self.reporter(state)
         state.completed[2] = outcomes("draw")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             reporter.flush(now=5)
-            state.result.game_draws = 4
             state.completed[1] = outcomes("draw")
             state.commit(experiment, reporter)
             reporter.flush(now=10)
         lines = output.getvalue().splitlines()
         self.assertEqual(len(lines), 2)
-        self.assertIn("pairs=0 buffered=1", lines[0])
-        self.assertIn("pairs=2 buffered=0", lines[1])
-        self.assertIn("(committed +2 pairs)", lines[1])
+        self.assertIn("score=n/a buffered=1", lines[0])
+        self.assertIn("score=50.0% buffered=0", lines[1])
+        self.assertIn("(added 2 pairs)", lines[1])
 
-    def test_decisions_print_detail_immediately_with_peak_evidence(self):
+    def test_decisions_print_immediately_with_peak_evidence(self):
         state = matcher.RatioState(matcher.RatioResult(1))
         experiment, reporter = self.reporter(state, test_alpha=.9)
         state.completed[1] = outcomes("win")
@@ -210,9 +222,10 @@ class ProgressOutputTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             state.commit(experiment, reporter)
         self.assertIn("decision: better", output.getvalue())
-        self.assertIn("Noninferiority: established", output.getvalue())
-        self.assertIn("Peak E:", output.getvalue())
-        self.assertIn("Anytime p", output.getvalue())
+        self.assertIn("noninferior-E current=", output.getvalue())
+        self.assertIn("peak=", output.getvalue())
+        self.assertNotIn("Finished games:", output.getvalue())
+        self.assertNotIn("games=", output.getvalue())
 
     def test_fixed_looks_report_p_values_without_fabricating_evidence(self):
         state = matcher.RatioState(matcher.RatioResult(1))
@@ -222,10 +235,69 @@ class ProgressOutputTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             state.commit(experiment, reporter)
         self.assertIn("Fixed look", output.getvalue())
-        self.assertIn("p at last look", output.getvalue())
-        self.assertIn("noninferior-p", reporter.compact(state))
+        self.assertIn("noninferior-p", reporter.pairs(state))
         self.assertNotIn("Current E", output.getvalue())
-        self.assertNotIn("noninferior-E", reporter.compact(state))
+        self.assertNotIn("noninferior-E", reporter.pairs(state))
+
+
+    def test_void_outcomes_remain_visible_on_each_relevant_line(self):
+        state = matcher.RatioState(matcher.RatioResult(1))
+        experiment, reporter = self.reporter(state)
+        state.result.add_game("void")
+        state.completed[1] = outcomes("void")
+        state.commit(experiment, reporter)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            reporter.flush(now=5)
+        games, pairs = output.getvalue().splitlines()
+        self.assertIn("games=1 W:D:L=0:0:0 (void 1)", games)
+        self.assertIn("pairs=0 W:T:L=0:0:0", pairs)
+        self.assertIn("(void 1)", pairs)
+        self.assertIn("(added 0 pairs)", pairs)
+
+    def test_final_summary_has_one_line_per_ratio_and_no_panels(self):
+        state = matcher.RatioState(matcher.RatioResult(1, game_draws=2, decision="inconclusive"))
+        experiment, reporter = self.reporter(state)
+        state.result.add_pair(outcomes("draw"))
+        experiment.results = [state.result]
+        experiment.progress = reporter
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            matcher.print_final_summary(experiment)
+        summary = [line for line in output.getvalue().splitlines() if line.startswith("m=")]
+        self.assertEqual(len(summary), 1)
+        self.assertIn("m=1: inconclusive; games=2 W:D:L=0:2:0 (void 0); pairs=1 W:T:L=0:1:0", summary[0])
+        self.assertIn("noninferior-E current=", summary[0])
+        self.assertIn("anytime p(superior/noninferior/unacceptable)=", summary[0])
+        self.assertNotIn("Finished games:", output.getvalue())
+        self.assertIn("Startpos target-iters: 3301", output.getvalue())
+
+
+class CalibrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_uses_startpos_and_preserves_actual_counts_separately_from_game_searches(self):
+        args = settings(baseline_movetime=200)
+        rules = Mock()
+        experiment = matcher.Experiment(args, rules, ["a selected non-startpos opening"], Path("unused"))
+        for cpu, count in ((0, 3301), (1, 3303)):
+            baseline, target = Mock(), Mock()
+            for player, iterations in ((baseline, 1000), (target, count)):
+                player.choose = AsyncMock()
+                player.close = AsyncMock()
+                player.last_engine_stats = {"iterations": str(iterations), "elapsed_seconds": "0.2"}
+            output = io.StringIO()
+            with (patch.object(experiment, "engine", side_effect=[baseline, target]),
+                  patch.object(matcher, "start_engines", new_callable=AsyncMock),
+                  patch.object(matcher.autoplay, "uci_position", return_value="startpos"),
+                  contextlib.redirect_stdout(output)):
+                await matcher.calibrate_on(experiment, cpu)
+            rules.game.from_pgn.assert_called_with(matcher.STARTPOS_PGN)
+            baseline.choose.assert_awaited_once_with("startpos", [], 200, ANY)
+            target.choose.assert_awaited_once_with("startpos", [], 200, ANY)
+            self.assertEqual(experiment.calibration[cpu].iterations, count)
+            self.assertIn(f"target-iters={count} (startpos)", output.getvalue())
+        self.assertEqual(experiment.startpos_target_iterations, 3302)
+        experiment.add_pair(0, matcher.SearchSample(5, .2), matcher.SearchSample(10, .2))
+        self.assertEqual(experiment.startpos_target_iterations, 3302)
 
 
 class CPUAllocationTests(unittest.TestCase):

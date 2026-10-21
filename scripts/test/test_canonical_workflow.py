@@ -104,7 +104,7 @@ class CanonicalWorkflow(unittest.TestCase):
                 "--target-cap", "300", "--max-actions", "2", "--output", output)
             run = json.loads((output / "run.json").read_text())
             self.assertEqual(run["reference"]["engine"], engine)
-            self.assertIn(engine, run["command"][run["command"].index("--zero") + 1])
+            self.assertIn(engine, run["command"][run["command"].index("--baseline") + 1])
             summary = json.loads((output / "summary.json").read_text())
             self.assertEqual(summary["games"], 8)
             self.assertEqual(summary["by_ratio"]["1.0"]["failures"], 0)

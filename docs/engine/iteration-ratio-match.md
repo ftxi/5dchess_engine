@@ -105,34 +105,47 @@ noninferiority.
 ## Evidence and live output
 
 A header before calibration explains every live-output field. Routine progress
-uses one compact line per changed ratio, at most every five seconds:
+reports games and evidence on separate lines, at most every five seconds:
 
 ```text
-[m=1] games=102 pairs=51 buffered=0 score=50.5% ips-ratio=1.013 | noninferior-E current=6.364 peak=8.798/240 (committed +24 pairs)
+[m=1] games=102 W:D:L=48:7:47 (void 0) ips-ratio=1.013
+[m=1] pairs=51 W:T:L=9:34:8 score=50.5% buffered=0 | noninferior-E current=6.364 peak=8.798/240 (added 24 pairs)
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `m` | Target/baseline-meter iteration budget ratio |
 | `games` | Finished individual games at this ratio |
+| `W:D:L` | Individual target wins, draws, losses; `(void N)` counts invalid games separately |
 | `pairs` | Valid complete pairs incorporated into the evidence |
+| `W:T:L` | Pairs with target scores above, equal to, or below 0.5 |
 | `buffered` | Completed pairs waiting for an earlier pair to finish; excludes running pairs |
 | `score` | Average normalized score over valid committed pairs, as a percentage |
 | `ips-ratio` | Aggregate target/baseline iterations-per-second ratio across the run, including calibration and meter searches |
+| Calibration `target-iters` | Actual target iterations at Standard startpos for the baseline movetime on the named CPU |
 | `noninferior-E current` | Current evidence for noninferiority |
 | `peak=X/Y` | Historical maximum noninferiority E / required certification threshold |
-| `committed +N pairs` | Valid pairs incorporated since the last report for this ratio |
+| `added N pairs` | Valid pairs incorporated since the last pairs line for this ratio |
 
 Completed pairs still enter the evidence individually in pair-number order.
 When several buffered pairs become available together, their progress updates
-are combined. Nonzero void-game and void-pair counts are appended to the compact
-line.
+are combined. Each line prints only when its own counts change. Evidence
+catch-up therefore does not repeat an unchanged game count. Nonzero void-pair
+counts are appended to the pairs line; void pairs are excluded from `pairs`
+and `added N pairs`.
 
-Allocation changes, formal decisions, and the final summary print detailed
-blocks immediately. These include game wins/draws/losses, pair wins/ties/losses
-(scores above/equal to/below 0.5), void counts, and current E for superiority,
-noninferiority, and unacceptability. Each claim's anytime p is
-`min(1, 1 / historical maximum E)`.
+Calibration runs both engines on Standard startpos on each distinct worker CPU,
+using `--baseline-movetime` for both engines. This position is independent of
+the selected game openings. Each CPU's calibration line shows its actual target
+iteration count. Game progress lines omit `target-iters`; the final summary
+reports the fixed rounded mean across calibration CPUs. Counts come directly
+from the engine's integer `iterations` metric.
+
+Allocation changes print short event messages. Formal decisions immediately
+print an event and any changed game/evidence lines. Final summaries use one
+concise line per ratio, including its decision, game and pair outcomes, score,
+noninferiority evidence, and the three claims' p values and peak E values.
+Each claim's anytime p is `min(1, 1 / historical maximum E)`.
 
 The default noninferiority margin is 0.10. Acceptable evidence tests mean pair
 score above 0.40; unacceptable evidence tests below 0.40. Superiority tests
@@ -157,7 +170,7 @@ at `--look-pairs` checkpoints. This legacy mode retains its original
 inferiority definition (below 0.50), and spends each claim's allocated alpha
 across the declared looks. It cannot be combined with adaptive scheduling.
 Its compact lines show `noninferior-p` and the required threshold at the last
-look instead of E values; each fixed look also prints a detailed block.
+look instead of E values; each fixed look also reports immediately.
 
 The summary reports each ratio's status, the lowest directly certified ratio,
 and the next lower ratio's status. `games.csv`, per-game PGNs, and
