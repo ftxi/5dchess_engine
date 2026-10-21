@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import ctypes
 import multiprocessing
 import os
 import signal
@@ -15,12 +14,13 @@ import sys
 import traceback
 from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Sequence
 
 import autoplay
+from cpu_affinity import pin_process
+import matchmaker_options as common
 import elo
 
 
@@ -61,59 +61,6 @@ class WorkerResult:
 
 class WorkerAborted(Exception):
     """The database no longer marks this worker's match as running."""
-
-
-def _windows_kernel32():
-    """Return the typed Windows process-affinity API."""
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
-    kernel32.GetProcessAffinityMask.argtypes = (
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_size_t),
-        ctypes.POINTER(ctypes.c_size_t),
-    )
-    kernel32.GetProcessAffinityMask.restype = ctypes.c_int
-    kernel32.SetProcessAffinityMask.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
-    kernel32.SetProcessAffinityMask.restype = ctypes.c_int
-    return kernel32
-
-
-def _available_cpus() -> set[int] | None:
-    """Return CPUs available for strict affinity, or None when unsupported."""
-
-    if sys.platform == "win32":
-        kernel32 = _windows_kernel32()
-        process_mask = ctypes.c_size_t()
-        system_mask = ctypes.c_size_t()
-        process = kernel32.GetCurrentProcess()
-        if not kernel32.GetProcessAffinityMask(
-            process, ctypes.byref(process_mask), ctypes.byref(system_mask)
-        ):
-            error = ctypes.get_last_error()
-            raise OSError(error, ctypes.FormatError(error))
-        return {
-            cpu
-            for cpu in range(ctypes.sizeof(ctypes.c_size_t) * 8)
-            if process_mask.value & (1 << cpu)
-        }
-    if hasattr(os, "sched_getaffinity"):
-        return set(os.sched_getaffinity(0))
-    return None
-
-
-def _pin_current_process(core: int) -> None:
-    """Pin this worker; engine children inherit its process affinity."""
-
-    if sys.platform == "win32":
-        kernel32 = _windows_kernel32()
-        process = kernel32.GetCurrentProcess()
-        if not kernel32.SetProcessAffinityMask(process, ctypes.c_size_t(1 << core)):
-            error = ctypes.get_last_error()
-            raise OSError(error, ctypes.FormatError(error))
-        return
-    if hasattr(os, "sched_setaffinity"):
-        os.sched_setaffinity(0, {core})
 
 
 def _initialize_worker() -> None:
@@ -167,8 +114,6 @@ async def _play_until_released(job: WorkerJob, arguments, rules, capture) -> str
 def _play_worker(job: WorkerJob) -> WorkerResult:
     """Run one autoplay game in an isolated process and return structured output."""
 
-    if job.core is not None:
-        _pin_current_process(job.core)
     match_dir = Path(job.match_dir)
     match_dir.mkdir(parents=True, exist_ok=True)
     output_log = (match_dir / "autoplay.log").resolve()
@@ -180,7 +125,7 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
     with output_log.open("w") as output, open(os.devnull) as null_input:
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
             if job.core is not None:
-                print(f"Worker and engine affinity: CPU {job.core}", flush=True)
+                print(f"Engine affinity: CPU {job.core}", flush=True)
             original_stdin = sys.stdin
             sys.stdin = null_input
             try:
@@ -199,6 +144,7 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
                     module_dir=Path(job.module_dir),
                     movetime=job.movetime,
                     timeout=job.timeout,
+                    engine_cpu=job.core,
                     max_actions=job.max_actions,
                     games=None,
                     metrics_csv=metrics_csv,
@@ -337,6 +283,11 @@ def _make_job(
     assert pairing.batch_id is not None
     assert pairing.ordinal is not None
     match_dir = run_dir / f"match-{pairing.match_id:06d}"
+    white_command, white_seed = args.engine_seeds.prepare(pairing.white_command)
+    black_command, black_seed = args.engine_seeds.prepare(pairing.black_command)
+    for role, command, seed in (("white", white_command, white_seed), ("black", black_command, black_seed)):
+        common.record_engine_launch(run_dir, role=role, command=command, seed=seed,
+                                    cpu=core, match=pairing.match_id)
     return WorkerJob(
         match_id=pairing.match_id,
         batch_id=pairing.batch_id,
@@ -345,8 +296,8 @@ def _make_job(
         black_id=pairing.black_id,
         white_name=pairing.white_name,
         black_name=pairing.black_name,
-        white_command=pairing.white_command,
-        black_command=pairing.black_command,
+        white_command=white_command,
+        black_command=black_command,
         white_rating=pairing.white_rating,
         black_rating=pairing.black_rating,
         module_dir=str(args.module_dir.resolve()),
@@ -392,6 +343,11 @@ def run_scheduled_batch(
         raise elo.EloError(
             "no CPU pool configured for execution group(s): " + ", ".join(missing_groups)
         )
+    for pairing in pending:
+        if all(elo.get_engine(connection, identifier).enabled
+               for identifier in (pairing.white_id, pairing.black_id)):
+            common.validate_engine_command(pairing.white_command)
+            common.validate_engine_command(pairing.black_command)
     total = len(pending)
     completed = 0
     worker_tag = f"matchmaker:{os.getpid()}"
@@ -549,61 +505,13 @@ def _validate_run_args(parser: argparse.ArgumentParser, args) -> None:
         parser.error("--batch-size must be positive")
     if args.movetime <= 0 or args.timeout <= 0 or args.max_actions <= 0:
         parser.error("time and action limits must be positive")
-    if args.cores and args.core_groups:
-        parser.error("--core and --core-group cannot be combined")
-    args.core_slots = []
-    seen_groups: set[str] = set()
-    for specification in args.core_groups or []:
-        if "=" not in specification:
-            parser.error("--core-group must use NAME=CPU,CPU,...")
-        group, values = specification.split("=", 1)
-        group = group.strip()
-        if not group or group in seen_groups:
-            parser.error("--core-group names must be non-empty and unique")
-        try:
-            group_cores = [int(value) for value in values.split(",")]
-        except ValueError:
-            parser.error("--core-group CPU values must be integers")
-        if not group_cores:
-            parser.error("--core-group must contain at least one CPU")
-        seen_groups.add(group)
-        args.core_slots.extend((core, group) for core in group_cores)
-    selected_cores = args.cores or [core for core, _ in args.core_slots]
-    if selected_cores:
-        available = _available_cpus()
-        if available is None:
-            if sys.platform != "darwin":
-                parser.error("CPU pinning requires OS CPU-affinity support")
-            option = "--core-group" if args.core_groups else "--core"
-            print(
-                f"Warning: {option} is ignored because it requires strict CPU affinity, "
-                f"which macOS does not provide. Using unpinned --jobs {args.jobs} "
-                "execution instead.",
-                file=sys.stderr,
-            )
-            args.cores = None
-            args.core_slots = []
-            args.ignore_execution_groups = True
-            return
-        if len(set(selected_cores)) != len(selected_cores):
-            parser.error("CPU values must be unique")
-        if any(core < 0 for core in selected_cores):
-            parser.error("CPU values must be nonnegative")
-        unavailable = sorted(set(selected_cores) - available)
-        if unavailable:
-            parser.error(
-                "--core contains unavailable CPU(s): "
-                + ", ".join(map(str, unavailable))
-            )
-        if args.jobs > len(selected_cores):
-            parser.error("--jobs cannot exceed the number of configured CPUs")
+    common.configure_cpus(parser, args)
 
 
 def _run_new(connection, args) -> int:
     remaining = args.games
     wave = 0
-    run_dir = args.logs_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = common.create_run_directory(args)
     print(f"Run logs: {run_dir.resolve()}")
     while remaining:
         wave += 1
@@ -612,12 +520,12 @@ def _run_new(connection, args) -> int:
             connection,
             requested,
             focus_engine=args.focus_engine,
-            seed=args.seed + wave - 1,
+            seed=args.matchmaking_seed + wave - 1,
             rated=not args.unrated,
             strategy=args.strategy,
             note=f"automatic run wave {wave}",
             queued=True,
-            execution_groups=tuple(dict.fromkeys(group for _, group in args.core_slots)),
+            execution_groups=tuple(dict.fromkeys(group for _, group in args.core_slots if group is not None)),
         )
         strategy_label = (
             f", {args.strategy or 'adaptive'} strategy" if args.focus_engine else ""
@@ -693,8 +601,7 @@ def _resume(connection, args) -> int:
         all_pairings = elo.batch_pairings(connection, args.batch_id)
         _print_batch_ratings(connection, args.batch_id, all_pairings, rows)
         return 0
-    run_dir = args.logs_dir / f"resume-batch-{args.batch_id}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = common.create_run_directory(args, resume_name=f"resume-batch-{args.batch_id}")
     run_scheduled_batch(connection, args.batch_id, pairings, args, run_dir)
     return 0
 
@@ -708,20 +615,11 @@ def _add_game_options(parser: argparse.ArgumentParser, *, include_games: bool) -
             choices=sorted(elo.FOCUSED_STRATEGIES),
             help="focused matchmaking strategy; requires --engine (default: adaptive)",
         )
-        parser.add_argument("--seed", type=int, default=0)
+        parser.add_argument("--matchmaking-seed", type=int, default=0,
+                            help="opponent-selection RNG seed; does not seed engines")
         parser.add_argument("--unrated", action="store_true")
         parser.add_argument("--batch-size", type=int)
-    parser.add_argument("--jobs", type=int, default=1)
-    parser.add_argument(
-        "--core",
-        dest="cores",
-        action="append",
-        type=int,
-        help=(
-            "pin each concurrent match worker and both of its engines to one "
-            "CPU; repeat once per worker"
-        ),
-    )
+    common.add_execution_options(parser)
     parser.add_argument(
         "--core-group",
         dest="core_groups",
@@ -729,14 +627,17 @@ def _add_game_options(parser: argparse.ArgumentParser, *, include_games: bool) -
         help="define a stratified refill pool as NAME=CPU,CPU,...; repeat per group",
     )
     parser.add_argument("--module-dir", type=Path, default=autoplay.DEFAULT_MODULE_DIR)
-    parser.add_argument("--movetime", type=int, default=1000)
-    parser.add_argument("--timeout", type=int, default=2000)
+    parser.add_argument("--movetime", type=int, default=1000,
+                        help="milliseconds per search for either player")
+    parser.add_argument("--timeout", type=int, default=2000,
+                        help="extra protocol timeout in milliseconds")
     parser.add_argument("--max-actions", type=int, default=500)
-    parser.add_argument("--logs-dir", type=Path, default=Path("logs/elo-runs"))
+    common.add_output_options(parser, "logs/elo-runs")
     parser.add_argument("--event", default="Autoplay")
     game_group = parser.add_mutually_exclusive_group()
-    game_group.add_argument("-g", "--game", dest="game_file", type=Path)
-    game_group.add_argument("-m", dest="game_text")
+    game_group.add_argument("--opening", "--game", "-g", dest="game_file", type=Path,
+                            help="starting PGN file")
+    game_group.add_argument("--opening-text", "-m", dest="game_text", help="starting PGN text")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -771,12 +672,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.strategy is not None and args.focus_engine is None:
         parser.error("--strategy requires --engine")
     _validate_run_args(parser, args)
+    args.engine_seeds = common.EngineSeeds()
     try:
+        if args.controller_cpus:
+            pin_process(os.getpid(), set(args.controller_cpus))
+        cpus = ",".join(map(str, args.worker_cores)) if args.worker_cores[0] is not None else "unpinned"
+        controller = ",".join(map(str, args.controller_cpus)) or "shared OS scheduling"
+        print(f"Execution: jobs={args.jobs}; engine CPUs={cpus}; controller/arbiter CPUs={controller}", flush=True)
+
         with elo.connect(args.database) as connection:
             if args.action == "run":
                 return _run_new(connection, args)
             return _resume(connection, args)
-    except (elo.EloError, OSError) as exc:
+    except (elo.EloError, OSError, ValueError) as exc:
         parser.error(str(exc))
     except KeyboardInterrupt:
         print("Interrupted.", file=sys.stderr)

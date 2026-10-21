@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,11 +40,19 @@ def scripted_engine(arguments):
     our capped games; this is not a chess implementation.
     """
     mode, trace, iterations, seed = arguments
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        import cpu_affinity
+    except ModuleNotFoundError:
+        # The cwd/path contract also runs a standalone copy of this fixture.
+        cpu_affinity = None
     history_length = 0
     for raw in sys.stdin:
         line = raw.strip()
         with open(trace, "a") as output:
-            output.write(json.dumps({"command": line, "seed": seed}) + "\n")
+            cpus = cpu_affinity.available_cpus() if cpu_affinity else None
+            output.write(json.dumps({"command": line, "seed": seed, "pid": os.getpid(),
+                                     "affinity": sorted(cpus) if cpus is not None else None}) + "\n")
         if line == "5duci":
             print("info string scripted test peer", flush=True)
             print("5duciok", flush=True)
@@ -141,7 +150,7 @@ class CLIContracts(ContractCase):
 
     def test_help_from_root_and_scripts(self):
         for cwd in (ROOT, SCRIPTS):
-            for script in ("autoplay.py", "elo.py", "elo_matchmaker.py", "iteration_ratio_match.py"):
+            for script in ("autoplay.py", "elo.py", "elo_matchmaker.py", "ratio_matchmaker.py"):
                 with self.subTest(cwd=cwd, script=script):
                     self.assertIn("usage:", self.command(script, "--help", cwd=cwd).stdout)
 
@@ -150,7 +159,19 @@ class CLIContracts(ContractCase):
             ("autoplay.py", ("--games", "0")),
             ("elo.py", ("report", "1", "invalid")),
             ("elo_matchmaker.py", ("run", "--games", "1", "--jobs", "0")),
-            ("iteration_ratio_match.py", ("--target", "unused", "--alpha", "1")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--alpha", "1")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--max-pairs", "0")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--ratios", "nan")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--switch-e", "1")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--no-pin", "--core", "0")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--stat-method", "fixed-looks",
+                                          "--schedule", "adaptive")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--zero", "unused")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--zero-movetime", "40")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--workers", "1")),
+            ("ratio_matchmaker.py", ("--target", "unused", "--seed-start", "1")),
+            ("ratio_matchmaker.py", ("--target", "engine --seed 7")),
+            ("elo_matchmaker.py", ("run", "--games", "1", "--seed", "7")),
         ):
             with self.subTest(script=script):
                 result = self.command(script, *arguments, expected_code=2)
@@ -305,6 +326,27 @@ class MatchmakerContracts(ContractCase):
             self.assertEqual(len(self.csv_rows(Path(row["metrics_csv"]))), 2)
         self.assertEqual({row["draws"] for row in self.elo_json("leaderboard", "--json")}, {3})
 
+    def test_default_pinning_unique_seeds_opening_and_exact_output_directory(self):
+        self.require_bindings()
+        self.register_pair(self.peer("alpha", seed="{seed}"), self.peer("beta", seed="{seed}"))
+        result = self.command(
+            "elo_matchmaker.py", "--database", self.database, "run", "--games", "2", "-j", "2",
+            "--matchmaking-seed", "23", "--output-dir", "exact-run",
+            "--opening-text", STANDARD_GAME, "--event", "Shared CLI",
+            "--movetime", "30", "--max-actions", "2",
+        )
+        self.assertIn("jobs=2", result.stdout)
+        launches = [json.loads(line) for line in (self.work / "exact-run/engine-launches.jsonl").read_text().splitlines()]
+        self.assertEqual(len(launches), 4)
+        self.assertEqual(len({row["seed"] for row in launches}), 4)
+        rows = self.trace("alpha") + self.trace("beta")
+        self.assertEqual({row["seed"] for row in rows}, {str(row["seed"]) for row in launches})
+        if all(row["affinity"] is not None for row in rows):
+            self.assertTrue(all(len(row["affinity"]) == 1 for row in rows))
+        history = self.elo_json("history", "--json")
+        self.assertEqual(len(history), 2)
+        self.assertTrue(all('[Event "Shared CLI"]' in row["pgn"] for row in history))
+
     def test_protocol_failure_pauses_then_disabled_engine_is_aborted(self):
         self.require_bindings()
         self.register_pair(self.peer("alpha", "error"), self.peer("beta", "error"))
@@ -323,21 +365,33 @@ class MatchmakerContracts(ContractCase):
         self.assertTrue(any(row["result"] == "void" for row in history))
         self.assertTrue(any(row["status"] == "aborted" for row in history))
 
+    def test_rejected_fixed_seed_queue_can_be_recovered_by_disabling_engine(self):
+        self.require_bindings()
+        self.register_pair(self.peer("alpha") + " --seed 7", self.peer("beta"))
+        result = self.run_queue("run", "--games", "2", expected_code=2)
+        self.assertIn("fixed engine seeds", result.stderr)
+        self.assertEqual(len(self.elo_json("pending", "--json")), 2)
+        self.elo("disable", "alpha")
+        self.run_queue("resume")
+        self.assertEqual(self.elo_json("pending", "--json"), [])
+        self.assertTrue(all(row["status"] == "aborted" for row in self.elo_json("history", "--json")))
+
 
 class RatioContracts(ContractCase):
     """Known metrics produce observable budgets; pairs/logs/summaries agree."""
 
     def run_ratio(self, mode="legal", method="anytime"):
         self.require_bindings()
-        for label in ("target", "zero"):
+        shutil.rmtree(self.work / "ratio-output", ignore_errors=True)
+        for label in ("target", "baseline"):
             (self.work / f"{label}.jsonl").unlink(missing_ok=True)
         return self.command(
-            "iteration_ratio_match.py", "--target", self.peer("target", mode, 200, "{seed}"),
-            "--zero", self.peer("zero", "legal", 100, "{seed}"),
-            "--ratios", ".5", "--max-pairs", "1", "--workers", "2",
-            "--zero-movetime", "40", "--max-target-movetime", "200",
+            "ratio_matchmaker.py", "--target", self.peer("target", mode, 200, "{seed}"),
+            "--baseline", self.peer("baseline", "legal", 100, "{seed}"),
+            "--ratios", ".5", "--max-pairs", "1", "--jobs", "2",
+            "--baseline-movetime", "40", "--max-target-movetime", "200",
             "--max-actions", "2", "--output-dir", "ratio-output",
-            "--stat-method", method, "--look-pairs", "1", "--seed-start", "17",
+            "--stat-method", method, "--look-pairs", "1", "--event", "Ratio contract",
         )
 
     def test_budgets_color_reversal_and_output_files(self):
@@ -345,16 +399,22 @@ class RatioContracts(ContractCase):
             with self.subTest(method=method):
                 result = self.run_ratio(method=method)
                 self.assertIn("Iteration-ratio summary", result.stdout)
+                self.assertLess(result.stdout.index("Output guide:"), result.stdout.index("Calibration CPU"))
+                self.assertIn("wins-draws-losses", result.stdout)
+                self.assertIn("target/baseline IPS", result.stdout)
+                self.assertIn("Baseline:", result.stdout)
                 self.assertIn("Most aggressive established ratio: none", result.stdout)
                 output = self.work / "ratio-output"
                 games = self.csv_rows(output / "games.csv")
                 self.assertEqual(len(games), 2)
                 self.assertEqual({row["target_color"] for row in games}, {"white", "black"})
-                self.assertEqual({row["seed"] for row in games}, {"17"})
+                self.assertEqual(len({row["cpu"] for row in games}), 1)
                 self.assertEqual({row["outcome"] for row in games}, {"draw"})
                 self.assertTrue(all(row["reason"] == "action limit reached" for row in games))
                 for row in games:
                     self.assertIn('[Result "1/2-1/2"]', (self.work / row["pgn_path"]).read_text())
+                    self.assertIn('"Baseline"', (self.work / row["pgn_path"]).read_text())
+                    self.assertIn('[Event "Ratio contract"]', (self.work / row["pgn_path"]).read_text())
                 searches = self.csv_rows(output / "searches.csv")
                 target = [row for row in searches if row["role"] == "target"]
                 self.assertEqual(len(target), 2)
@@ -365,8 +425,43 @@ class RatioContracts(ContractCase):
                     self.assertEqual(row["actual_iterations"], "50")
                     self.assertEqual(row["time_capped"], "0")
                 requests = self.trace("target")
-                self.assertTrue(all(row["seed"] == "17" for row in requests))
+                launches = [json.loads(line) for line in (output / "engine-launches.jsonl").read_text().splitlines()]
+                seeds = [row["seed"] for row in launches]
+                self.assertEqual(len(seeds), len(set(seeds)))
+                self.assertTrue(all(isinstance(seed, int) and 0 <= seed < 2**32 for seed in seeds))
+                self.assertEqual({row["seed"] for row in requests},
+                                 {str(row["seed"]) for row in launches if row["role"] == "target"})
                 self.assertTrue(any("depth 5" in row["command"] for row in requests))
+                # Check actual child masks, including meter and calibration
+                # processes, against the CPU recorded for each game.
+                if all(row["affinity"] is not None for row in requests):
+                    peer_rows = requests + self.trace("baseline")
+                    for row in peer_rows:
+                        self.assertEqual(len(row["affinity"]), 1)
+                    self.assertEqual({int(row["cpu"]) for row in games},
+                                     {row["affinity"][0] for row in requests
+                                      if row["command"].startswith("go ") and "depth" in row["command"]})
+
+    def test_adaptive_cli_descends_before_certification(self):
+        self.require_bindings()
+        # Deliberate baseline illegal actions give known wins in both colors.
+        # Small exploratory thresholds keep this a controller contract test.
+        result = self.command(
+            "ratio_matchmaker.py", "--target", self.peer("target", seed="{seed}"),
+            "--baseline", self.peer("baseline", "illegal", seed="{seed}"),
+            "--ratios", "1,.5", "--max-pairs", "20", "--jobs", "2",
+            "--baseline-movetime", "40", "--max-target-movetime", "200",
+            "--max-actions", "2", "--output-dir", "adaptive-output",
+            "--switch-e", "1.1", "--switch-min-pairs", "1", "--alpha", ".9",
+        )
+        self.assertIn("Provisional descent", result.stdout)
+        self.assertLess(result.stdout.index("Provisional descent"), result.stdout.index("decision: noninferior"))
+        self.assertIn("Most aggressive established ratio: m=0.5", result.stdout)
+        games = self.csv_rows(self.work / "adaptive-output/games.csv")
+        self.assertEqual({row["ratio"] for row in games}, {"1.0", "0.5"})
+        self.assertEqual({row["outcome"] for row in games}, {"win"})
+        launches = [json.loads(line) for line in (self.work / "adaptive-output/engine-launches.jsonl").read_text().splitlines()]
+        self.assertEqual(len(launches), len({row["seed"] for row in launches}))
 
     def test_known_target_failures_are_losses_in_both_colors(self):
         result = self.run_ratio("illegal-depth")

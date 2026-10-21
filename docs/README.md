@@ -16,6 +16,10 @@ The native `5dchess` executable provides several search engines, including MCTS 
 
 To compare engines, `scripts/autoplay.py` runs matches and records games and search metrics. The [engine usage guide](engine/usage.md#autoplay) explains match setup. For persistent ratings and automated opponent selection, use the [Elo registry and concurrent matchmaker](engine/elo-matchmaker.md).
 
+For position-scaled iteration budgets, use the [adaptive iteration-ratio matcher](engine/iteration-ratio-match.md), which pins opponents to the same CPU and searches for a noninferior ratio.
+
+Both matchmakers use the same [job, CPU, output, opening, and randomness options](engine/matchmaker-options.md).
+
 The `5dtools` executable inspects positions, counts or lists legal actions, checks for checkmate, and runs rollout and algorithm comparisons. See [command-line tools](usage/tools.md) for commands and position selection. These tools are useful for investigating game logic independently of engine strength.
 
 ## Build on the game logic

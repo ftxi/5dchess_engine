@@ -17,6 +17,8 @@ import time
 from datetime import date
 from pathlib import Path
 
+import cpu_affinity
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODULE_DIR = REPOSITORY_ROOT / "build"
@@ -37,10 +39,11 @@ class ProtocolError(RuntimeError):
 class EngineProcess:
     """One 5DUCI engine subprocess and its request/response lifecycle."""
 
-    def __init__(self, name: str, command: str, timeout_ms: int):
+    def __init__(self, name: str, command: str, timeout_ms: int, *, cpu: int | None = None):
         self.name = name
         self.command = command
         self.argv = shlex.split(command)
+        self.cpu = cpu
         self.timeout_seconds = timeout_ms / 1000
         self.process: asyncio.subprocess.Process | None = None
         self.phase = "created"
@@ -80,13 +83,21 @@ class EngineProcess:
         if not self.argv:
             raise ProtocolError(f"{self.name}: empty command")
         try:
+            argv = self.argv
+            if self.cpu is not None and sys.platform != "win32":
+                argv = [sys.executable, str(Path(cpu_affinity.__file__).resolve()),
+                        str(self.cpu), *argv]
             self.process = await asyncio.create_subprocess_exec(
-                *self.argv,
+                *argv,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=sys.platform != "win32",
             )
+            if self.cpu is not None and sys.platform == "win32":
+                # Set the whole process mask before sending initialization or
+                # search commands; it also constrains already-created threads.
+                cpu_affinity.pin_process(self.process.pid, {self.cpu})
         except OSError as exc:
             raise ProtocolError(f"{self.name}: cannot start {self.command!r}: {exc}") from exc
         self.stderr_task = asyncio.create_task(self._drain_stderr())
@@ -664,8 +675,8 @@ async def play(
 ) -> str:
     log_dir = getattr(args, "log_dir", Path("logs"))
     players = [
-        EngineProcess(args.white_name, args.white, args.timeout),
-        EngineProcess(args.black_name, args.black, args.timeout),
+        EngineProcess(args.white_name, args.white, args.timeout, cpu=getattr(args, "engine_cpu", None)),
+        EngineProcess(args.black_name, args.black, args.timeout, cpu=getattr(args, "engine_cpu", None)),
     ]
     if args.game_file:
         try:

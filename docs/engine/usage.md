@@ -111,3 +111,8 @@ reporting, automatic opponent selection, and concurrent games, see
 [Elo registry and concurrent matchmaker](elo-matchmaker.md). The pure
 `elo.py` tool never launches an engine; `elo_matchmaker.py` optionally automates
 its scheduled matches through `autoplay.py`.
+
+For comparisons at position-scaled iteration budgets, use the
+[adaptive iteration-ratio matcher](iteration-ratio-match.md). It pins both
+players and the baseline meter to the same worker CPU, refills workers
+continuously, and searches for a ratio meeting the noninferiority margin.

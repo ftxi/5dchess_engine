@@ -23,6 +23,16 @@ skip when that build is absent; the manifest checks still run.
 blocks, signed timeline labels, a complete two-timeline history, even-timeline
 jumps and promotions, odd timelines, and invalid text between FEN blocks.
 
+`test_matchmaker_options.py` checks common job defaults and aliases, named CPU
+pool coverage, affinity fallback, and prevention of repeated explicit engine
+seeds.
+
+`test_ratio_matchmaker.py` checks provisional descent, refinement after a
+setback, retained evidence, superiority mode, budget exhaustion, the shared
+noninferiority boundary, continuous worker refill, ordered pair commitment,
+and cleanup on cancellation or a formal stop. Its scheduling checks control
+completion with events rather than timing-dependent performance assertions.
+
 `test_public_api.py` checks these files through their public interfaces:
 
 | File | What passing verifies |
@@ -30,7 +40,7 @@ jumps and promotions, odd timelines, and invalid text between FEN blocks.
 | [`scripts/elo.py`](../elo.py) | Registry edits, enable/disable, scheduling, reporting, ratings, history, and cancellation through CLI output. |
 | [`scripts/autoplay.py`](../autoplay.py) | Legal games, PGN metadata, metrics, history sent to engines, path handling, shutdown, and diagnostics for illegal moves, missing moves, exits, errors, and timeouts. |
 | [`scripts/elo_matchmaker.py`](../elo_matchmaker.py) | Concurrent queued games, resume, saved results/files, capped games recorded as draws, and recovery after disabling a failed engine. |
-| [`scripts/iteration_ratio_match.py`](../iteration_ratio_match.py) | Both statistical modes, color reversal, shared seeds, outgoing iteration budgets, logs, and summaries for known outcomes. |
+| [`scripts/ratio_matchmaker.py`](../ratio_matchmaker.py) | Both statistical modes, color reversal, distinct process seeds, outgoing iteration budgets, baseline CLI names, explanatory header, actual child CPU masks where supported, logs, and summaries for known outcomes. |
 | [`scripts/host.py`](../host.py) | HTTP HTML response and socket messages for loading, moving, undo/redo, submission, navigation, cancellation, PGN export/reload, and hints. |
 | [`pymodule.cpp`](../../pymodule.cpp), through compiled `engine` | Coordinate/move objects, legal and illegal moves, undo/redo, submission, history navigation, comments, and PGN round trips. |
 
@@ -63,7 +73,7 @@ The host also loads this 4×4 custom position and requests a navigable hint:
 - Binding and host move/history checks play `(0T1)d2d3` from the standard opening.
 - Scripted controller games play `(0T1)d2d3`, then `(0T1)d7d6`, capped at two actions. Autoplay and matchmaker request 30 ms per move. Fault cases may end earlier; the illegal move is `(0T1)d2d8`.
 - Matchmaker runs two games with two workers, then resumes one separately scheduled game. Its failure-recovery case queues two games with one worker.
-- Ratio checks run one color-reversed pair per scenario at ratio `0.5`, seed `17`, and two actions per game. Zero receives 40 ms; target time is capped at 200 ms. Fixed reference statistics of 100 iterations produce a target budget of 50 iterations.
+- Ratio CLI checks run one color-reversed pair per scenario at ratio `0.5` and two actions per game, with unique automatic seeds for engine processes. Baseline receives 40 ms; target time is capped at 200 ms. Fixed reference statistics of 100 iterations produce a target budget of 50 iterations.
 - The real-engine smoke game starts from the standard opening, requests 40 ms per move, and stops after two actions. Its exact moves and timing are not asserted.
 
 Passing verifies these workflows, not exhaustive chess rules, playing strength,

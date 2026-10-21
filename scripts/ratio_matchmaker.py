@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Compare a target engine with zero using position-scaled iteration budgets.
+"""Compare a target engine with baseline using position-scaled iteration budgets.
 
-Zero searches every position for a short fixed time.  On a target turn, a
-separate zero process first searches the *same* position and supplies the
+Baseline searches every position for a short fixed time.  On a target turn, a
+separate baseline process first searches the *same* position and supplies the
 reference iteration count.  The target then receives ``ratio * iterations``
 (rounded to the engine's ten-iteration ``go depth`` unit) with a wall-time
-safety cap derived from the measured target/zero IPS ratio.
+safety cap derived from the measured target/baseline IPS ratio.
 
-Ratios are tested from largest to smallest.  Each statistical sample is a
-color-reversed pair sharing an opening and seed.  By default, always-valid
-e-processes update after every pair, so stopping at any time does not inflate
-the false-positive rate.  The older fixed-look procedure remains available
-for reproducing prior runs.  Ctrl-C cancels active games and still prints the
-strongest (smallest) established ratio.
+Workers continuously run color-reversed pairs sharing an opening and CPU.
+Adaptive scheduling explores lower ratios early, then concentrates on
+neighboring ratios around the noninferiority boundary. Each ratio retains
+its own evidence, committed in pair-number order. The run-wide alpha budget
+covers all ratios and three claims per ratio. Sequential scheduling and the
+older fixed-look tests remain available. Ctrl-C cancels active games and
+prints the smallest directly established ratio.
 """
 
 from __future__ import annotations
@@ -23,12 +24,16 @@ import csv
 from dataclasses import dataclass, field
 from datetime import datetime
 import math
+import os
 from pathlib import Path
 import statistics
 import sys
 from typing import Iterable
 
 import autoplay
+import cpu_affinity
+import matchmaker_options as common
+from elo import DefaultsHelpArgumentParser
 
 
 DEPTH_TO_ITERATIONS = 10
@@ -48,22 +53,22 @@ class SearchSample:
 class Throughput:
     target_iterations: int = 0
     target_seconds: float = 0.0
-    zero_iterations: int = 0
-    zero_seconds: float = 0.0
+    baseline_iterations: int = 0
+    baseline_seconds: float = 0.0
     paired_ratios: list[float] = field(default_factory=list)
 
     def add_target(self, sample: SearchSample) -> None:
         self.target_iterations += sample.iterations
         self.target_seconds += sample.seconds
 
-    def add_zero(self, sample: SearchSample) -> None:
-        self.zero_iterations += sample.iterations
-        self.zero_seconds += sample.seconds
+    def add_baseline(self, sample: SearchSample) -> None:
+        self.baseline_iterations += sample.iterations
+        self.baseline_seconds += sample.seconds
 
-    def add_pair(self, target: SearchSample, zero: SearchSample) -> None:
+    def add_pair(self, target: SearchSample, baseline: SearchSample) -> None:
         self.add_target(target)
-        if target.ips > 0 and zero.ips > 0:
-            self.paired_ratios.append(target.ips / zero.ips)
+        if target.ips > 0 and baseline.ips > 0:
+            self.paired_ratios.append(target.ips / baseline.ips)
 
     @property
     def target_ips(self) -> float:
@@ -73,18 +78,18 @@ class Throughput:
         )
 
     @property
-    def zero_ips(self) -> float:
-        return self.zero_iterations / self.zero_seconds if self.zero_seconds > 0 else 0.0
+    def baseline_ips(self) -> float:
+        return self.baseline_iterations / self.baseline_seconds if self.baseline_seconds > 0 else 0.0
 
     @property
     def aggregate_ratio(self) -> float | None:
-        if self.target_ips <= 0 or self.zero_ips <= 0:
+        if self.target_ips <= 0 or self.baseline_ips <= 0:
             return None
-        return self.target_ips / self.zero_ips
+        return self.target_ips / self.baseline_ips
 
     @property
     def cap_ratio(self) -> float | None:
-        """Robust target/zero IPS ratio used to size the next safety cap."""
+        """Robust target/baseline IPS ratio used to size the next safety cap."""
 
         if not self.paired_ratios:
             return self.aggregate_ratio
@@ -183,8 +188,27 @@ class Experiment:
     openings: list[str]
     output_dir: Path
     throughput: Throughput = field(default_factory=Throughput)
+    cpu_throughput: dict[int | None, Throughput] = field(default_factory=dict)
     results: list[RatioResult] = field(default_factory=list)
     interrupted: bool = False
+    engine_seeds: common.EngineSeeds = field(default_factory=common.EngineSeeds)
+
+    def engine(self, role: str, command: str, cpu: int | None, **context) -> autoplay.EngineProcess:
+        command, seed = self.engine_seeds.prepare(command)
+        common.record_engine_launch(self.output_dir, role=role, command=command,
+                                    seed=seed, cpu=cpu, **context)
+        return autoplay.EngineProcess(role, command, self.args.timeout, cpu=cpu)
+
+    def throughput_on(self, cpu: int | None) -> Throughput:
+        return self.cpu_throughput.setdefault(cpu, Throughput())
+
+    def add_baseline(self, cpu: int | None, sample: SearchSample) -> None:
+        self.throughput.add_baseline(sample)
+        self.throughput_on(cpu).add_baseline(sample)
+
+    def add_pair(self, cpu: int | None, target: SearchSample, baseline: SearchSample) -> None:
+        self.throughput.add_pair(target, baseline)
+        self.throughput_on(cpu).add_pair(target, baseline)
 
     @property
     def games_csv(self) -> Path:
@@ -200,8 +224,8 @@ class Experiment:
             csv.DictWriter(
                 output,
                 fieldnames=(
-                    "ratio", "pair", "game", "seed", "target_color",
-                    "outcome", "actions", "reason", "pgn_path",
+                    "ratio", "pair", "game", "target_color",
+                    "outcome", "actions", "reason", "pgn_path", "cpu",
                 ),
             ).writeheader()
         with self.searches_csv.open("w", newline="") as output:
@@ -212,7 +236,7 @@ class Experiment:
                     "reference_iterations", "reference_elapsed_seconds",
                     "reference_ips", "requested_iterations", "iteration_limit",
                     "cap_ips_ratio", "movetime_cap_ms", "actual_iterations",
-                    "elapsed_seconds", "ips", "time_capped",
+                    "elapsed_seconds", "ips", "time_capped", "cpu",
                 ),
             ).writeheader()
 
@@ -227,9 +251,9 @@ class Experiment:
         ratio: float,
         pair_number: int,
         game_number: int,
-        seed: int,
         target_white: bool,
         result: GameResult,
+        cpu: int | None = None,
     ) -> None:
         ratio_text = ratio_slug(ratio)
         pgn_path = self.output_dir / (
@@ -241,8 +265,8 @@ class Experiment:
             writer = csv.DictWriter(
                 output,
                 fieldnames=(
-                    "ratio", "pair", "game", "seed", "target_color",
-                    "outcome", "actions", "reason", "pgn_path",
+                    "ratio", "pair", "game", "target_color",
+                    "outcome", "actions", "reason", "pgn_path", "cpu",
                 ),
             )
             writer.writerow(
@@ -250,12 +274,12 @@ class Experiment:
                     "ratio": ratio,
                     "pair": pair_number,
                     "game": game_number,
-                    "seed": seed,
                     "target_color": "white" if target_white else "black",
                     "outcome": result.outcome,
                     "actions": result.actions,
                     "reason": result.reason,
                     "pgn_path": pgn_path,
+                    "cpu": cpu,
                 }
             )
             output.flush()
@@ -263,10 +287,6 @@ class Experiment:
 
 def ratio_slug(value: float) -> str:
     return format(value, ".6g").replace(".", "p")
-
-
-def command_for_seed(template: str, seed: int) -> str:
-    return template.replace("{seed}", str(seed))
 
 
 def search_sample(player: autoplay.EngineProcess) -> SearchSample:
@@ -297,15 +317,15 @@ def iteration_budget(reference_iterations: int, ratio: float) -> tuple[int, int]
 
 
 def target_time_cap_ms(
-    zero_time_ms: int,
+    baseline_time_ms: int,
     ips_ratio: float,
     cap_factor: float,
     absolute_cap_ms: int,
 ) -> int:
     if ips_ratio <= 0:
         return absolute_cap_ms
-    predicted_cap = math.ceil(cap_factor * zero_time_ms / ips_ratio)
-    return max(zero_time_ms, min(absolute_cap_ms, predicted_cap))
+    predicted_cap = math.ceil(min(absolute_cap_ms, cap_factor * baseline_time_ms / ips_ratio))
+    return min(absolute_cap_ms, max(baseline_time_ms, predicted_cap))
 
 
 def binomial_upper_tail(successes: int, trials: int, probability: float) -> float:
@@ -389,8 +409,9 @@ def update_anytime_evidence(
     result.superiority_log_e = bounded_mean_log_e(
         scores, 0.5, superiority_target
     )
+    boundary = 0.5 - noninferiority_margin
     result.inferiority_log_e = bounded_mean_log_e(
-        scores, 0.5, 1.0 - superiority_target
+        scores, boundary, max(boundary / 2, boundary - (superiority_target - 0.5))
     )
     result.noninferiority_log_e = bounded_mean_log_e(
         scores, 0.5 - noninferiority_margin, 0.5
@@ -483,12 +504,12 @@ def print_live(
         f"(void {result.void_games}); pairs "
         f"{result.pair_wins}-{result.pair_ties}-{result.pair_losses} "
         f"(void {result.void_pairs}, mean score "
-        f"{format_ratio(result.mean_pair_score)}); target/zero IPS "
+        f"{format_ratio(result.mean_pair_score)}); target/baseline IPS "
         f"{format_ratio(throughput.aggregate_ratio)}"
     )
     if statistical_method == "anytime" and pair_complete and result.valid_pairs:
         line += (
-            "; e-values superior/noninferior/inferior "
+            "; current E superior/acceptable/unacceptable "
             f"{format_evidence(result.superiority_log_e)}/"
             f"{format_evidence(result.noninferiority_log_e)}/"
             f"{format_evidence(result.inferiority_log_e)}; anytime p "
@@ -515,32 +536,27 @@ async def start_engines(players: Iterable[autoplay.EngineProcess]) -> None:
             raise autoplay.ProtocolError(f"{player.name}: new-game failed: {result}")
 
 
-async def calibrate(experiment: Experiment) -> None:
+async def calibrate_on(experiment: Experiment, cpu: int | None) -> None:
     args = experiment.args
-    seed = args.seed_start
-    zero = autoplay.EngineProcess(
-        "zero calibration", command_for_seed(args.zero, seed), args.timeout
-    )
-    target = autoplay.EngineProcess(
-        "target calibration", command_for_seed(args.target, seed), args.timeout
-    )
+    baseline = experiment.engine("baseline", args.baseline, cpu, phase="calibration")
+    target = experiment.engine("target", args.target, cpu, phase="calibration")
     commands: asyncio.Queue[str] = asyncio.Queue()
     game = experiment.rules.game.from_pgn(experiment.openings[0])
     position = autoplay.uci_position(game)
     try:
-        await start_engines((zero, target))
-        await zero.choose(position, [], args.zero_movetime, commands)
-        zero_sample = search_sample(zero)
-        experiment.throughput.add_zero(zero_sample)
-        await target.choose(position, [], args.zero_movetime, commands)
+        await start_engines((baseline, target))
+        await baseline.choose(position, [], args.baseline_movetime, commands)
+        baseline_sample = search_sample(baseline)
+        experiment.add_baseline(cpu, baseline_sample)
+        await target.choose(position, [], args.baseline_movetime, commands)
         target_sample = search_sample(target)
-        experiment.throughput.add_pair(target_sample, zero_sample)
+        experiment.add_pair(cpu, target_sample, baseline_sample)
     finally:
-        await asyncio.gather(zero.close(), target.close())
+        await asyncio.gather(baseline.close(), target.close())
     print(
-        "Calibration: "
-        f"zero={zero_sample.ips:.0f} IPS, target={target_sample.ips:.0f} IPS, "
-        f"target/zero={target_sample.ips / zero_sample.ips:.3f}",
+        f"Calibration CPU {cpu if cpu is not None else 'unpinned'}: "
+        f"baseline={baseline_sample.ips:.0f} IPS, target={target_sample.ips:.0f} IPS, "
+        f"target/baseline={target_sample.ips / baseline_sample.ips:.3f}",
         flush=True,
     )
 
@@ -557,31 +573,28 @@ async def play_game(
     ratio: float,
     pair_number: int,
     game_number: int,
-    seed: int,
     opening: str,
     target_white: bool,
+    cpu: int | None = None,
 ) -> GameResult:
     args = experiment.args
     rules = experiment.rules
-    target = autoplay.EngineProcess(
-        "target", command_for_seed(args.target, seed), args.timeout
-    )
-    zero = autoplay.EngineProcess("zero", command_for_seed(args.zero, seed), args.timeout)
-    meter = autoplay.EngineProcess(
-        "zero meter", command_for_seed(args.zero, seed), args.timeout
-    )
-    players = [target, zero] if target_white else [zero, target]
+    context = dict(phase="game", ratio=ratio, pair=pair_number, game=game_number)
+    target = experiment.engine("target", args.target, cpu, **context)
+    baseline = experiment.engine("baseline", args.baseline, cpu, **context)
+    meter = experiment.engine("baseline meter", args.baseline, cpu, **context)
+    players = [target, baseline] if target_white else [baseline, target]
     commands: asyncio.Queue[str] = asyncio.Queue()
     game = rules.game.from_pgn(opening)
     metadata = dict(game.metadata)
     metadata.update(
         {
-            "event": "Iteration-ratio policy test",
+            "event": args.event,
             "site": "Local",
             "date": datetime.now().strftime("%Y.%m.%d"),
             "round": f"{ratio:g}.{pair_number}.{1 if target_white else 2}",
-            "white": "Target" if target_white else "Zero",
-            "black": "Zero" if target_white else "Target",
+            "white": "Target" if target_white else "Baseline",
+            "black": "Baseline" if target_white else "Target",
             "result": "*",
         }
     )
@@ -593,7 +606,7 @@ async def play_game(
     reason = "game did not start"
     actions = 0
     try:
-        await start_engines((target, zero, meter))
+        await start_engines((target, baseline, meter))
         for action_number in range(1, args.max_actions + 1):
             actions = action_number
             _, black_to_move = game.get_current_present()
@@ -603,11 +616,11 @@ async def play_game(
             if target_turn:
                 try:
                     meter_moves = await meter.choose(
-                        initial_position, history, args.zero_movetime, commands
+                        initial_position, history, args.baseline_movetime, commands
                     )
                 except (autoplay.ProtocolError, ValueError) as exc:
                     outcome = "void"
-                    reason = f"zero meter failure: {exc}"
+                    reason = f"baseline meter failure: {exc}"
                     break
                 if not meter_moves:
                     status = await autoplay.adjudicate(
@@ -615,22 +628,22 @@ async def play_game(
                     )
                     if status in ("white", "black", "draw"):
                         outcome = winner_to_target_outcome(status, target_white)
-                        reason = f"zero meter detected terminal position: {status}"
+                        reason = f"baseline meter detected terminal position: {status}"
                     else:
                         outcome = "void"
                         reason = (
-                            "zero meter returned no move in a nonterminal "
+                            "baseline meter returned no move in a nonterminal "
                             f"position ({status})"
                         )
                     break
                 reference = search_sample(meter)
-                experiment.throughput.add_zero(reference)
+                experiment.add_baseline(cpu, reference)
                 requested, iteration_limit = iteration_budget(
                     reference.iterations, ratio
                 )
-                current_ips_ratio = experiment.throughput.cap_ratio or 1.0
+                current_ips_ratio = experiment.throughput_on(cpu).cap_ratio or 1.0
                 cap_ms = target_time_cap_ms(
-                    args.zero_movetime,
+                    args.baseline_movetime,
                     current_ips_ratio,
                     args.cap_factor,
                     args.max_target_movetime,
@@ -646,7 +659,7 @@ async def play_game(
                     break
                 if moves:
                     sample = search_sample(target)
-                    experiment.throughput.add_pair(sample, reference)
+                    experiment.add_pair(cpu, sample, reference)
                     experiment.record_search(
                         {
                             "ratio": ratio,
@@ -665,38 +678,40 @@ async def play_game(
                             "elapsed_seconds": sample.seconds,
                             "ips": sample.ips,
                             "time_capped": int(sample.iterations < iteration_limit),
+                            "cpu": cpu,
                         }
                     )
             else:
                 try:
-                    moves = await zero.choose(
-                        initial_position, history, args.zero_movetime, commands
+                    moves = await baseline.choose(
+                        initial_position, history, args.baseline_movetime, commands
                     )
                 except (autoplay.ProtocolError, ValueError) as exc:
                     outcome = "win"
-                    reason = f"zero failure: {exc}"
+                    reason = f"baseline failure: {exc}"
                     break
                 if moves:
-                    sample = search_sample(zero)
-                    experiment.throughput.add_zero(sample)
+                    sample = search_sample(baseline)
+                    experiment.add_baseline(cpu, sample)
                     experiment.record_search(
                         {
                             "ratio": ratio,
                             "pair": pair_number,
                             "game": game_number,
                             "action": action_number,
-                            "role": "zero",
+                            "role": "baseline",
                             "reference_iterations": "",
                             "reference_elapsed_seconds": "",
                             "reference_ips": "",
                             "requested_iterations": "",
                             "iteration_limit": "",
                             "cap_ips_ratio": "",
-                            "movetime_cap_ms": args.zero_movetime,
+                            "movetime_cap_ms": args.baseline_movetime,
                             "actual_iterations": sample.iterations,
                             "elapsed_seconds": sample.seconds,
                             "ips": sample.ips,
                             "time_capped": "",
+                            "cpu": cpu,
                         }
                     )
 
@@ -712,7 +727,7 @@ async def play_game(
                     reason = f"target returned no move in nonterminal position ({status})"
                 else:
                     outcome = "win"
-                    reason = f"zero returned no move in nonterminal position ({status})"
+                    reason = f"baseline returned no move in nonterminal position ({status})"
                 break
             error = autoplay.apply_action(rules, game, moves)
             if error:
@@ -721,7 +736,7 @@ async def play_game(
                     reason = f"target illegal action: {error}"
                 else:
                     outcome = "win"
-                    reason = f"zero illegal action: {error}"
+                    reason = f"baseline illegal action: {error}"
                 break
             history.extend(moves)
             history.append("submit")
@@ -743,174 +758,256 @@ async def play_game(
         autoplay.append_termination_comment(game, reason)
         return GameResult("void", reason, actions, game.show_pgn(show_flags))
     finally:
-        await asyncio.gather(target.close(), zero.close(), meter.close())
+        await asyncio.gather(target.close(), baseline.close(), meter.close())
 
 
 async def play_pair(
     experiment: Experiment,
     result: RatioResult,
-    semaphore: asyncio.Semaphore,
     pair_number: int,
+    cpu: int | None,
 ) -> list[GameResult]:
     args = experiment.args
-    seed = args.seed_start + pair_number - 1
     opening = experiment.openings[(pair_number - 1) % len(experiment.openings)]
 
     async def one(target_white: bool) -> GameResult:
         game_number = (pair_number - 1) * 2 + (1 if target_white else 2)
-        async with semaphore:
-            game = await play_game(
-                experiment,
-                result.ratio,
-                pair_number,
-                game_number,
-                seed,
-                opening,
-                target_white,
-            )
+        game = await play_game(
+            experiment, result.ratio, pair_number, game_number,
+            opening, target_white, cpu,
+        )
         result.add_game(game.outcome)
         experiment.record_game(
-            result.ratio, pair_number, game_number, seed, target_white, game
+            result.ratio, pair_number, game_number, target_white, game, cpu
         )
         print_live(result, experiment.throughput, args.stat_method)
         return game
 
-    games = await asyncio.gather(one(True), one(False))
-    return games
+    # A slot owns one CPU. Run both colors on it, with only one search active
+    # at a time, then immediately reuse the slot for another pair.
+    return [await one(True), await one(False)]
 
 
-async def run_ratio(experiment: Experiment, ratio: float) -> RatioResult:
-    args = experiment.args
-    result = RatioResult(ratio)
-    experiment.results.append(result)
-    semaphore = asyncio.Semaphore(args.workers)
-    looks = args.look_pairs
-    alpha_at_looks = [args.alpha * look / sum(looks) for look in looks]
-    next_look = 0
-    noninferiority_announced = False
-    pair_number = 1
-    parallel_pairs = max(1, math.ceil(args.workers / 2))
-    if args.stat_method == "anytime":
-        print(
-            f"\nStarting m={ratio:g}; always-valid evidence after every pair, "
-            f"boundary e >= {1.0 / args.alpha:g} "
-            f"(anytime p <= {args.alpha:g})",
-            flush=True,
+@dataclass
+class RatioState:
+    result: RatioResult
+    next_pair: int = 1
+    next_commit: int = 1
+    active: int = 0
+    completed: dict[int, list[GameResult]] = field(default_factory=dict)
+    next_look: int = 0
+
+    def passed(self, args: argparse.Namespace) -> bool:
+        return self.result.decision == "better" or (
+            self.result.decision == "noninferior" and args.advance_on == "noninferior"
         )
-    else:
-        print(
-            f"\nStarting m={ratio:g}; planned pair looks={looks}, "
-            f"alpha spending={[round(value, 6) for value in alpha_at_looks]}",
-            flush=True,
-        )
-    while pair_number <= args.max_pairs:
-        batch_size = min(parallel_pairs, args.max_pairs - pair_number + 1)
-        tasks = [
-            asyncio.create_task(
-                play_pair(experiment, result, semaphore, pair_number + offset)
-            )
-            for offset in range(batch_size)
-        ]
-        completed_pairs = await asyncio.gather(*tasks)
-        pair_number += batch_size
 
-        # Apply pairs in pair-number order. Completion time can correlate with
-        # game outcome and therefore must not choose the statistical order.
-        for games in completed_pairs:
+    def can_launch(self, args: argparse.Namespace) -> bool:
+        return (self.next_pair <= args.max_pairs and not self.passed(args)
+                and self.result.decision not in ("inferior", "conflicting"))
+
+    def exhausted(self, args: argparse.Namespace) -> bool:
+        return not self.can_launch(args) and self.active == 0
+
+    def commit(self, experiment: Experiment) -> None:
+        args = experiment.args
+        result = self.result
+        while self.next_commit in self.completed:
+            games = self.completed.pop(self.next_commit)
+            self.next_commit += 1
             result.add_pair(games)
-            if args.stat_method == "anytime" and not any(
-                game.outcome == "void" for game in games
-            ):
-                update_anytime_evidence(
-                    result,
-                    args.noninferiority_margin,
+            previous = result.decision
+            if args.stat_method == "anytime":
+                decision = evaluate_anytime_ratio(
+                    result, args.test_alpha, args.noninferiority_margin,
                     args.superiority_target,
                 )
-            print_live(
-                result,
-                experiment.throughput,
-                args.stat_method,
-                pair_complete=True,
-            )
+                # Historical crossings remain claims even if current evidence
+                # falls. Surface incompatible crossings rather than hide one.
+                boundary = math.log(1 / args.test_alpha)
+                if (result.noninferiority_max_log_e >= boundary
+                        and result.inferiority_max_log_e >= boundary):
+                    decision = "conflicting"
+                if decision is not None:
+                    result.decision = decision
+            else:
+                looks = args.look_pairs
+                if self.next_look < len(looks) and result.valid_pairs >= looks[self.next_look]:
+                    alpha = args.test_alpha * looks[self.next_look] / sum(looks)
+                    decision = evaluate_ratio(result, alpha, args.noninferiority_margin)
+                    self.next_look += 1
+                    if decision is not None and (previous != "better" or decision == "better"):
+                        result.decision = decision
+                    print(f"Fixed look: m={result.ratio:g}, pairs={result.valid_pairs}, "
+                          f"per-claim alpha={alpha:.4g}", flush=True)
+            print_live(result, experiment.throughput, args.stat_method, pair_complete=True)
+            if result.decision != previous:
+                print(f"m={result.ratio:g} decision: {result.decision}", flush=True)
 
-        if args.stat_method == "anytime":
-            decision = evaluate_anytime_ratio(
-                result,
-                args.alpha,
-                args.noninferiority_margin,
-                args.superiority_target,
-            )
-            should_stop = decision in ("better", "inferior") or (
-                decision == "noninferior" and args.advance_on == "noninferior"
-            )
-            if should_stop:
-                result.decision = decision
-                print(
-                    f"Always-valid decision after {result.valid_pairs} valid "
-                    f"pairs: {decision}; boundary={1.0 / args.alpha:g}",
-                    flush=True,
-                )
-                return result
-            if decision == "noninferior" and not noninferiority_announced:
-                noninferiority_announced = True
-                result.decision = "noninferior"
-                print(
-                    "Non-inferiority established; continuing because "
-                    "--advance-on=better requires superiority.",
-                    flush=True,
-                )
-            continue
 
-        while next_look < len(looks) and result.valid_pairs >= looks[next_look]:
-            alpha_at_look = alpha_at_looks[next_look]
-            decision = evaluate_ratio(
-                result, alpha_at_look, args.noninferiority_margin
-            )
-            look = looks[next_look]
-            print(
-                f"Statistical look at {result.valid_pairs} valid pairs "
-                f"(planned {look}): superiority p="
-                f"{format_probability(result.superiority_p)}, non-inferiority p="
-                f"{format_probability(result.noninferiority_p)}, inferiority p="
-                f"{format_probability(result.inferiority_p)}; "
-                f"threshold={alpha_at_look:.4g}",
-                flush=True,
-            )
-            next_look += 1
-            should_stop = decision in ("better", "inferior") or (
-                decision == "noninferior" and args.advance_on == "noninferior"
-            )
-            if should_stop:
-                result.decision = decision
-                return result
-            if decision == "noninferior" and not noninferiority_announced:
-                noninferiority_announced = True
-                result.decision = "noninferior"
-                print(
-                    "Non-inferiority established; continuing because "
-                    "--advance-on=better requires superiority.",
-                    flush=True,
-                )
+class SequentialPolicy:
+    def __init__(self, states: list[RatioState], args: argparse.Namespace):
+        self.states, self.args = states, args
+        self.focus = 0
+        self.finished = False
 
-        if result.completed_games >= 2 * args.max_pairs:
-            break
+    def choose(self) -> int | None:
+        while self.focus < len(self.states):
+            state = self.states[self.focus]
+            if state.passed(self.args):
+                self.focus += 1
+                continue
+            if state.result.decision in ("inferior", "conflicting") or state.exhausted(self.args):
+                self.finished = True
+                return None
+            return self.focus if state.can_launch(self.args) else None
+        self.finished = True
+        return None
 
-    if result.valid_pairs and args.stat_method == "anytime":
-        update_anytime_evidence(
-            result, args.noninferiority_margin, args.superiority_target
-        )
-    elif result.valid_pairs:
-        evaluate_ratio(result, alpha_at_looks[-1], args.noninferiority_margin)
-    anytime_noninferior = (
-        args.stat_method == "anytime"
-        and result.noninferiority_p is not None
-        and result.noninferiority_p <= args.alpha
-    )
-    if anytime_noninferior or noninferiority_announced:
-        result.decision = "noninferior"
-    else:
-        result.decision = "inconclusive"
-    return result
+
+class AdaptivePolicy:
+    """Optimistic descent followed by persistent two-ratio refinement.
+
+    Provisional signals only allocate work. No evidence is transferred between
+    ratios, reset on revisits, or manufactured from a monotonicity assumption.
+    """
+
+    def __init__(self, states: list[RatioState], args: argparse.Namespace):
+        self.states, self.args = states, args
+        self.focus = 0
+        self.bracket: tuple[int, int] | None = None
+        self.allocations = 0
+        self.finished = False
+
+    def _refine(self, lower: int) -> None:
+        self.bracket = (lower - 1, lower)
+        self.allocations = 0
+        high, low = (self.states[i].result.ratio for i in self.bracket)
+        print(f"Adaptive refinement: m={high:g} / m={low:g}; "
+              "75% of new pairs favor the higher ratio until it is certified.", flush=True)
+
+    def choose(self) -> int | None:
+        args = self.args
+        # Several already-resolved ratios may be traversed on one call.
+        while not self.finished:
+            if any(state.result.decision == "conflicting" for state in self.states):
+                self.finished = True
+                return None
+            if self.bracket is None:
+                state = self.states[self.focus]
+                result = state.result
+                if state.passed(args):
+                    if self.focus == len(self.states) - 1:
+                        self.finished = True
+                        return None
+                    self.focus += 1
+                    print(f"Adaptive descent: new pairs at m={self.states[self.focus].result.ratio:g}",
+                          flush=True)
+                    continue
+                if result.decision == "inferior":
+                    if self.focus == 0:
+                        self.finished = True
+                        return None
+                    self._refine(self.focus)
+                    continue
+                if result.valid_pairs >= args.switch_min_pairs:
+                    if self.focus > 0 and result.inferiority_log_e >= math.log(args.switch_e):
+                        self._refine(self.focus)
+                        continue
+                    evidence = (result.superiority_log_e if args.advance_on == "better"
+                                else result.noninferiority_log_e)
+                    if self.focus < len(self.states) - 1 and evidence >= math.log(args.switch_e):
+                        self.focus += 1
+                        print(f"Provisional descent: new pairs at m={self.states[self.focus].result.ratio:g} "
+                              f"(current E >= {args.switch_e:g}; not certification).", flush=True)
+                        continue
+                if state.exhausted(args):
+                    if self.focus == 0:
+                        self.finished = True
+                        return None
+                    self._refine(self.focus)
+                    continue
+                return self.focus if state.can_launch(args) else None
+
+            high, low = self.bracket
+            upper, lower = self.states[high], self.states[low]
+            if lower.passed(args):
+                if low == len(self.states) - 1:
+                    self.finished = True
+                    return None
+                self.focus, self.bracket = low + 1, None
+                print(f"Adaptive descent: new pairs at m={self.states[self.focus].result.ratio:g}",
+                      flush=True)
+                continue
+            if upper.result.decision == "inferior":
+                if high == 0:
+                    self.finished = True
+                    return None
+                self._refine(high)
+                continue
+            if upper.passed(args) and lower.result.decision == "inferior":
+                self.finished = True
+                return None
+            candidates = [i for i in self.bracket if self.states[i].can_launch(args)]
+            if not candidates:
+                self.finished = all(self.states[i].active == 0 for i in self.bracket)
+                return None
+            preferred = low if self.allocations % 4 == 3 else high
+            self.allocations += 1
+            return preferred if preferred in candidates else candidates[0]
+        return None
+
+
+async def run_matches(experiment: Experiment) -> None:
+    """Refill CPU slots independently of ordered statistical commitment."""
+    args = experiment.args
+    states = [RatioState(RatioResult(ratio, decision="not tested")) for ratio in args.ratios]
+    experiment.results.extend(state.result for state in states)
+    policy = (AdaptivePolicy if args.schedule == "adaptive" else SequentialPolicy)(states, args)
+    free_slots = list(range(args.jobs))
+    active: dict[asyncio.Task, tuple[int, int, int]] = {}
+    try:
+        while True:
+            # Pair allocation order is fixed before execution. Completion speed
+            # cannot choose which scores enter a ratio's evidence first.
+            while free_slots:
+                index = policy.choose()
+                if index is None:
+                    break
+                slot = free_slots.pop(0)
+                state = states[index]
+                pair = state.next_pair
+                state.next_pair += 1
+                state.active += 1
+                if state.result.decision == "not tested":
+                    state.result.decision = "running"
+                    print(f"Starting m={state.result.ratio:g}", flush=True)
+                task = asyncio.create_task(play_pair(
+                    experiment, state.result, pair, args.worker_cores[slot],
+                ))
+                active[task] = (slot, index, pair)
+            # A final decision cancels the entire outstanding suffix, rather
+            # than selecting which incomplete or out-of-order pairs to keep.
+            if policy.finished or not active:
+                break
+            done, _ = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+            for task in sorted(done, key=lambda item: active[item][1:]):
+                slot, index, pair = active.pop(task)
+                state = states[index]
+                state.active -= 1
+                free_slots.append(slot)
+                state.completed[pair] = task.result()
+                state.commit(experiment)
+    finally:
+        for task in active:
+            task.cancel()
+        await asyncio.gather(*active, return_exceptions=True)
+        for state in states:
+            if state.result.decision == "running":
+                state.result.decision = "inconclusive"
+            if state.completed:
+                print(f"m={state.result.ratio:g}: {len(state.completed)} completed pairs "
+                      "outside the committed prefix excluded from inference.", flush=True)
 
 
 def print_final_summary(experiment: Experiment) -> None:
@@ -921,12 +1018,6 @@ def print_final_summary(experiment: Experiment) -> None:
                 result,
                 experiment.args.noninferiority_margin,
                 experiment.args.superiority_target,
-            )
-        elif result.valid_pairs:
-            evaluate_ratio(
-                result,
-                experiment.args.alpha,
-                experiment.args.noninferiority_margin,
             )
         p_name = "anytime p" if experiment.args.stat_method == "anytime" else "p"
         line = (
@@ -954,12 +1045,16 @@ def print_final_summary(experiment: Experiment) -> None:
     ]
     if established:
         print(f"Most aggressive established ratio: m={min(established):g}")
+        best = min(established)
+        lower = next((result for result in experiment.results if result.ratio < best), None)
+        if lower is not None:
+            print(f"Next lower ratio: m={lower.ratio:g}, {lower.decision}")
     else:
         print("Most aggressive established ratio: none")
     print(
         f"Actual aggregate target IPS: {experiment.throughput.target_ips:.1f}\n"
-        f"Actual aggregate zero IPS:   {experiment.throughput.zero_ips:.1f}\n"
-        f"Actual target/zero IPS ratio: "
+        f"Actual aggregate baseline IPS:   {experiment.throughput.baseline_ips:.1f}\n"
+        f"Actual target/baseline IPS ratio: "
         f"{format_ratio(experiment.throughput.aggregate_ratio)}\n"
         f"Paired geometric IPS ratio:   "
         f"{format_ratio(experiment.throughput.paired_geometric_ratio)}"
@@ -969,20 +1064,71 @@ def print_final_summary(experiment: Experiment) -> None:
     print(f"Logs: {experiment.output_dir.resolve()}")
 
 
+def print_header(args: argparse.Namespace) -> None:
+    print("=== Target / baseline iteration-ratio match ===", flush=True)
+    print(f"Target:   {args.target}\nBaseline: {args.baseline}", flush=True)
+    print(
+        "Output guide:\n"
+        "  m = target iterations / baseline-meter iterations on the same position; "
+        "rounded up to 10 iterations.\n"
+        "  games N: finished games; target W-D-L = wins-draws-losses.\n"
+        "  pairs W-T-L: committed color-reversed pairs above/equal/below score 0.5.\n"
+        "  mean score = target points / 2 per pair (win=1, draw=0.5, loss=0); "
+        "void pairs are excluded.\n"
+        "  IPS = iterations per second; target/baseline IPS is aggregate throughput, "
+        "not the iteration budget ratio.\n"
+        "  Game counts may lead pair counts while earlier pairs are still running.",
+        flush=True,
+    )
+    if args.stat_method == "anytime":
+        boundary = 0.5 - args.noninferiority_margin
+        print(
+            f"  Current E superior/acceptable/unacceptable: evidence for mean score "
+            f"> 0.5 / > {boundary:g} / < {boundary:g}.\n"
+            "  E starts at 1; larger favors that claim. Anytime p = min(1, 1 / max E); "
+            "it is not the probability the claim is false.\n"
+            f"  Formal threshold: max E >= {1 / args.test_alpha:g}; run-wide alpha "
+            f"{args.alpha:g}, divided across {len(args.ratios)} ratios and 3 claims each.",
+            flush=True,
+        )
+    else:
+        print("  Legacy fixed looks: inferiority means below score 0.5; "
+              "per-claim alpha is spent only at the declared pair counts.", flush=True)
+    placement = ("on the same CPU" if args.worker_cores[0] is not None
+                 else "without CPU affinity")
+    print(f"Schedule: {args.schedule}; up to {args.jobs} concurrent games; "
+          f"both colors of each pair run sequentially {placement}.", flush=True)
+    if args.schedule == "adaptive":
+        print(f"Provisional switching: current E >= {args.switch_e:g}, at least "
+              f"{args.switch_min_pairs} valid pairs; evidence persists across visits.", flush=True)
+    cpus = ",".join(map(str, args.worker_cores)) if args.worker_cores[0] is not None else "unpinned"
+    controller = ",".join(map(str, args.controller_cpus)) if args.controller_cpus else "shared OS scheduling"
+    print(f"Engine CPUs: {cpus}; controller/arbiter CPUs: {controller}", flush=True)
+    print(f"Baseline search={args.baseline_movetime} ms; target safety cap <= "
+          f"{args.max_target_movetime} ms; maximum {args.max_pairs} pairs per ratio.\n", flush=True)
+    print("Engine RNG: fresh engine defaults; {seed} templates receive unique process seeds. "
+          "Assignments are logged in engine-launches.jsonl.\n", flush=True)
+
+
+configure_cpus = common.configure_cpus
+
+
 async def run_experiment(experiment: Experiment) -> int:
     experiment.initialize_logs()
+    print_header(experiment.args)
     try:
-        await calibrate(experiment)
-        for ratio in experiment.args.ratios:
-            result = await run_ratio(experiment, ratio)
-            print(f"m={ratio:g} decision: {result.decision}", flush=True)
-            passed = result.decision == "better" or (
-                result.decision == "noninferior"
-                and experiment.args.advance_on == "noninferior"
-            )
-            if not passed:
-                break
-        return 0
+        # Calibration searches use the same CPUs as subsequent game searches.
+        tasks = [asyncio.create_task(calibrate_on(experiment, cpu))
+                 for cpu in dict.fromkeys(experiment.args.worker_cores)]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        await run_matches(experiment)
+        return 2 if any(result.decision == "conflicting" for result in experiment.results) else 0
     except asyncio.CancelledError:
         experiment.interrupted = True
         raise
@@ -995,8 +1141,8 @@ def parse_float_list(text: str) -> list[float]:
         values = [float(item.strip()) for item in text.split(",") if item.strip()]
     except ValueError as exc:
         raise argparse.ArgumentTypeError("expected a comma-separated number list") from exc
-    if not values or any(value <= 0 for value in values):
-        raise argparse.ArgumentTypeError("all ratios must be positive")
+    if not values or any(not math.isfinite(value) or value <= 0 for value in values):
+        raise argparse.ArgumentTypeError("all ratios must be finite and positive")
     if values != sorted(values, reverse=True) or len(values) != len(set(values)):
         raise argparse.ArgumentTypeError("ratios must be unique and descending")
     return values
@@ -1015,45 +1161,50 @@ def parse_int_list(text: str) -> list[int]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = DefaultsHelpArgumentParser(description=__doc__)
     parser.add_argument(
         "--target",
         required=True,
-        help="target engine command; optional {seed} is replaced for each pair",
+        help="target engine command; optional {seed} is assigned uniquely to each engine process",
     )
     parser.add_argument(
-        "--zero",
-        default="./build/5dchess zero --seed {seed}",
-        help="zero command; optional {seed} is replaced for each pair",
+        "--baseline",
+        default="./build/5dchess zero",
+        help="baseline command; optional {seed} is assigned uniquely to each engine process",
     )
     parser.add_argument(
         "--ratios", type=parse_float_list, default=parse_float_list("1,.75,.5,.25")
     )
-    parser.add_argument("--zero-movetime", type=int, default=400)
+    parser.add_argument("--baseline-movetime", type=int, default=400,
+                        help="milliseconds per baseline or meter search")
     parser.add_argument(
         "--cap-factor",
         type=float,
         default=2.0,
-        help="target wall cap = factor * zero time / measured target/zero IPS",
+        help="target wall cap = factor * baseline time / measured target/baseline IPS",
     )
     parser.add_argument("--max-target-movetime", type=int, default=10_000)
-    parser.add_argument("--timeout", type=int, default=2_000)
-    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--timeout", type=int, default=2_000,
+                        help="extra protocol timeout in milliseconds")
+    common.add_execution_options(parser)
+    parser.add_argument("--schedule", choices=("adaptive", "sequential"), default=None,
+                        help="scheduling policy (default: adaptive with anytime tests, sequential with fixed looks)")
+    parser.add_argument("--switch-e", type=float, default=3.0,
+                        help="current evidence needed for a provisional adaptive switch")
+    parser.add_argument("--switch-min-pairs", type=int, default=8,
+                        help="valid pairs needed before a provisional adaptive switch")
     parser.add_argument("--max-actions", type=int, default=500)
-    parser.add_argument("--seed-start", type=int, default=1)
     parser.add_argument("--module-dir", type=Path, default=autoplay.DEFAULT_MODULE_DIR)
-    parser.add_argument(
-        "--opening",
-        action="append",
-        type=Path,
-        default=[],
-        help="starting 5DPGN; repeat for an opening cycle",
-    )
+    opening_group = parser.add_mutually_exclusive_group()
+    opening_group.add_argument("--opening", "--game", "-g", action="append", type=Path,
+                               default=[], help="starting PGN file; repeat for an opening cycle")
+    opening_group.add_argument("--opening-text", "-m", help="starting PGN text")
+    parser.add_argument("--event", default="Iteration-ratio policy test", help="PGN event name")
     parser.add_argument(
         "--stat-method",
         choices=("anytime", "fixed-looks"),
         default="anytime",
-        help="always-valid per-pair evidence (default) or legacy planned looks",
+        help="always-valid per-pair evidence or legacy planned looks",
     )
     parser.add_argument(
         "--advance-on",
@@ -1068,7 +1219,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="predeclared valid-pair checkpoints for --stat-method fixed-looks",
     )
     parser.add_argument("--max-pairs", type=int, default=256)
-    parser.add_argument("--alpha", type=float, default=0.05)
+    parser.add_argument("--alpha", type=float, default=0.05,
+                        help="run-wide false-claim budget, divided among ratios and 3 claims each")
     parser.add_argument(
         "--superiority-target",
         type=float,
@@ -1081,22 +1233,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.10,
         help="largest tolerated deficit in mean normalized pair score",
     )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=None,
-        help="default: logs/iteration-ratio-YYYYmmdd-HHMMSS",
-    )
+    common.add_output_options(parser, "logs/ratio-runs")
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    if args.zero_movetime <= 0 or args.max_target_movetime <= 0 or args.timeout <= 0:
+    if args.baseline_movetime <= 0 or args.max_target_movetime <= 0 or args.timeout <= 0:
         parser.error("time limits must be positive")
-    if args.cap_factor <= 0 or args.workers <= 0 or args.max_actions <= 0:
-        parser.error("cap factor, workers, and max actions must be positive")
+    if not math.isfinite(args.cap_factor) or args.cap_factor <= 0 or args.jobs <= 0 or args.max_actions <= 0:
+        parser.error("cap factor, jobs, and max actions must be positive and finite")
+    if args.max_pairs <= 0 or args.switch_min_pairs <= 0:
+        parser.error("--max-pairs and --switch-min-pairs must be positive")
+    if not math.isfinite(args.switch_e) or args.switch_e <= 1:
+        parser.error("--switch-e must be finite and greater than one")
     if not 0 < args.alpha < 1:
         parser.error("--alpha must be between zero and one")
     if not 0.5 < args.superiority_target < 1:
@@ -1105,9 +1256,16 @@ def main() -> int:
         parser.error("--noninferiority-margin must be between zero and 0.5")
     if args.stat_method == "fixed-looks" and args.max_pairs < args.look_pairs[-1]:
         parser.error("--max-pairs must be at least the final --look-pairs value")
-    if args.output_dir is None:
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        args.output_dir = Path("logs") / f"iteration-ratio-{stamp}"
+    args.schedule = args.schedule or ("adaptive" if args.stat_method == "anytime" else "sequential")
+    if args.stat_method == "fixed-looks" and args.schedule == "adaptive":
+        parser.error("adaptive scheduling requires --stat-method anytime")
+    args.test_alpha = args.alpha / (3 * len(args.ratios))
+    configure_cpus(parser, args)
+    try:
+        common.validate_engine_command(args.target)
+        common.validate_engine_command(args.baseline)
+    except ValueError as exc:
+        parser.error(str(exc))
     openings = []
     if args.opening:
         for path in args.opening:
@@ -1116,14 +1274,23 @@ def main() -> int:
             except OSError as exc:
                 parser.error(f"cannot read opening {path}: {exc}")
     else:
-        openings.append('[Board "Standard - Turn Zero"]')
-    rules = autoplay.load_rules(args.module_dir)
-    experiment = Experiment(args, rules, openings, args.output_dir)
+        openings.append(args.opening_text or '[Board "Standard - Turn Zero"]')
     try:
+        args.output_dir = common.create_run_directory(args)
+    except OSError as exc:
+        parser.error(f"cannot create run directory: {exc}")
+    try:
+        if args.controller_cpus:
+            cpu_affinity.pin_process(os.getpid(), set(args.controller_cpus))
+        rules = autoplay.load_rules(args.module_dir)
+        experiment = Experiment(args, rules, openings, args.output_dir)
         return asyncio.run(run_experiment(experiment))
     except KeyboardInterrupt:
         # asyncio cancellation runs run_experiment's finally block first.
         return 130
+    except (autoplay.ProtocolError, OSError) as exc:
+        print(f"Ratio matcher failed: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

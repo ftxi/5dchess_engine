@@ -52,7 +52,16 @@ python3 scripts/elo_matchmaker.py run \
 ```
 
 Each result, PGN, autoplay log, and metrics file is saved as soon as its game
-finishes. Match commands are copied into the database when scheduled.
+finishes. Match commands are copied into the database when scheduled. Optional
+`{seed}` command templates are expanded per engine process; the actual launch
+commands and seeds are recorded in `engine-launches.jsonl` in the run directory.
+
+`--logs-dir` selects the parent directory (default `logs/elo-runs`); `--output-dir`
+selects an exact run directory. A new run requires a fresh exact directory;
+`resume` may reuse one. `--opening` / `-g` selects a PGN file, and
+`--opening-text` / `-m` supplies inline PGN. `--game` remains an alias for
+`--opening`. Elo accepts one opening per invocation; ratio matches can cycle
+multiple files.
 
 Use repeated `--core` options to bind each worker and both engines in its game
 to one CPU:
@@ -62,10 +71,15 @@ python3 scripts/elo_matchmaker.py run --games 120 --jobs 6 \
   --core 0 --core 1 --core 2 --core 3 --core 4 --core 5
 ```
 
-CPU affinity is supported on Linux and Windows. On macOS, `--core` and
-`--core-group` print a warning and fall back to ordinary unpinned `--jobs`
-execution. Without either affinity option, `--jobs` always controls the number
-of games run in parallel without selecting CPUs.
+CPU pinning is automatic on Linux and Windows. `--jobs` / `-j` defaults to 1
+and cannot exceed the available engine CPU pool unless `--no-pin` is used.
+Both engines share a worker CPU; the controller and arbiter use the remaining
+CPUs. Unsupported platforms fall back with a warning for automatic selection,
+but explicit CPU pool options fail when they cannot be honored.
+
+See [Common matchmaker options](matchmaker-options.md) for `--controller-core`,
+`--no-pin`, output directories, opening selection, and engine randomness.
+`--matchmaking-seed` controls opponent selection only; it never seeds engines.
 
 Named pools keep hardware classes separate and store the assigned group on
 each match:
@@ -78,7 +92,11 @@ python3 scripts/elo_matchmaker.py run --games 480 --jobs 12 \
 
 The scheduler cycles each directed pairing through the groups. Choose a queue
 size divisible by the number of directed pairings and groups when exact
-pair/color/group balance is required.
+pair/color/group balance is required. If the supplied pool contains more CPUs
+than jobs, slots are selected across groups before truncation. There must be
+at least one job per named group. Resuming a grouped queue requires pools
+that cover its recorded groups; automatic selection does not guess hardware
+class names.
 
 ## Interrupt and resume
 
