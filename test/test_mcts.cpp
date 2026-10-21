@@ -460,6 +460,61 @@ void test_multiple_semimoves()
     assert(saw_multiple);
 }
 
+template<class Policy>
+void check_search_progress(Policy policy)
+{
+    const state position = state::from_pgn<true>(R"(
+[Mode "5D"]
+[Board "Very Small - Open"]
+1. Bb2+ / Nxb2
+2. N>>xd3 / (1T1)Bc3+
+3. Bb2
+)");
+    auto root = Policy::node_t::make_root(position);
+    observer obs;
+    bool searched_reply = false;
+    for(int iteration = 0; iteration < 500; ++iteration)
+    {
+        auto *node = policy.select(root.get(), {}, obs);
+        auto *ceiling = policy.complete_to_ceiling(node, {}, obs);
+        assert(ceiling && ceiling->is_ceiling());
+        std::size_t action_depth = 0;
+        for(auto *ancestor = ceiling; ancestor; ancestor = ancestor->get_parent())
+            action_depth += ancestor->is_ceiling();
+        searched_reply |= action_depth > 1;
+        auto reward = zero_default_policy{}.evaluate(
+            detail::state_at_ceiling(*ceiling), {}, obs);
+        assert(reward);
+        sum_backpropagation{}.backpropagate(ceiling, *reward, obs);
+    }
+    // Previously duplicate-coordinate siblings trapped admission, so the
+    // engine kept evaluating first-turn leaves instead of searching replies.
+    assert(searched_reply);
+    auto check_children = [&](auto &&self, auto *node) -> void {
+        std::set<index_t> coordinates;
+        for(auto *child : node->get_children())
+        {
+            assert(coordinates.insert(child->get_i()).second);
+            assert(node->get_child(child->get_i()) == child);
+            self(self, child);
+        }
+    };
+    check_children(check_children, root.get());
+}
+
+void test_search_progress()
+{
+    for(unsigned seed : {7u, 42u})
+    {
+        check_search_progress(uct_tree_policy<natural_HC_ordering>{seed});
+        check_search_progress(
+            progressive_widening_tree_policy<natural_HC_ordering>{seed});
+        check_search_progress(progressive_widening_tree_policy<scored_HC_ordering>{
+            seed, default_progressive_widening_constant,
+            default_progressive_widening_alpha, capture_check_weights_table});
+    }
+}
+
 struct stopping_action_selection
 {
     std::stop_source *source;
@@ -564,6 +619,7 @@ int run()
     test_capture_check_progressive_widening();
     test_score_table_and_generic_policies();
     test_multiple_semimoves();
+    test_search_progress();
     test_interrupted_action_selection();
     test_engine<mcts_engine>();
     test_engine<mcts_weighted_engine>();

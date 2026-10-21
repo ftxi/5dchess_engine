@@ -401,7 +401,8 @@ class RatioContracts(ContractCase):
                 self.assertIn("Iteration-ratio summary", result.stdout)
                 self.assertLess(result.stdout.index("Output guide:"), result.stdout.index("Calibration CPU"))
                 self.assertIn("wins-draws-losses", result.stdout)
-                self.assertIn("target/baseline IPS", result.stdout)
+                self.assertIn("ips-ratio", result.stdout)
+                self.assertIn("Pairs used:", result.stdout)
                 self.assertIn("Baseline:", result.stdout)
                 self.assertIn("Most aggressive established ratio: none", result.stdout)
                 output = self.work / "ratio-output"
@@ -469,8 +470,8 @@ class RatioContracts(ContractCase):
         self.assertEqual(len(games), 2)
         self.assertEqual({row["outcome"] for row in games}, {"loss"})
         self.assertTrue(all("target illegal action" in row["reason"] for row in games))
-        self.assertIn("games 0-0-2", result.stdout)
-        self.assertIn("mean score=0", result.stdout)
+        self.assertIn("Target: 0 wins, 0 draws, 2 losses", result.stdout)
+        self.assertIn("Mean pair score: 0.0%", result.stdout)
 
 
 class BindingContracts(ContractCase):

@@ -71,6 +71,7 @@ template<typename T>
     requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::add_child(index_t n, index_t i)
 {
+    assert(!get_child(i) && "fine-tree siblings must have unique coordinates");
     auto ctx = get_context();
     ctx->node_pool.emplace_back(this, n, i);
     fine_node<T> *child = &ctx->node_pool.back();
@@ -396,9 +397,11 @@ inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *targe
                 // next axis does not contain the coordinate of p: done
                 return;
             }
-            assert(nodes[next_n] != nullptr);
+            // nodes[k] is the prefix before choosing axis k. The region
+            // with that coordinate fixed belongs to its child, nodes[k+1].
+            assert(nodes[next_n+1] != nullptr);
             auto [with_i, without_i] = current_hc->split(next_n, next_i);
-            fine_cell<T> *next_cell = nodes[next_n]->add_unexplored_cell(current_cell, std::move(with_i));
+            fine_cell<T> *next_cell = nodes[next_n+1]->add_unexplored_cell(current_cell, std::move(with_i));
             *current_hc = std::move(without_i);
             current_cell = next_cell;
             current_hc = &current_cell->subspace.back();

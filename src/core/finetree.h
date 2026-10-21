@@ -120,6 +120,8 @@ public:
     void set_info(const T &new_info) & { info = new_info; }
     void set_info(T &&new_info) & { info = std::move(new_info); }
     bool get_player() const noexcept;
+    // Sibling coordinates are unique; normalization retains all continuations
+    // of a coordinate beneath the same child.
     fine_node<T> *get_child(index_t i) & noexcept;
     const fine_node<T> *get_child(index_t i) const & noexcept;
     const fine_node<T> *get_child(index_t i) const && = delete;

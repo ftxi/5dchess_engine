@@ -32,6 +32,8 @@ setback, retained evidence, superiority mode, budget exhaustion, the shared
 noninferiority boundary, continuous worker refill, ordered pair commitment,
 and cleanup on cancellation or a formal stop. Its scheduling checks control
 completion with events rather than timing-dependent performance assertions.
+Output checks cover the compact format, five-second throttling, combined pair
+updates, buffered counts, immediate decisions, and fixed-look p values.
 
 `test_public_api.py` checks these files through their public interfaces:
 

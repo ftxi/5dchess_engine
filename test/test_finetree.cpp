@@ -4,6 +4,7 @@
 #include <cassert>
 #include <type_traits>
 #include <utility>
+#include <set>
 #include "state.h"
 #include "pgnparser.h"
 #include "finetree.h"
@@ -54,9 +55,65 @@ fine_node<> *goto_next_nodal(fine_node<> *node)
     return node;
 }
 
+template<HCOrdering Order>
+void collect_tree_actions(test_node *node, const Order &order,
+                          std::set<moveseq> &actions)
+{
+    // Expansion may materialize whole branches at once. Every yielded
+    // coordinate must still identify exactly one child of this prefix.
+    std::set<index_t> coordinates;
+    for(index_t coordinate : node->search(order))
+    {
+        assert(coordinates.insert(coordinate).second);
+        assert(node->get_child(coordinate));
+    }
+    coordinates.clear();
+    for(auto *child : node->get_children())
+    {
+        assert(coordinates.insert(child->get_i()).second);
+        assert(node->get_child(child->get_i()) == child);
+        if(child->is_ceiling())
+        {
+            auto moves = child->to_action();
+            assert(node->get_hc_info().get_state().can_apply(
+                action::from_moveseq(moves, node->get_hc_info().get_state())));
+            assert(actions.insert(std::move(moves)).second);
+        }
+        else
+        {
+            collect_tree_actions(child, order, actions);
+        }
+    }
+}
+
+void test_normalization_preserves_actions(const state &position)
+{
+    auto [info, space] = HC_info::build_HC(position);
+    std::set<moveseq> expected;
+    for(auto moves : info.search(std::move(space)))
+        expected.insert(std::move(moves));
+    assert(!expected.empty());
+
+    auto check = [&](const auto &order) {
+        auto root = test_node::make_root(position);
+        std::set<moveseq> actual;
+        collect_tree_actions(root.get(), order, actual);
+        // Unique prefixes must preserve every continuation, not just remove
+        // duplicate coordinates by discarding their search regions.
+        assert(actual == expected);
+    };
+    check(natural_HC_ordering{});
+    for(unsigned seed : {7u, 42u})
+    {
+        std::mt19937 rng(seed);
+        check(random_HC_ordering(info.get_universe(), rng));
+    }
+}
+
 int main()
 {
     state s = state::from_pgn<true>(str);
+    test_normalization_preserves_actions(s);
 
     // A terminal check retains a witness branch and reuses it on later checks.
     auto checked_root = fine_node<>::make_root(s);
