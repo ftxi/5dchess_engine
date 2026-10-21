@@ -104,17 +104,35 @@ noninferiority.
 
 ## Evidence and live output
 
-A header before calibration explains every live-output field:
+A header before calibration explains every live-output field. Routine progress
+uses one compact line per changed ratio, at most every five seconds:
+
+```text
+[m=1] games=102 pairs=51 buffered=0 score=50.5% ips-ratio=1.013 | noninferior-E current=6.364 peak=8.798/240 (committed +24 pairs)
+```
 
 | Field | Meaning |
 | --- | --- |
 | `m` | Target/baseline-meter iteration budget ratio |
-| `games N; target W-D-L` | Finished game count and target wins, draws, losses |
-| `pairs W-T-L` | Committed pairs with score above, equal to, or below 0.5 |
-| `mean score` | Average normalized score over valid committed pairs |
-| `target/baseline IPS` | Aggregate iterations-per-second ratio, including meter searches |
-| `current E superior/acceptable/unacceptable` | Current evidence for each strength claim |
-| `anytime p` | `min(1, 1 / historical maximum E)` for the corresponding claim |
+| `games` | Finished individual games at this ratio |
+| `pairs` | Valid complete pairs incorporated into the evidence |
+| `buffered` | Completed pairs waiting for an earlier pair to finish; excludes running pairs |
+| `score` | Average normalized score over valid committed pairs, as a percentage |
+| `ips-ratio` | Aggregate target/baseline iterations-per-second ratio across the run, including calibration and meter searches |
+| `noninferior-E current` | Current evidence for noninferiority |
+| `peak=X/Y` | Historical maximum noninferiority E / required certification threshold |
+| `committed +N pairs` | Valid pairs incorporated since the last report for this ratio |
+
+Completed pairs still enter the evidence individually in pair-number order.
+When several buffered pairs become available together, their progress updates
+are combined. Nonzero void-game and void-pair counts are appended to the compact
+line.
+
+Allocation changes, formal decisions, and the final summary print detailed
+blocks immediately. These include game wins/draws/losses, pair wins/ties/losses
+(scores above/equal to/below 0.5), void counts, and current E for superiority,
+noninferiority, and unacceptability. Each claim's anytime p is
+`min(1, 1 / historical maximum E)`.
 
 The default noninferiority margin is 0.10. Acceptable evidence tests mean pair
 score above 0.40; unacceptable evidence tests below 0.40. Superiority tests
@@ -138,6 +156,8 @@ inconclusive at the pair limit.
 at `--look-pairs` checkpoints. This legacy mode retains its original
 inferiority definition (below 0.50), and spends each claim's allocated alpha
 across the declared looks. It cannot be combined with adaptive scheduling.
+Its compact lines show `noninferior-p` and the required threshold at the last
+look instead of E values; each fixed look also prints a detailed block.
 
 The summary reports each ratio's status, the lowest directly certified ratio,
 and the next lower ratio's status. `games.csv`, per-game PGNs, and

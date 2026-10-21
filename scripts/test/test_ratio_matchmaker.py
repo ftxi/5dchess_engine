@@ -133,6 +133,101 @@ class EvidenceTests(unittest.TestCase):
                 matcher.parse_float_list(text)
 
 
+class ProgressOutputTests(unittest.TestCase):
+    def reporter(self, state, **overrides):
+        args = settings(**overrides)
+        experiment = matcher.Experiment(args, None, [], Path("unused"))
+        experiment.throughput = matcher.Throughput(
+            target_iterations=1013, target_seconds=1,
+            baseline_iterations=1000, baseline_seconds=1,
+        )
+        with patch.object(matcher.time, "monotonic", return_value=0):
+            reporter = matcher.ProgressReporter(experiment, [state])
+        return experiment, reporter
+
+    def test_exact_agreed_format_coalesces_the_example_catchup(self):
+        result = matcher.RatioResult(1, game_wins=48, game_draws=7, game_losses=47,
+                                     pair_wins=3, pair_ties=22, pair_losses=2)
+        state = matcher.RatioState(result)
+        state.completed = {pair: outcomes("draw") for pair in range(28, 52)}
+        _, reporter = self.reporter(state)
+        result.pair_wins, result.pair_ties, result.pair_losses = 9, 34, 8
+        result.pair_score_sum = 25.75
+        result.noninferiority_log_e = math.log(6.364)
+        result.noninferiority_max_log_e = math.log(8.798)
+        state.completed.clear()
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            reporter.flush(now=5)
+        self.assertEqual(output.getvalue(),
+            "[m=1] games=102 pairs=51 buffered=0 score=50.5% ips-ratio=1.013 "
+            "| noninferior-E current=6.364 peak=8.798/240 (committed +24 pairs)\n")
+
+    def test_routine_updates_are_throttled_without_losing_pair_deltas(self):
+        state = matcher.RatioState(matcher.RatioResult(1))
+        experiment, reporter = self.reporter(state)
+        state.result.add_game("draw")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            reporter.flush(now=4.99)
+            self.assertEqual(output.getvalue(), "")
+            reporter.flush(now=5)
+            state.result.add_game("draw")
+            state.completed[1] = outcomes("draw")
+            state.commit(experiment, reporter)
+            reporter.flush(now=9.99)
+            self.assertEqual(len(output.getvalue().splitlines()), 1)
+            reporter.flush(now=10)
+            reporter.flush(now=15)  # No new data: no duplicate report.
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("games=1 pairs=0", lines[0])
+        self.assertIn("games=2 pairs=1", lines[1])
+        self.assertIn("(committed +1 pairs)", lines[1])
+
+    def test_buffered_pairs_are_counted_and_drained_in_one_report(self):
+        state = matcher.RatioState(matcher.RatioResult(1, game_draws=2))
+        experiment, reporter = self.reporter(state)
+        state.completed[2] = outcomes("draw")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            reporter.flush(now=5)
+            state.result.game_draws = 4
+            state.completed[1] = outcomes("draw")
+            state.commit(experiment, reporter)
+            reporter.flush(now=10)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("pairs=0 buffered=1", lines[0])
+        self.assertIn("pairs=2 buffered=0", lines[1])
+        self.assertIn("(committed +2 pairs)", lines[1])
+
+    def test_decisions_print_detail_immediately_with_peak_evidence(self):
+        state = matcher.RatioState(matcher.RatioResult(1))
+        experiment, reporter = self.reporter(state, test_alpha=.9)
+        state.completed[1] = outcomes("win")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            state.commit(experiment, reporter)
+        self.assertIn("decision: better", output.getvalue())
+        self.assertIn("Noninferiority: established", output.getvalue())
+        self.assertIn("Peak E:", output.getvalue())
+        self.assertIn("Anytime p", output.getvalue())
+
+    def test_fixed_looks_report_p_values_without_fabricating_evidence(self):
+        state = matcher.RatioState(matcher.RatioResult(1))
+        experiment, reporter = self.reporter(state, stat_method="fixed-looks", look_pairs=[1])
+        state.completed[1] = outcomes("draw")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            state.commit(experiment, reporter)
+        self.assertIn("Fixed look", output.getvalue())
+        self.assertIn("p at last look", output.getvalue())
+        self.assertIn("noninferior-p", reporter.compact(state))
+        self.assertNotIn("Current E", output.getvalue())
+        self.assertNotIn("noninferior-E", reporter.compact(state))
+
+
 class CPUAllocationTests(unittest.TestCase):
     def test_default_and_explicit_controller_pool_leave_distinct_engine_cpus(self):
         parser = matcher.build_parser()
@@ -172,7 +267,8 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
             await release_third.wait()
             return outcomes("draw")
 
-        with patch.object(matcher, "play_pair", play_pair), contextlib.redirect_stdout(io.StringIO()):
+        output = io.StringIO()
+        with patch.object(matcher, "play_pair", play_pair), contextlib.redirect_stdout(output):
             task = asyncio.create_task(matcher.run_matches(experiment))
             try:
                 await asyncio.wait_for(third_started.wait(), 3)
@@ -186,11 +282,21 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.gather(task, return_exceptions=True)
         self.assertEqual(experiment.results[0].pair_scores, [1, 0, .5])
         self.assertEqual(len(assignments), 3)
+        self.assertEqual(output.getvalue().count("Ratio allocation changed"), 1)
+        self.assertNotIn("games=", output.getvalue())
 
     async def test_cancellation_waits_for_all_worker_cleanup(self):
         experiment = self.experiment()
         started, cleaned = set(), set()
         both_started = asyncio.Event()
+        reporter_cleaned = asyncio.Event()
+
+        async def report_progress(reporter):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                reporter_cleaned.set()
 
         async def play_pair(exp, result, pair, cpu):
             started.add(pair)
@@ -202,13 +308,16 @@ class SchedulerTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
                 cleaned.add(pair)
 
-        with patch.object(matcher, "play_pair", play_pair), contextlib.redirect_stdout(io.StringIO()):
+        with (patch.object(matcher, "play_pair", play_pair),
+              patch.object(matcher.ProgressReporter, "run", report_progress),
+              contextlib.redirect_stdout(io.StringIO())):
             task = asyncio.create_task(matcher.run_matches(experiment))
             await asyncio.wait_for(both_started.wait(), 3)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
         self.assertEqual(cleaned, started)
+        self.assertTrue(reporter_cleaned.is_set())
         self.assertEqual(experiment.results[0].valid_pairs, 0)
 
     async def test_formal_stop_cancels_unfinished_suffix(self):

@@ -28,6 +28,7 @@ import os
 from pathlib import Path
 import statistics
 import sys
+import time
 from typing import Iterable
 
 import autoplay
@@ -191,6 +192,7 @@ class Experiment:
     cpu_throughput: dict[int | None, Throughput] = field(default_factory=dict)
     results: list[RatioResult] = field(default_factory=list)
     interrupted: bool = False
+    progress: ProgressReporter | None = field(default=None, repr=False)
     engine_seeds: common.EngineSeeds = field(default_factory=common.EngineSeeds)
 
     def engine(self, role: str, command: str, cpu: int | None, **context) -> autoplay.EngineProcess:
@@ -492,32 +494,102 @@ def format_evidence(log_e: float) -> str:
     return f"{math.exp(log_e):.4g}"
 
 
-def print_live(
-    result: RatioResult,
-    throughput: Throughput,
-    statistical_method: str,
-    pair_complete: bool = False,
-) -> None:
-    line = (
-        f"[m={result.ratio:g}] games {result.completed_games}: "
-        f"target {result.game_wins}-{result.game_draws}-{result.game_losses} "
-        f"(void {result.void_games}); pairs "
-        f"{result.pair_wins}-{result.pair_ties}-{result.pair_losses} "
-        f"(void {result.void_pairs}, mean score "
-        f"{format_ratio(result.mean_pair_score)}); target/baseline IPS "
-        f"{format_ratio(throughput.aggregate_ratio)}"
-    )
-    if statistical_method == "anytime" and pair_complete and result.valid_pairs:
-        line += (
-            "; current E superior/acceptable/unacceptable "
-            f"{format_evidence(result.superiority_log_e)}/"
-            f"{format_evidence(result.noninferiority_log_e)}/"
-            f"{format_evidence(result.inferiority_log_e)}; anytime p "
-            f"{format_probability(result.superiority_p)}/"
-            f"{format_probability(result.noninferiority_p)}/"
-            f"{format_probability(result.inferiority_p)}"
+PROGRESS_INTERVAL_SECONDS = 5.0
+
+
+def format_score(value: float | None) -> str:
+    return "n/a" if value is None else f"{100 * value:.1f}%"
+
+
+class ProgressReporter:
+    """Coalesce routine updates; important events bypass the progress timer."""
+
+    def __init__(self, experiment: Experiment, states: list[RatioState]):
+        self.experiment = experiment
+        self.states = states
+        self.last_report = time.monotonic()
+        self.previous_pairs = {state.result.ratio: state.result.valid_pairs for state in states}
+        self.snapshots = {state.result.ratio: self.snapshot(state) for state in states}
+
+    @staticmethod
+    def snapshot(state: RatioState) -> tuple:
+        result = state.result
+        return (result.game_wins, result.game_draws, result.game_losses, result.void_games,
+                result.pair_wins, result.pair_ties, result.pair_losses, result.void_pairs,
+                len(state.completed), result.decision)
+
+    def remember(self, state: RatioState) -> None:
+        self.previous_pairs[state.result.ratio] = state.result.valid_pairs
+        self.snapshots[state.result.ratio] = self.snapshot(state)
+
+    def compact(self, state: RatioState) -> str:
+        args = self.experiment.args
+        result = state.result
+        committed = result.valid_pairs - self.previous_pairs[result.ratio]
+        line = (
+            f"[m={result.ratio:g}] games={result.completed_games} pairs={result.valid_pairs} "
+            f"buffered={len(state.completed)} score={format_score(result.mean_pair_score)} "
+            f"ips-ratio={format_ratio(self.experiment.throughput.aggregate_ratio)}"
         )
-    print(line, flush=True)
+        if result.void_games or result.void_pairs:
+            line += f" void-games={result.void_games} void-pairs={result.void_pairs}"
+        if args.stat_method == "anytime":
+            line += (
+                f" | noninferior-E current={format_evidence(result.noninferiority_log_e)} "
+                f"peak={format_evidence(result.noninferiority_max_log_e)}/{1 / args.test_alpha:g}"
+            )
+        else:
+            line += (f" | noninferior-p current={format_probability(result.noninferiority_p)} "
+                     f"required<={format_probability(state.look_alpha)}")
+        return line + f" (committed +{committed} pairs)"
+
+    def flush(self, *, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        if now - self.last_report < PROGRESS_INTERVAL_SECONDS:
+            return
+        self.last_report = now
+        for state in self.states:
+            if self.snapshot(state) != self.snapshots[state.result.ratio]:
+                print(self.compact(state), flush=True)
+                self.remember(state)
+
+    async def run(self) -> None:
+        while True:
+            await asyncio.sleep(PROGRESS_INTERVAL_SECONDS)
+            self.flush()
+
+    def detail(self, state: RatioState, reason: str) -> None:
+        args = self.experiment.args
+        result = state.result
+        print(f"\n[m={result.ratio:g}] {reason}")
+        print(f"  Finished games: {result.completed_games}   Target: "
+              f"{result.game_wins} wins, {result.game_draws} draws, {result.game_losses} losses")
+        print(f"  Pairs used:     {result.valid_pairs}   Target: "
+              f"{result.pair_wins} wins, {result.pair_ties} ties, {result.pair_losses} losses")
+        print(f"  Buffered pairs: {len(state.completed)}   "
+              f"Void games/pairs: {result.void_games}/{result.void_pairs}")
+        print(f"  Mean pair score: {format_score(result.mean_pair_score)}")
+        print(f"  Aggregate ips-ratio: {format_ratio(self.experiment.throughput.aggregate_ratio)}")
+        negative = "Unacceptable" if args.stat_method == "anytime" else "Inferior"
+        print(f"                     Superior   Noninferior   {negative}")
+        if args.stat_method == "anytime":
+            print("  Current E      " + " ".join(f"{format_evidence(value):>12}" for value in (
+                result.superiority_log_e, result.noninferiority_log_e, result.inferiority_log_e,
+            )))
+        label = "Anytime p" if args.stat_method == "anytime" else "p at last look"
+        print(f"  {label:<15}" + " ".join(f"{format_probability(value):>12}" for value in (
+            result.superiority_p, result.noninferiority_p, result.inferiority_p,
+        )))
+        status = ("established" if result.decision in ("noninferior", "better")
+                  else negative.lower() if result.decision == "inferior"
+                  else "pending" if result.decision == "running" else result.decision)
+        print(f"  Noninferiority: {status}")
+        if args.stat_method == "anytime":
+            print(f"  Peak E: {format_evidence(result.noninferiority_max_log_e)} "
+                  f"/ required {1 / args.test_alpha:g}", flush=True)
+        else:
+            print(f"  Required p at last look: {format_probability(state.look_alpha)}", flush=True)
+        self.remember(state)
 
 
 async def start_engines(players: Iterable[autoplay.EngineProcess]) -> None:
@@ -780,7 +852,6 @@ async def play_pair(
         experiment.record_game(
             result.ratio, pair_number, game_number, target_white, game, cpu
         )
-        print_live(result, experiment.throughput, args.stat_method)
         return game
 
     # A slot owns one CPU. Run both colors on it, with only one search active
@@ -796,6 +867,7 @@ class RatioState:
     active: int = 0
     completed: dict[int, list[GameResult]] = field(default_factory=dict)
     next_look: int = 0
+    look_alpha: float | None = None
 
     def passed(self, args: argparse.Namespace) -> bool:
         return self.result.decision == "better" or (
@@ -809,7 +881,7 @@ class RatioState:
     def exhausted(self, args: argparse.Namespace) -> bool:
         return not self.can_launch(args) and self.active == 0
 
-    def commit(self, experiment: Experiment) -> None:
+    def commit(self, experiment: Experiment, reporter: ProgressReporter | None = None) -> None:
         args = experiment.args
         result = self.result
         while self.next_commit in self.completed:
@@ -817,6 +889,7 @@ class RatioState:
             self.next_commit += 1
             result.add_pair(games)
             previous = result.decision
+            event = None
             if args.stat_method == "anytime":
                 decision = evaluate_anytime_ratio(
                     result, args.test_alpha, args.noninferiority_margin,
@@ -834,15 +907,17 @@ class RatioState:
                 looks = args.look_pairs
                 if self.next_look < len(looks) and result.valid_pairs >= looks[self.next_look]:
                     alpha = args.test_alpha * looks[self.next_look] / sum(looks)
+                    self.look_alpha = alpha
                     decision = evaluate_ratio(result, alpha, args.noninferiority_margin)
                     self.next_look += 1
                     if decision is not None and (previous != "better" or decision == "better"):
                         result.decision = decision
-                    print(f"Fixed look: m={result.ratio:g}, pairs={result.valid_pairs}, "
-                          f"per-claim alpha={alpha:.4g}", flush=True)
-            print_live(result, experiment.throughput, args.stat_method, pair_complete=True)
+                    event = (f"Fixed look: pairs={result.valid_pairs}, "
+                             f"per-claim alpha={alpha:.4g}")
             if result.decision != previous:
-                print(f"m={result.ratio:g} decision: {result.decision}", flush=True)
+                event = f"{event}; decision: {result.decision}" if event else f"decision: {result.decision}"
+            if event and reporter is not None:
+                reporter.detail(self, event)
 
 
 class SequentialPolicy:
@@ -964,6 +1039,10 @@ async def run_matches(experiment: Experiment) -> None:
     states = [RatioState(RatioResult(ratio, decision="not tested")) for ratio in args.ratios]
     experiment.results.extend(state.result for state in states)
     policy = (AdaptivePolicy if args.schedule == "adaptive" else SequentialPolicy)(states, args)
+    reporter = ProgressReporter(experiment, states)
+    experiment.progress = reporter
+    progress_task = asyncio.create_task(reporter.run())
+    selection = None
     free_slots = list(range(args.jobs))
     active: dict[asyncio.Task, tuple[int, int, int]] = {}
     try:
@@ -972,6 +1051,15 @@ async def run_matches(experiment: Experiment) -> None:
             # cannot choose which scores enter a ratio's evidence first.
             while free_slots:
                 index = policy.choose()
+                selected = (policy.bracket if isinstance(policy, AdaptivePolicy) and policy.bracket
+                            else (policy.focus,) if policy.focus < len(states) else ())
+                if selected != selection and not policy.finished:
+                    for selected_index in selected:
+                        selected_state = states[selected_index]
+                        if selected_state.result.decision == "not tested":
+                            selected_state.result.decision = "running"
+                        reporter.detail(selected_state, "Ratio allocation changed")
+                    selection = selected
                 if index is None:
                     break
                 slot = free_slots.pop(0)
@@ -979,9 +1067,6 @@ async def run_matches(experiment: Experiment) -> None:
                 pair = state.next_pair
                 state.next_pair += 1
                 state.active += 1
-                if state.result.decision == "not tested":
-                    state.result.decision = "running"
-                    print(f"Starting m={state.result.ratio:g}", flush=True)
                 task = asyncio.create_task(play_pair(
                     experiment, state.result, pair, args.worker_cores[slot],
                 ))
@@ -997,8 +1082,10 @@ async def run_matches(experiment: Experiment) -> None:
                 state.active -= 1
                 free_slots.append(slot)
                 state.completed[pair] = task.result()
-                state.commit(experiment)
+                state.commit(experiment, reporter)
     finally:
+        progress_task.cancel()
+        await asyncio.gather(progress_task, return_exceptions=True)
         for task in active:
             task.cancel()
         await asyncio.gather(*active, return_exceptions=True)
@@ -1012,32 +1099,18 @@ async def run_matches(experiment: Experiment) -> None:
 
 def print_final_summary(experiment: Experiment) -> None:
     print("\n=== Iteration-ratio summary ===")
-    for result in experiment.results:
+    reporter = experiment.progress or ProgressReporter(
+        experiment, [RatioState(result) for result in experiment.results],
+    )
+    for state in reporter.states:
+        result = state.result
         if result.valid_pairs and experiment.args.stat_method == "anytime":
-            update_anytime_evidence(
-                result,
-                experiment.args.noninferiority_margin,
-                experiment.args.superiority_target,
-            )
-        p_name = "anytime p" if experiment.args.stat_method == "anytime" else "p"
-        line = (
-            f"m={result.ratio:g}: {result.decision}; games "
-            f"{result.game_wins}-{result.game_draws}-{result.game_losses} "
-            f"(void {result.void_games}); pairs "
-            f"{result.pair_wins}-{result.pair_ties}-{result.pair_losses}, "
-            f"mean score={format_ratio(result.mean_pair_score)}; "
-            f"{p_name}(superior)={format_probability(result.superiority_p)}, "
-            f"{p_name}(noninferior)={format_probability(result.noninferiority_p)}, "
-            f"{p_name}(inferior)={format_probability(result.inferiority_p)}"
-        )
-        if experiment.args.stat_method == "anytime" and result.valid_pairs:
-            line += (
-                "; max e(superior/noninferior/inferior)="
-                f"{format_evidence(result.superiority_max_log_e)}/"
-                f"{format_evidence(result.noninferiority_max_log_e)}/"
-                f"{format_evidence(result.inferiority_max_log_e)}"
-            )
-        print(line)
+            update_anytime_evidence(result, experiment.args.noninferiority_margin,
+                                   experiment.args.superiority_target)
+        if result.decision == "not tested":
+            print(f"[m={result.ratio:g}] not tested")
+        else:
+            reporter.detail(state, f"Final: {result.decision}")
     established = [
         result.ratio
         for result in experiment.results
@@ -1054,9 +1127,9 @@ def print_final_summary(experiment: Experiment) -> None:
     print(
         f"Actual aggregate target IPS: {experiment.throughput.target_ips:.1f}\n"
         f"Actual aggregate baseline IPS:   {experiment.throughput.baseline_ips:.1f}\n"
-        f"Actual target/baseline IPS ratio: "
+        f"Aggregate ips-ratio: "
         f"{format_ratio(experiment.throughput.aggregate_ratio)}\n"
-        f"Paired geometric IPS ratio:   "
+        f"Paired geometric ips-ratio:   "
         f"{format_ratio(experiment.throughput.paired_geometric_ratio)}"
     )
     if experiment.interrupted:
@@ -1071,20 +1144,26 @@ def print_header(args: argparse.Namespace) -> None:
         "Output guide:\n"
         "  m = target iterations / baseline-meter iterations on the same position; "
         "rounded up to 10 iterations.\n"
-        "  games N: finished games; target W-D-L = wins-draws-losses.\n"
-        "  pairs W-T-L: committed color-reversed pairs above/equal/below score 0.5.\n"
-        "  mean score = target points / 2 per pair (win=1, draw=0.5, loss=0); "
+        "  games = finished games at this ratio; pairs = valid complete pairs used for evidence.\n"
+        "  buffered = completed pairs waiting for an earlier pair; running pairs are excluded.\n"
+        "  score = mean normalized pair score as a percentage (win=1, draw=0.5, loss=0); "
         "void pairs are excluded.\n"
-        "  IPS = iterations per second; target/baseline IPS is aggregate throughput, "
-        "not the iteration budget ratio.\n"
-        "  Game counts may lead pair counts while earlier pairs are still running.",
+        "  ips-ratio = aggregate target/baseline iterations per second across this run, "
+        "including calibration and meter searches.\n"
+        "  (committed +N pairs) = valid pairs incorporated since the last report for this ratio.\n"
+        "  Changed ratios get a compact progress line at most every 5 seconds. "
+        "Allocation changes, decisions, and the final summary get immediate detailed blocks.\n"
+        "  Detailed blocks show target wins-draws-losses and pair wins-ties-losses; "
+        "a pair tie has score 0.5.",
         flush=True,
     )
     if args.stat_method == "anytime":
         boundary = 0.5 - args.noninferiority_margin
         print(
-            f"  Current E superior/acceptable/unacceptable: evidence for mean score "
+            f"  Detailed E superior/noninferior/unacceptable: evidence for mean score "
             f"> 0.5 / > {boundary:g} / < {boundary:g}.\n"
+            "  noninferior-E current = current noninferiority evidence; peak = historical "
+            "maximum / required certification threshold.\n"
             "  E starts at 1; larger favors that claim. Anytime p = min(1, 1 / max E); "
             "it is not the probability the claim is false.\n"
             f"  Formal threshold: max E >= {1 / args.test_alpha:g}; run-wide alpha "
@@ -1093,7 +1172,8 @@ def print_header(args: argparse.Namespace) -> None:
         )
     else:
         print("  Legacy fixed looks: inferiority means below score 0.5; "
-              "per-claim alpha is spent only at the declared pair counts.", flush=True)
+              "per-claim alpha is spent only at the declared pair counts. "
+              "noninferior-p shows p at the last look and its required threshold.", flush=True)
     placement = ("on the same CPU" if args.worker_cores[0] is not None
                  else "without CPU affinity")
     print(f"Schedule: {args.schedule}; up to {args.jobs} concurrent games; "
