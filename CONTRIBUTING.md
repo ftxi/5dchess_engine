@@ -40,6 +40,9 @@ int very_long_function_name<with_template>(
 
 ## Testing
 
+For engine-strength experiments, use the [canonical workflow](docs/engine/testing.md)
+with its frozen reference and balanced position subsets.
+
 Build the affected targets and run the relevant tests.
 
 When changing code in `src/core/`, `src/misc/`, or `tools/`, check whether the change affects tool behavior or tools-related tests. If it does, enable both `TOOLS` and `TEST` so that tools-related tests are included. For other changes, build and test the affected components.

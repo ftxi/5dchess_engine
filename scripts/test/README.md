@@ -10,6 +10,15 @@ From `scripts/`, use `python -m unittest discover -s test -v`.
 
 ## Tested files
 
+`test_canonical_workflow.py` verifies the frozen 64-position suite, nested
+side balances, changed-file rejection, and source identities. With the
+`engine-testing` CMake preset built, it also checks native snapshot loading,
+eight short real-engine games on an extension subset, immutable run outputs,
+and rejection of a changed reference executable. A separate smoke test verifies
+a custom frozen MVV-LVA reference is preserved and used by the runner. Set
+`CANONICAL_BUILD_DIR` to use another compatible build. The real-engine checks
+skip when that build is absent; the manifest checks still run.
+
 `test_uci2pgn.py` checks the converter CLI with adjacent and separated FEN
 blocks, signed timeline labels, a complete two-timeline history, even-timeline
 jumps and promotions, odd timelines, and invalid text between FEN blocks.

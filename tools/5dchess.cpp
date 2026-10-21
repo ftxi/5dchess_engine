@@ -39,6 +39,12 @@ bool supports_rollout_limit(std::string_view name)
         || name == "flat-ucb" || is_weighted_engine(name);
 }
 
+bool supports_progressive_widening(std::string_view name)
+{
+    return name == "zero-capture-check-pw" || name == "mvvlva"
+        || name == "mvvlva-exposure";
+}
+
 void print_usage(std::ostream &out)
 {
     out << "Usage: 5dchess <engine> [options]\n"
@@ -48,6 +54,8 @@ void print_usage(std::ostream &out)
         << "  zero               MCTS with no rollout and zero cutoff evaluation\n"
         << "  zero-capture       zero with capture-biased tree expansion\n"
         << "  zero-capture-check-pw  capture/check ordering with progressive widening\n"
+        << "  mvvlva             MVV-LVA/check ordering with progressive widening\n"
+        << "  mvvlva-exposure    MVV-LVA with local capture-exposure penalties\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
         << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
@@ -63,7 +71,7 @@ void print_usage(std::ostream &out)
         << "  --pw-constant <n>               widening constant for capture/check PW"
            " (default 2)\n"
         << "  --pw-alpha <n>                  widening exponent in (0, 1] for"
-           " *-pw engines (default 0.5)\n"
+           " progressive widening engines (default 0.5)\n"
         << "  -h, --help                      display this help text and exit\n";
 }
 
@@ -142,7 +150,7 @@ command_line_options parse_options(
         }
         else if(option == "--pw-constant")
         {
-            if(engine_name != "zero-capture-check-pw" || pw_constant_seen
+            if(!supports_progressive_widening(engine_name) || pw_constant_seen
                || ++i >= argc)
             {
                 throw std::invalid_argument("invalid widening constant option");
@@ -153,7 +161,7 @@ command_line_options parse_options(
         }
         else if(option == "--pw-alpha")
         {
-            if(engine_name != "zero-capture-check-pw" || pw_alpha_seen
+            if(!supports_progressive_widening(engine_name) || pw_alpha_seen
                || ++i >= argc)
             {
                 throw std::invalid_argument("invalid widening alpha option");
@@ -191,6 +199,8 @@ int main(int argc, const char *argv[])
     if(engine_name != "mcts" && engine_name != "mcts-weighted"
        && engine_name != "zero" && engine_name != "zero-capture"
        && engine_name != "zero-capture-check-pw"
+       && engine_name != "mvvlva"
+       && engine_name != "mvvlva-exposure"
        && engine_name != "linear"
        && engine_name != "linear-trained" && engine_name != "linear-weighted"
        && engine_name != "flat-ucb" && engine_name != "flat-ucb-weighted"
@@ -239,6 +249,18 @@ int main(int argc, const char *argv[])
     else if(engine_name == "zero-capture-check-pw")
     {
         selected_engine = std::make_unique<zero_capture_check_pw_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.progressive_widening_constant, options.progressive_widening_alpha);
+    }
+    else if(engine_name == "mvvlva")
+    {
+        selected_engine = std::make_unique<mvvlva_engine>(
+            std::make_unique<stdio_handler>(), options.seed,
+            options.progressive_widening_constant, options.progressive_widening_alpha);
+    }
+    else if(engine_name == "mvvlva-exposure")
+    {
+        selected_engine = std::make_unique<mvvlva_exposure_engine>(
             std::make_unique<stdio_handler>(), options.seed,
             options.progressive_widening_constant, options.progressive_widening_alpha);
     }

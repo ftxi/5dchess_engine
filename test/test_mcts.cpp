@@ -574,6 +574,22 @@ int run()
         std::make_unique<sink_io>(), 42, 2.0, 0.5);
     progressive.set_position("startpos", "");
     assert(progressive.find_best_move(1, std::nullopt, {}));
+
+    static_assert(std::is_base_of_v<zero_capture_pw_mcts_engine, mvvlva_engine>);
+    mvvlva_engine mvvlva(std::make_unique<sink_io>(), 42, 2.0, 0.5);
+    mvvlva.set_position("startpos", "");
+    const auto best = mvvlva.find_best_move(1, std::nullopt, {});
+    assert(best && mvvlva.get_current_state()->can_apply(*best));
+    std::stop_source stopped;
+    stopped.request_stop();
+    assert(!mvvlva.find_best_move(1, std::nullopt, stopped.get_token()));
+
+    static_assert(std::is_base_of_v<zero_capture_pw_mcts_engine, mvvlva_exposure_engine>);
+    mvvlva_exposure_engine exposure(std::make_unique<sink_io>(), 42, 2.0, 0.5);
+    exposure.set_position("startpos", "");
+    const auto exposed_best = exposure.find_best_move(1, std::nullopt, {});
+    assert(exposed_best && exposure.get_current_state()->can_apply(*exposed_best));
+    assert(!exposure.find_best_move(1, std::nullopt, stopped.get_token()));
     return 0;
 }
 } /* namespace mcts_policies_tests */

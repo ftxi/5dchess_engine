@@ -4,13 +4,39 @@
 
 #include "hypercuboid.h"
 
+namespace
+{
+// Ordinal ranks follow the existing 5D capture values. Royals used as
+// attackers rank last; king victims remain check/legality concerns.
+int capture_rank(piece_t piece)
+{
+    switch(to_white(piece_name(piece)))
+    {
+        case PAWN_W: return 1;
+        case BRAWN_W: return 2;
+        case ROOK_W:
+        case COMMON_KING_W: return 3;
+        case BISHOP_W:
+        case KNIGHT_W: return 4;
+        case UNICORN_W:
+        case DRAGON_W: return 5;
+        case PRINCESS_W: return 6;
+        case QUEEN_W: return 7;
+        case KING_W:
+        case ROYAL_QUEEN_W: return 8;
+        default: return 0;
+    }
+}
+} /* anonymous namespace */
+
 move_evaluator::move_evaluator(const HC_info &info,
-                               move_evaluation_weights weights)
+                               move_evaluation_weights weights,
+                               capture_ordering captures)
     : info(info), weights(weights), features(info),
       evaluate_captures(std::any_of(
           weights.values.begin() + move_evaluation_weights::QUEEN_CAPTURE,
           weights.values.begin() + move_evaluation_weights::PAWN_CAPTURE + 1,
-          [](float weight) { return weight != 0.0f; }))
+          [](float weight) { return weight != 0.0f; })), captures(captures)
 {}
 
 float move_evaluator::score(index_t axis, index_t coordinate)
@@ -48,7 +74,41 @@ float move_evaluator::score(index_t axis, index_t coordinate)
        && static_cast<bool>(move_type & special_move_t::BRANCHING))
         result += w[KING_BRANCH];
 
-    if(evaluate_captures)
+    if(captures != capture_ordering::weighted)
+    {
+        const piece_t victim = to_white(piece_name(
+            move.captured_piece(info.get_state())));
+        // Keep zccpw's capture/check priority groups: captures score 480..583,
+        // checks add 300. A victim rank always outweighs attacker preference.
+        const int victim_rank = victim == ROYAL_QUEEN_W ? 7 : capture_rank(victim);
+        if(victim_rank > 0 && victim != KING_W)
+        {
+            float capture_score = 480.0f + 16 * (victim_rank - 1)
+                + (8 - capture_rank(move.moved_piece(info.get_state())));
+            if(captures == capture_ordering::mvvlva_exposure)
+            {
+                // The cached result contains the arriving (possibly promoted)
+                // piece and the changed occupancy, including en passant.
+                const auto &arrival = *boards->result;
+                const float loss = std::max(0.0f,
+                    capture_piece_value(arrival.get_piece(move.to.xy()))
+                    - capture_piece_value(victim));
+                if(loss > 0.0f)
+                {
+                    const bool player = info.get_state().get_present().c();
+                    const auto attackers = arrival.attacks_to(move.to.xy());
+                    const auto friendly = player ? arrival.black() : arrival.white();
+                    const auto hostile = player ? arrival.white() : arrival.black();
+                    // A geometric defender suppresses this conservative penalty;
+                    // it does not establish a legal or available recapture.
+                    if((attackers & hostile) && !(attackers & friendly))
+                        capture_score -= std::min(128.0f, loss / 10.0f);
+                }
+            }
+            result += capture_score;
+        }
+    }
+    else if(evaluate_captures)
     {
         switch(to_white(piece_name(move.captured_piece(info.get_state()))))
         {
@@ -79,6 +139,21 @@ float move_evaluator::score(index_t axis, index_t coordinate)
                 break;
             default:
                 break;
+        }
+    }
+
+    if(captures == capture_ordering::mvvlva_exposure)
+    {
+        const piece_t moved = to_white(piece_name(move.moved_piece(info.get_state())));
+        const piece_t arriving = to_white(piece_name(
+            boards->result->get_piece(move.to.xy())));
+        if((moved == PAWN_W || moved == BRAWN_W) && arriving != moved)
+        {
+            const float gain = std::max(0.0f,
+                capture_piece_value(arriving) - capture_piece_value(moved));
+            // A separate bound keeps checking quiet promotions below captures
+            // (<= 348 versus >= 352), and checking captures above all non-checks.
+            result += std::min(48.0f, gain / 10.0f);
         }
     }
 

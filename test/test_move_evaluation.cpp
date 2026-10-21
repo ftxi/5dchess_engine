@@ -144,6 +144,149 @@ void test_check_and_combined_scoring()
            .score(0, coordinate) == 1310.0f);
 }
 
+void test_mvvlva_capture_ordering()
+{
+    const auto score = [](char attacker, char victim, bool black = false,
+                          bool unmoved = false) {
+        const state before = state::from_pgn<true>(
+            "[Size \"8x8\"]\n[Board \"custom\"]\n"
+            "[7k/8/8/8/8/8/1" + std::string(1, victim) + "6/K"
+            + std::string(1, attacker) + (unmoved ? "*" : "")
+            + "6:0:1:" + (black ? "b" : "w") + "]\n");
+        auto [info, space] = HC_info::build_HC(before);
+        (void)space;
+        const auto coordinate = coordinate_for(info, full_move("(0T1)b1b2"));
+        // Check behavior is covered separately; isolate capture ordering here.
+        return move_evaluator(info, capture_weights, capture_ordering::mvvlva)
+            .score(0, coordinate);
+    };
+
+    // The cheapest attacker wins ties, but never outweighs the victim rank.
+    const char victims[] = {'p', 'w', 'r', 'b', 'u', 's', 'q'};
+    float previous_best = 0.0f;
+    for(char victim : victims)
+    {
+        const float rook = score('R', victim);
+        const float queen = score('Q', victim);
+        assert(rook > queen);
+        assert(queen > previous_best);
+        assert(rook >= 480.0f && rook < 780.0f);
+        previous_best = rook;
+    }
+    assert(score('R', 'r') == score('R', 'c'));
+    assert(score('R', 'b') == score('R', 'n'));
+    assert(score('R', 'u') == score('R', 'd'));
+    assert(score('R', 'q') == score('R', 'y'));
+    assert(score('R', 'p') == score('r', 'P', true));
+    assert(score('R', 'p') == score('R', 'p', false, true));
+
+    const state before = position("3k/4/1p2/1R1K");
+    auto [info, space] = HC_info::build_HC(before);
+    (void)space;
+    move_evaluator evaluator(info, capture_check_weights, capture_ordering::mvvlva);
+    assert(evaluator.score(0, coordinate_for(info, full_move("(0T1)b1c1"))) == 0.0f);
+    std::stop_source stopped;
+    stopped.request_stop();
+    assert(!evaluator.build_score_table(stopped.get_token()));
+}
+
+void test_local_capture_exposure()
+{
+    const auto verify = [](const state &before, const char *notation,
+                           float penalty, float promotion_bonus = 0.0f) {
+        auto [info, space] = HC_info::build_HC(before);
+        (void)space;
+        const full_move wanted(notation);
+        move_evaluator baseline(info, capture_weights, capture_ordering::mvvlva);
+        move_evaluator exposure(info, capture_weights, capture_ordering::mvvlva_exposure);
+        move_evaluator checking(info, capture_check_weights,
+                                capture_ordering::mvvlva_exposure);
+        semimove_feature features(info);
+        const auto table = checking.build_score_table();
+        assert(table);
+        bool found = false;
+        for(index_t axis = 0; axis < info.get_universe().dimension(); ++axis)
+            for(index_t coordinate : info.get_universe()[axis])
+            {
+                const auto boards = info.get_move_boards(axis, coordinate);
+                if(!boards)
+                {
+                    assert(exposure.score(axis, coordinate) == 0.0f);
+                    continue;
+                }
+                if(boards->move != wanted) continue;
+                const float score = exposure.score(axis, coordinate);
+                assert(std::abs(baseline.score(axis, coordinate) - score
+                                - penalty + promotion_bonus) < 0.001f);
+                assert((*table)[axis][coordinate]
+                    == score + (features.is_check(axis, coordinate) ? 300.0f : 0.0f));
+                if(wanted.captured_piece(before) != NO_PIECE)
+                {
+                    assert(score > 348.0f && score <= 631.0f);
+                    assert(score + 300.0f > 631.0f);
+                }
+                found = true;
+            }
+        assert(found);
+        std::stop_source stopped;
+        stopped.request_stop();
+        assert(!checking.build_score_table(stopped.get_token()));
+    };
+    const auto setup = [](const char *fen, bool black = false) {
+        return state::from_pgn<true>("[Board \"custom\"]\n[" + std::string(fen)
+            + ":0:1:" + (black ? "b" : "w") + "]");
+    };
+    // An unprotected victim, a friendly rook, and a hostile rook respectively.
+    verify(setup("7k/8/8/8/8/8/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
+    verify(setup("7k/8/8/8/1R6/8/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
+    verify(setup("7k/8/8/8/1r6/8/1p6/1Q5K"), "(0T1)b1b2", 128.0f);
+    // Local pawn and rook defenders suppress the penalty, without simulating exchanges.
+    verify(setup("7k/8/8/8/1r6/8/1p6/PQ5K"), "(0T1)b1b2", 0.0f);
+    verify(setup("7k/8/8/8/1R6/2p5/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
+    verify(setup("1q5k/1P6/8/1R6/8/8/8/7K", true), "(0T1)b8b7", 128.0f);
+    verify(setup("1qp4k/1P6/8/1R6/8/8/8/7K", true), "(0T1)b8b7", 0.0f);
+
+    // Vacating the source reveals a new sliding attack on the destination.
+    const state xray = setup("7k/8/8/8/1r6/1Q6/1p6/7K");
+    assert(!xray.get_board_ptr(0, 1, false)->is_under_attack(ppos(1,1), false));
+    verify(xray, "(0T1)b3b2", 128.0f);
+    // Smaller potential losses get smaller penalties; equal/favorable trades get none.
+    verify(setup("7k/8/8/8/1r6/8/1p6/1R5K"), "(0T1)b1b2", 20.0f);
+    verify(setup("7k/8/8/8/1r6/8/1r6/1R5K"), "(0T1)b1b2", 0.0f);
+    verify(setup("7k/8/8/8/2r5/8/2q5/1P5K"), "(0T1)b1c2", 0.0f);
+    verify(setup("7k/8/8/8/1r6/8/8/1Q5K"), "(0T1)b1b2", 0.0f);
+    // Pawn direction is evaluated for the arriving piece's color.
+    verify(setup("7k/8/8/8/8/2p5/1p6/1Q5K"), "(0T1)b1b2", 128.0f);
+    verify(setup("7k/8/8/8/8/2P5/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
+    // Exposure uses the promoted queen value, rather than the departing pawn.
+    verify(setup("1r5k/P7/1r6/8/8/8/8/7K"), "(0T1)a7b8", 114.0f, 48.0f);
+    verify(setup("1r5k/P7/8/8/8/8/8/7K"), "(0T1)a7b8", 0.0f, 48.0f);
+    verify(setup("7k/P7/8/8/8/8/8/7K"), "(0T1)a7a8", 0.0f, 48.0f);
+    verify(setup("7k/8/8/8/8/1R6/p7/1R5K", true), "(0T1)a2b1", 114.0f, 48.0f);
+    multiverse underpromotion(timeline_layout::odd, {
+        {0, 1, false, "1r5k/P7/1r6/8/8/8/8/7K"},
+    });
+    verify(state(underpromotion, promotion_options::KNIGHT), "(0T1)a7b8", 5.0f, 25.0f);
+
+    multiverse brawn_promotion(timeline_layout::odd, {
+        {0, 1, false, "1r5k/W7/1r6/8/8/8/8/7K"},
+    });
+    verify(state(brawn_promotion, promotion_options::KNIGHT), "(0T1)a7b8", 5.0f, 23.0f);
+
+    multiverse jumps(timeline_layout::odd, {
+        {-1, 1, false, "7k/8/8/8/1r6/8/8/1p5K"},
+        {0, 1, false, "7k/8/8/8/8/8/8/1Q5K"},
+    });
+    verify(state(jumps), "(0T1)b1(-1T1)b1", 128.0f);
+
+    // No local attack on arrival: another timeline's rook is outside this feature.
+    multiverse remote(timeline_layout::odd, {
+        {-1, 1, true, "7k/8/8/8/8/8/1r6/7K"},
+        {0, 1, false, "7k/8/8/8/8/8/1p6/1Q5K"},
+    });
+    verify(state(remote), "(0T1)b1b2", 0.0f);
+}
+
 void test_king_branch_scoring()
 {
     const state before = state::from_pgn<true>(
@@ -277,6 +420,8 @@ int run()
     test_capture_scoring_and_weight_copy();
     test_capture_groups();
     test_check_and_combined_scoring();
+    test_mvvlva_capture_ordering();
+    test_local_capture_exposure();
     test_king_branch_scoring();
     test_score_table_and_cancellation();
     test_superphysical_scoring();
@@ -311,6 +456,10 @@ void compare(const state &position, coverage &seen)
     (void)space;
     semimove_feature evaluator(info);
     move_evaluator scoring(info, default_move_evaluation_weights);
+    move_evaluator mvvlva(info, capture_weights, capture_ordering::mvvlva);
+    move_evaluator mvvlva_check(info, capture_check_weights, capture_ordering::mvvlva);
+    const auto mvvlva_table = mvvlva_check.build_score_table();
+    assert(mvvlva_table);
     move_evaluation_weights jump_weights{};
     jump_weights.values[move_evaluation_weights::SUPERPHYSICAL] = 1.0f;
     move_evaluator jump_scoring(info, jump_weights);
@@ -325,6 +474,7 @@ void compare(const state &position, coverage &seen)
                 assert(!evaluator.is_check(axis, coordinate));
                 assert(scoring.score(axis, coordinate) == 0.0f);
                 assert(jump_scoring.score(axis, coordinate) == 0.0f);
+                assert(mvvlva_check.score(axis, coordinate) == 0.0f);
                 if(candidate.is<departing_move>()) ++seen.departures;
                 else if(candidate.is<null_move>()) ++seen.nulls;
                 else assert(false && "unscored coordinate has unexpected kind");
@@ -344,6 +494,11 @@ void compare(const state &position, coverage &seen)
             const ext_move prepared(cached->move, position);
             assert(after.apply_move<true>(prepared));
             const bool checking = evaluator.is_check(axis, coordinate);
+            const float capture_score = mvvlva.score(axis, coordinate);
+            const bool capture = cached->move.captured_piece(position) != NO_PIECE;
+            assert((capture_score > 0.0f) == capture);
+            assert((*mvvlva_table)[axis][coordinate]
+                   == capture_score + (checking ? 300.0f : 0.0f));
             // Candidate features scan attacks beyond the active present too.
             check_position check_view(after);
             const auto [lo, hi] = after.get_lines_range();
@@ -426,6 +581,15 @@ int run()
         {0, 1, false, "7k/P7/8/8/8/8/8/K7"},
     });
     compare(state(jump_boards, promotion_options::QUEEN), seen);
+
+    state en_passant = parse("[Board \"Standard - Turn Zero\"]");
+    for(const char *move : {"(0T1)e2e4", "(0T1)a7a6",
+                           "(0T2)e4e5", "(0T2)d7d5"})
+    {
+        assert(en_passant.apply_move(full_move(move)));
+        assert(en_passant.submit());
+    }
+    compare(en_passant, seen);
 
     assert(seen.moves > 0);
     assert(seen.arrivals > 0);

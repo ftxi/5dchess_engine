@@ -1,0 +1,29 @@
+{
+  "version": 2,
+  "configurePresets": [
+    {
+      "name": "engine-testing",
+      "displayName": "Canonical native engine experiments",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build-canonical",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS": "-fno-rtti",
+        "ENGINE": "ON",
+        "TOOLS": "ON",
+        "PYMODULE": "ON",
+        "TEST": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "engine-testing", "configurePreset": "engine-testing", "jobs": 3}
+  ],
+  "testPresets": [
+    {
+      "name": "engine-testing",
+      "configurePreset": "engine-testing",
+      "output": {"outputOnFailure": true}
+    }
+  ]
+}

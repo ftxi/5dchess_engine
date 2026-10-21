@@ -1,7 +1,10 @@
 # Engine usage
 
-There are eleven engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
-`zero-capture-check-pw`, `linear`, `linear-trained`, `linear-weighted`,
+For reproducible engine experiments, use the fixed human-position suite and
+the [canonical testing workflow](testing.md).
+
+There are thirteen engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
+`zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `linear`, `linear-trained`, `linear-weighted`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
 
@@ -20,6 +23,33 @@ policy.
 capture/check weight profiles. `zero-capture-check-pw` also uses progressive
 widening; its widening constant and exponent can be changed with
 `--pw-constant` and `--pw-alpha`.
+
+`mvvlva` uses the same zero default policy, check detection (+300), and
+progressive widening as `zero-capture-check-pw`, including both widening
+options (defaults: constant 2, exponent 0.5). It refines capture ordering with
+MVV-LVA: prefer the most valuable victim, then the least valuable attacker.
+Ranks follow the existing 5D capture-value groups, from low to high:
+pawn, brawn, rook/common king, bishop/knight, unicorn/dragon, princess, queen.
+Royal queens have queen victim rank; royal attackers rank above queens.
+Captures score `480 + 16 * (victim_rank - 1) + (8 - attacker_rank)`, with ranks
+starting at one. This retains the existing capture/check priority groups.
+Quiet moves have no attacker penalty. This engine adds no attack/defence or
+exchange evaluation and does not use rollouts.
+
+`mvvlva-exposure` adds defence-aware local exposure and promotion gain to
+`mvvlva`. For captures whose arriving piece is physically attacked and has
+no friendly geometric defender on the resulting destination board, it
+subtracts `min(128, max(0, arriving_value - victim_value) / 10)`. Equal/favorable
+material exchanges and quiet moves receive no exposure penalty. Promotions,
+including non-capturing promotions, add
+`min(48, max(0, promoted_value - pawn_or_brawn_value) / 10)`.
+Both features use the existing 5D material values and cached result boards.
+Their bounds preserve capture/check priority groups; the check bonus stays
++300, and widening options and the zero default policy are unchanged. Attacks
+and defenders are geometric, including potentially pinned pieces; a defender
+does not establish a legal or available recapture. Cross-timeline exposure
+and subsequent exchanges are not measured. The existing `mvvlva` remains
+available for comparison.
 
 The Linear engines evaluate inconclusive rollout positions with the same
 bounded 64-feature model. `linear` and `linear-weighted` use hand-written
