@@ -191,6 +191,7 @@ std::pair<search_mode, int> parse_search_args(
         else if(arg == "naive") mode = search_mode::naive;
         else if(arg == "stable") mode = search_mode::stable;
         else if(arg == "deferred") mode = search_mode::deferred;
+        else if(arg == "tree") mode = search_mode::tree;
         else if(arg == "iterative") mode = search_mode::iterative;
         else if(arg == "fine") mode = search_mode::fine;
         else max = std::stoi(arg);
@@ -205,6 +206,7 @@ std::optional<moveseq> find_first_action(state &s, search_mode mode)
         case search_mode::balanced: return first_hc<hc_policy::balanced>(s);
         case search_mode::stable: return first_hc<hc_policy::stable>(s);
         case search_mode::deferred: return first_hc<hc_policy::deferred>(s);
+        case search_mode::tree: return first_hc<hc_policy::tree>(s);
         case search_mode::iterative: return first_hc<hc_policy::iterative>(s);
         case search_mode::naive: return naive_search(s).first();
         case search_mode::fine: {
@@ -225,6 +227,7 @@ std::size_t count_actions(state s, search_mode mode, int limit)
         case search_mode::naive: return count_naive(std::move(s), limit);
         case search_mode::stable: return count_hc<hc_policy::stable>(std::move(s), limit);
         case search_mode::deferred: return count_hc<hc_policy::deferred>(std::move(s), limit);
+        case search_mode::tree: return count_hc<hc_policy::tree>(std::move(s), limit);
         case search_mode::iterative: return count_hc<hc_policy::iterative>(std::move(s), limit);
         case search_mode::fine: return count_fine(std::move(s), limit);
     }
@@ -236,7 +239,9 @@ template std::size_t count_hc<hc_policy::balanced, true>(state, int);
 template std::size_t count_hc<hc_policy::stable, false>(state, int);
 template std::size_t count_hc<hc_policy::stable, true>(state, int);
 template std::size_t count_hc<hc_policy::deferred, false>(state, int);
+template std::size_t count_hc<hc_policy::tree, false>(state, int);
 template std::size_t count_hc<hc_policy::deferred, true>(state, int);
+template std::size_t count_hc<hc_policy::tree, true>(state, int);
 template std::size_t count_hc<hc_policy::iterative, false>(state, int);
 template std::size_t count_hc<hc_policy::iterative, true>(state, int);
 template std::size_t count_naive<false>(state, int);

@@ -225,7 +225,8 @@ template<typename T>
 template<HCOrdering Order>
 inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore(const Order &order)
 {
-    HC_info &hc_info = get_context()->hc_info;
+    auto *ctx = get_context();
+    HC_info &hc_info = ctx->hc_info;
     std::size_t consecutive_empty_cells = 0;
     while(!cells.empty()
           && consecutive_empty_cells < cells.size())
@@ -245,7 +246,10 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
         consecutive_empty_cells = 0;
 
         HC &hc = cell->subspace.back();
-        auto pt_opt = hc_info.take_point(hc, order);
+        auto pt_opt = hc_info.take_point(hc, order, &ctx->scratch);
+        if(pt_opt && std::any_of(ctx->negative.begin(), ctx->negative.end(),
+            [&](const slice &problem) { return problem.contains(*pt_opt); }))
+            pt_opt = hc_info.take_point(hc, order, &ctx->scratch, ctx->negative);
         if(!pt_opt)
         {
             cell->subspace.pop_back();
@@ -391,11 +395,15 @@ template<typename T>
     requires std::default_initializable<T>
 inline void fine_node<T>::ignite_impl(const state &s)
 {
-    auto [hc_info, ss] = HC_info::build_HC(s);
-    HC universe = hc_info.get_universe();
+    auto [hc_info, domain, negative] = HC_info::build_solid_HC(s);
+    HC universe = domain;
+    search_space ss;
+    ss.push_back(std::move(domain));
     auto new_context = std::unique_ptr<nodal_pocession>(
         new nodal_pocession{
             .hc_info = std::move(hc_info),
+            .negative = std::move(negative),
+            .scratch = {},
             .node_pool = {},
             .cell_pool = {},
             .verified_terminal = false

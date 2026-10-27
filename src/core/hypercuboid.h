@@ -18,6 +18,8 @@
 #include <functional>
 #include <span>
 #include "geometry.h"
+#include "hc_tree.h"
+#include <type_traits>
 #include "graph.h"
 #include "state.h"
 #include "vec4.h"
@@ -108,6 +110,8 @@
    every remaining hypercuboid with intersection-aware removal.
  - `hc_policy::balanced` uses HC-local problems and adaptive propagation for the first
    100 problems, then falls back to stable search with the same ordering.
+ - `hc_policy::tree` uses Deferred rules with a persistent positive-region tree.
+   Internal bounds index disjoint leaves; depleted and unary cells are reclaimed.
  - `hc_policy::deferred` (the default) retains global problem slices as negative constraints.
    Unary problems are removed immediately; otherwise, when retained slices
    outnumber HCs, the slice of smallest global codimension is removed globally.
@@ -117,7 +121,7 @@
    slices are applied temporarily only when they exclude the matching point.
 */
 
-enum class hc_policy { iterative, stable, balanced, deferred };
+enum class hc_policy { iterative, stable, balanced, deferred, tree };
 
 class HC_info
 {
@@ -157,6 +161,9 @@ class HC_info
     constexpr static index_t null_coordinate = 0;
     index_t new_axis;
     std::vector<int> mandatory_lines;
+
+    static HC_info build_info(const state &s);
+    void prune_solid_checks();
 
     static bool prune_retained_slices(HC &hc, std::span<const slice> negative);
 
@@ -256,6 +263,26 @@ private:
         HC &hc, const Ordering &order, workspace &ws, bool reuse_matching) const;
 
 public:
+    // Persistent candidate space for independent restricted queries. Witnesses
+    // are not consumed; only universe-valid learned conflicts modify the space.
+    // Keep this state with its originating HC_info; it is not thread-safe.
+    template<hc_policy Policy>
+        requires (Policy == hc_policy::deferred || Policy == hc_policy::tree)
+    struct witness_space
+    {
+        using positive_space = std::conditional_t<Policy == hc_policy::tree,
+                                                  hc_tree, search_space>;
+        positive_space positive;
+        std::vector<slice> negative;
+        workspace scratch;
+        explicit witness_space(search_space space) : positive(std::move(space)) {}
+    };
+
+    template<hc_policy Policy, HCOrdering Ordering = natural_HC_ordering>
+    std::optional<point> find_witness(witness_space<Policy> &space,
+                                    const HC &restriction,
+                                    const Ordering &order = {}) const;
+
     /*
      find_problem(p, hc): find any problem about p and returns the problem 
      slice containing p or std::nullopt if the point is okay. Each fixed
@@ -271,6 +298,13 @@ public:
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;
     static std::pair<HC_info, search_space> build_HC(const state &s);
+    // One domain with no branch-count partition. The returned negatives forbid
+    // gaps in occupied branch axes and must accompany every search of the HC.
+    // Unavoidable self-checks are pruned using actual result boards and history;
+    // coordinate IDs remain stable even when their domains lose entries.
+    // For restricted searches, initialize witness_space with search_space{domain}
+    // and move the returned negatives into its negative member.
+    static std::tuple<HC_info, HC, std::vector<slice>> build_solid_HC(const state &s);
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>
     generator<moveseq> search(search_space ss, Ordering order = {}) const &;
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>

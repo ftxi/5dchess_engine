@@ -13,6 +13,7 @@ enum class search_mode
     naive,
     stable,
     deferred,
+    tree,
     iterative,
     fine,
 };

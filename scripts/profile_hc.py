@@ -17,7 +17,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = Path(__file__).with_name("profile_hc_games.json")
-POLICIES = ("balanced", "stable", "deferred", "iterative", "fine", "naive")
+POLICIES = ("balanced", "stable", "deferred", "tree", "iterative", "fine", "naive")
 
 
 def nonnegative(value: str) -> int:

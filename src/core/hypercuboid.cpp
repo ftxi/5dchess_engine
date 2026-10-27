@@ -107,9 +107,9 @@ std::tuple<std::vector<vec4>, int> get_move_path(const check_position &s, full_m
     }
 }
 
-std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
+HC_info HC_info::build_info(const state &s)
 {
-    dprint("HC_info::build_HC()");
+    dprint("HC_info::build_info()");
     HC_info info(s);
     std::vector<int> optional_timelines, unplayable_timelines;
     std::tie(info.mandatory_lines, optional_timelines, unplayable_timelines)
@@ -493,6 +493,13 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
     }
 #endif
     
+    return info;
+}
+
+std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
+{
+    auto info = build_info(s);
+    const index_t dimension = info.dimension();
     // split the search space by number of branches
     HC hc_n_lines = info.universe;
     integer_set singleton = {0}, non_null;
@@ -515,6 +522,91 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
         ss.push_front(hc_n_lines); // prefer lesser branching moves
     }
     return {std::move(info), std::move(ss)};
+}
+
+
+void HC_info::prune_solid_checks()
+{
+    const bool player = s.get_present().c();
+    check_position checks(s, l0_offset,
+        l0_offset + static_cast<int>(line_axes.size()) - 1);
+    // In this view every existing board is immutable history. Missing future
+    // boards are left absent, so a discovered attack cannot rely on assumptions
+    // about another axis's move. A base-only attack excludes every completion.
+    if(checks.first_check(!player, false))
+    {
+        if(dimension() > 0) universe[0].clear();
+        return;
+    }
+    std::vector<int> axis_lines(dimension());
+    for(std::size_t offset = 0; offset < line_axes.size(); ++offset)
+        if(line_axes[offset] != no_axis)
+            axis_lines[line_axes[offset]] = l0_offset + static_cast<int>(offset);
+
+    for(index_t n = 0; n < dimension(); ++n)
+    {
+        integer_set rejected;
+        for(index_t i : universe[n])
+        {
+            if(i == null_coordinate) continue;
+            const entry &loc = axis_coords[n][i];
+            const auto [old_t, old_l] = extract_tl(loc);
+            (void)old_l;
+            const turn at = turn{old_t, player}.next_turn();
+            check_position::board_overlay result{
+                axis_lines[n], at.t(), at.c(), &extract_board(loc)};
+            std::optional<check_position::board_overlay> departure;
+            if(const auto *arrival = std::get_if<arriving_entry>(&loc))
+            {
+                const index_t from = line_to_axis_unsafe(arrival->m.from.l());
+                const auto &source = std::get<departing_entry>(axis_coords[from][arrival->idx]);
+                const turn left = turn{source.from.t(), player}.next_turn();
+                departure = check_position::board_overlay{
+                    source.from.l(), left.t(), left.c(), &source.b};
+            }
+            // A paired departure is forced by this arrival, so a check using
+            // either fixed result board is still a unary arrival exclusion.
+            if(checks.first_check(!player, result, departure, false)) rejected.insert(i);
+        }
+        universe[n].minus(rejected);
+        nonjump_entries[n].minus(rejected);
+        departing_entries[n].minus(rejected);
+        arriving_entries[n].minus(rejected);
+    }
+    // A newly rejected departure also invalidates every arrival paired with it.
+    // Keep entry tables untouched: arrival indices refer to their original IDs.
+    for(index_t n = 0; n < dimension(); ++n)
+    {
+        integer_set unsupported;
+        for(index_t i : arriving_entries[n])
+        {
+            const auto &arrival = std::get<arriving_entry>(axis_coords[n][i]);
+            const index_t from = line_to_axis_unsafe(arrival.m.from.l());
+            if(!universe[from].contains(arrival.idx)) unsupported.insert(i);
+        }
+        universe[n].minus(unsupported);
+        arriving_entries[n].minus(unsupported);
+    }
+}
+
+std::tuple<HC_info, HC, std::vector<slice>> HC_info::build_solid_HC(const state &s)
+{
+    auto info = build_info(s);
+    info.prune_solid_checks();
+    std::vector<slice> negative;
+    for(index_t n = info.new_axis; n + 1 < info.dimension(); ++n)
+    {
+        if(!info.universe[n].contains(null_coordinate)) continue;
+        integer_set occupied = info.universe[n + 1];
+        occupied.erase(null_coordinate);
+        if(occupied.empty()) continue;
+        slice gap;
+        gap.fix_axis(n, integer_set{null_coordinate});
+        gap.fix_axis(n + 1, std::move(occupied));
+        negative.push_back(std::move(gap));
+    }
+    HC domain = info.universe;
+    return {std::move(info), std::move(domain), std::move(negative)};
 }
 
 
@@ -636,6 +728,16 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC &hc
     so p[new_l] is a arriving move from (l0, t0) that jumps to (l, t) which create a branch
     remember t, l are stored as the higher part of a vec4
      */
+    for(index_t n = new_axis; n + 1 < dimension(); ++n)
+    {
+        if(p[n] != null_coordinate || p[n + 1] == null_coordinate) continue;
+        integer_set occupied = hc[n + 1];
+        occupied.erase(null_coordinate);
+        slice problem;
+        problem.fix_axis(n, integer_set{null_coordinate});
+        problem.fix_axis(n + 1, std::move(occupied));
+        return problem;
+    }
     std::map<vec4, index_t> jump_map;
     const bool c = s.get_present().c();
     
@@ -647,7 +749,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC &hc
         if(in == null_coordinate)
         {
             break;
-            // assumed: search space is always separated by number of branches
+            // Gaps were rejected above; the occupied axes form a prefix.
         }
         assert(std::holds_alternative<arriving_entry>(loc));
         const arriving_entry arr = std::get<arriving_entry>(loc);

@@ -156,6 +156,8 @@ template<typename T>
 struct fine_node<T>::nodal_pocession
 {
     HC_info hc_info;
+    std::vector<slice> negative;
+    HC_info::workspace scratch;
     std::deque<fine_node<T>> node_pool;
     std::deque<fine_cell<T>> cell_pool;
     bool verified_terminal; /* value is

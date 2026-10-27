@@ -325,7 +325,7 @@ int run_count(int argc, const char *argv[])
             << "  A result equal to max means at least max actions may exist.\n"
             << "  --at turn          select the state after a submitted turn (0, 1w, 1b, ...)\n"
             << "  --format text|json select output format (default: text)\n"
-            << "  policy             deferred (default), balanced, naive, stable, iterative, or fine\n"
+            << "  policy             deferred (default), balanced, naive, stable, tree, iterative, or fine\n"
             << "  max                positive enumeration limit\n";
     };
     std::optional<turn_selection> selection;
@@ -404,6 +404,7 @@ int run_all(int argc, const char *argv[])
             case search_mode::naive: count = count_naive<true>(s, max); break;
             case search_mode::stable: count = count_hc<hc_policy::stable, true>(s, max); break;
             case search_mode::deferred: count = count_hc<hc_policy::deferred, true>(s, max); break;
+            case search_mode::tree: count = count_hc<hc_policy::tree, true>(s, max); break;
             case search_mode::iterative: count = count_hc<hc_policy::iterative, true>(s, max); break;
             case search_mode::fine: count = count_fine<true>(s, max); break;
         }

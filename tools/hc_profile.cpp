@@ -134,7 +134,7 @@ void print_help()
         << "  EXPECTED=100 AT=11b COUNT <single-line 5dpgn>\n"
         << "  AT selects a submitted main-line turn (0 selects the initial position)\n"
         << "  EXPECTED=100 or EXPECTED>100 stops at 101 actions\n"
-        << "  --policy <name>         deferred (default), balanced, stable, iterative, fine, naive\n"
+        << "  --policy <name>         deferred (default), balanced, stable, tree, iterative, fine, naive\n"
         << "  --warmup-rounds <n>     complete unrecorded workload rounds (default: 3)\n"
         << "  --rounds <n>            measured workload rounds (default: 5)\n"
         << "  --prefixes 10,100,1000  add separate bounded COUNT cases (or none)\n"
@@ -207,6 +207,7 @@ options parse_options(int argc, const char *argv[])
             if(value == "balanced") result.policy = search_mode::balanced;
             else if(value == "stable") result.policy = search_mode::stable;
             else if(value == "deferred") result.policy = search_mode::deferred;
+            else if(value == "tree") result.policy = search_mode::tree;
             else if(value == "iterative") result.policy = search_mode::iterative;
             else if(value == "fine") result.policy = search_mode::fine;
             else if(value == "naive") result.policy = search_mode::naive;
