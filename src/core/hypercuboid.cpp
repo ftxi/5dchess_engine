@@ -1239,3 +1239,533 @@ moveseq HC_info::to_action(const point &p) const
 #endif
     return mvs;
 }
+
+
+bool HC_info::prune_slice_refs(HC &domain, std::span<const slice *const> negative)
+{
+    if(domain.empty()) return false;
+    bool changed;
+    do
+    {
+        changed = false;
+        for(const auto *problem : negative)
+        {
+            if(!domain.is_slice_good(*problem)) continue;
+            const auto &fixed = problem->get_fixed_axes();
+            const auto axis = std::find_if(fixed.begin(), fixed.end(), [&](const auto &entry) {
+                return !domain[entry.first].is_subset_of(entry.second);
+            });
+            if(axis == fixed.end()) return false;
+            domain[axis->first].minus(axis->second);
+            changed = true;
+        }
+    } while(changed);
+    return true;
+}
+
+
+std::optional<point> HC_info::try_local_completion(
+    const point &seed, index_t axis, index_t coordinate) const
+{
+    const auto &old_entry = axis_coords[axis][seed[axis]];
+    const auto &new_entry = axis_coords[axis][coordinate];
+    const auto *old_arrival = std::get_if<arriving_entry>(&old_entry);
+    const auto *new_arrival = std::get_if<arriving_entry>(&new_entry);
+    index_t source = no_axis;
+    if(old_arrival && new_arrival)
+    {
+        // The local class fixes the jump endpoints in time and on timelines;
+        // its arrival coordinates may vary together with their departures.
+        if(old_arrival->m.from.tl() != new_arrival->m.from.tl()
+           || old_arrival->m.to.tl() != new_arrival->m.to.tl()) return std::nullopt;
+        source = line_to_axis_unsafe(old_arrival->m.from.l());
+        if(source == no_axis || seed[source] != old_arrival->idx
+           || (source < axis && seed[source] != new_arrival->idx)) return std::nullopt;
+    }
+    else if(!std::holds_alternative<physical_entry>(old_entry)
+            || !std::holds_alternative<physical_entry>(new_entry)) return std::nullopt;
+    point candidate = seed;
+    candidate[axis] = coordinate;
+    if(source != no_axis) candidate[source] = new_arrival->idx;
+    if(find_checks(candidate, universe)) return std::nullopt;
+    return candidate;
+}
+
+std::optional<point> HC_info::try_physical_completion(
+    const point &seed, index_t axis, index_t coordinate) const
+{
+    if(!std::holds_alternative<physical_entry>(axis_coords[axis][seed[axis]])
+       || !std::holds_alternative<physical_entry>(axis_coords[axis][coordinate])) return std::nullopt;
+    return try_local_completion(seed, axis, coordinate);
+}
+
+integer_set HC_info::same_move_kind(index_t axis, index_t coordinate, const integer_set &allowed) const
+{
+    if(nonjump_entries[axis].contains(coordinate)) return allowed & nonjump_entries[axis];
+    if(departing_entries[axis].contains(coordinate)) return allowed & departing_entries[axis];
+    return allowed & arriving_entries[axis];
+}
+
+
+std::shared_ptr<const HC_info::constraint_index> HC_info::build_constraint_index() const
+{
+    auto result = std::make_shared<constraint_index>();
+    result->destinations.resize(dimension());
+    result->targets.resize(dimension());
+    result->departures.resize(dimension());
+    for(index_t n = 0; n < dimension(); ++n)
+    {
+        auto &destination = result->destinations[n];
+        destination.entries.resize(axis_coords[n].size());
+        for(auto i : arriving_entries[n])
+        {
+            const auto &arrival = std::get<arriving_entry>(axis_coords[n][i]);
+            const auto source = line_to_axis_unsafe(arrival.m.from.l());
+            auto found = std::find(destination.sources.begin(), destination.sources.end(), source);
+            if(found == destination.sources.end())
+            {
+                destination.sources.push_back(source);
+                result->targets[source].push_back(n);
+                found = destination.sources.end() - 1;
+            }
+            destination.entries[i] = {source, arrival.idx, index_t(found - destination.sources.begin())};
+            auto &targets = result->departures[source][arrival.idx];
+            if(targets.empty() || targets.back().first != n) targets.emplace_back(n, integer_set{});
+            targets.back().second.insert(i);
+        }
+    }
+    return result;
+}
+
+bool HC_info::constrain_domain(HC &domain, constraint_workspace *scratch) const
+{
+    assert(domain.dimension() == dimension());
+    for(index_t n = 0; n < dimension(); ++n) domain[n] &= universe[n];
+    constraint_workspace local;
+    auto &storage = scratch ? *scratch : local;
+    auto &paired = storage.paired;
+    auto &supported_departures = storage.supported_departures;
+    auto &minimum = storage.minimum;
+    auto &maximum = storage.maximum;
+    paired.assign(dimension(), no_axis);
+    supported_departures.resize(dimension());
+    minimum.resize(new_axis);
+    maximum.resize(new_axis);
+    const constraint_index *index = nullptr;
+    // Tiny/one-shot queries keep the allocation-free-index path. Repeated
+    // queries amortize the immutable incidence index and per-destination caches.
+    if(scratch && storage.retain_domains && ++storage.calls >= 3)
+    {
+        if(!constraints) constraints = build_constraint_index();
+        if(storage.index != constraints)
+        {
+            storage.index = constraints;
+            storage.support_domain = HC(std::vector<integer_set>(dimension()));
+            storage.bound_domain = HC(std::vector<integer_set>(new_axis));
+            storage.support_pairs.assign(dimension(), no_axis);
+            storage.supports.clear();
+            storage.supports.resize(dimension());
+            storage.active_supports.clear();
+            storage.active_supports.resize(dimension());
+            storage.dirty.resize(dimension());
+            for(index_t n = 0; n < dimension(); ++n)
+                storage.supports[n].resize(constraints->destinations[n].sources.size());
+            std::fill(minimum.begin(), minimum.end(), 0);
+            std::fill(maximum.begin(), maximum.end(), 0);
+            storage.lower = storage.upper = 0;
+        }
+        index = storage.index.get();
+    }
+    const auto equal = [](const integer_set &a, const integer_set &b) {
+        return a.is_subset_of(b) && b.is_subset_of(a);
+    };
+    bool changed;
+    do
+    {
+        if(domain.empty()) return false;
+        changed = false;
+        const auto restrict_axis = [&](index_t axis, const integer_set &allowed) {
+            const auto previous = domain[axis].size();
+            domain[axis] &= allowed;
+            changed |= domain[axis].size() != previous;
+        };
+        // Every existing departure is paired with either an existing arrival
+        // or a branch arrival. Propagate bounds on that conserved count before
+        // scanning potentially large arrival domains.
+        int lower = 0, upper = 0;
+        for(index_t n = 0; n < new_axis; ++n)
+        {
+            if(!index || !equal(storage.bound_domain[n], domain[n]))
+            {
+                if(index) { storage.lower -= minimum[n]; storage.upper -= maximum[n]; }
+                const bool arrives = domain[n].intersects(arriving_entries[n]);
+                const bool departs = domain[n].intersects(departing_entries[n]);
+                const bool nonjump = domain[n].intersects(nonjump_entries[n]);
+                minimum[n] = arrives ? -1 : nonjump ? 0 : 1;
+                maximum[n] = departs ? 1 : nonjump ? 0 : -1;
+                if(index)
+                {
+                    storage.bound_domain[n] = domain[n];
+                    storage.lower += minimum[n]; storage.upper += maximum[n];
+                }
+            }
+            if(!index) { lower += minimum[n]; upper += maximum[n]; }
+        }
+        if(index) { lower = storage.lower; upper = storage.upper; }
+        int branch_min = 0, branch_max = dimension() - new_axis;
+        for(index_t n = new_axis; n < dimension(); ++n)
+        {
+            if(!domain[n].contains(null_coordinate)) branch_min = n - new_axis + 1;
+            if(domain[n].size() == 1 && domain[n].contains(null_coordinate))
+                branch_max = std::min(branch_max, int(n - new_axis));
+        }
+        if(lower > branch_max || upper < branch_min) return false;
+        for(index_t n = 0; n < new_axis; ++n)
+        {
+            integer_set unsupported;
+            const auto impossible = [&](int contribution) {
+                return lower - minimum[n] + contribution > branch_max
+                    || upper - maximum[n] + contribution < branch_min;
+            };
+            if(impossible(-1)) unsupported |= arriving_entries[n];
+            if(impossible(0)) unsupported |= nonjump_entries[n];
+            if(impossible(1)) unsupported |= departing_entries[n];
+            if(domain[n].intersects(unsupported)) { domain[n].minus(unsupported); changed = true; }
+        }
+        for(index_t n = new_axis; n < dimension(); ++n)
+        {
+            if(int(n - new_axis) < lower && domain[n].erase(null_coordinate)) changed = true;
+            if(int(n - new_axis) >= upper) restrict_axis(n, integer_set{null_coordinate});
+        }
+        if(domain.empty()) return false;
+        std::fill(paired.begin(), paired.end(), no_axis);
+        for(index_t n = 0; n < dimension(); ++n)
+            if(domain[n].size() == 1)
+                if(const auto *arrival = std::get_if<arriving_entry>(&axis_coords[n][*domain[n].begin()]))
+                {
+                    const auto source = line_to_axis_unsafe(arrival->m.from.l());
+                    if(paired[source] != no_axis && paired[source] != n) return false;
+                    paired[source] = n;
+                    restrict_axis(source, integer_set{arrival->idx});
+                }
+        if(domain.empty()) return false;
+        for(auto &supported : supported_departures) supported.clear();
+        if(index)
+        {
+            std::fill(storage.dirty.begin(), storage.dirty.end(), false);
+            for(index_t n = 0; n < dimension(); ++n)
+            {
+                const bool altered = !equal(storage.support_domain[n], domain[n]);
+                if(altered) storage.dirty[n] = true;
+                if(altered || paired[n] != storage.support_pairs[n])
+                    for(auto target : index->targets[n]) storage.dirty[target] = true;
+                if(altered) storage.support_domain[n] = domain[n];
+            }
+            storage.support_pairs = paired;
+            for(index_t n = 0; n < dimension(); ++n)
+            {
+                const auto &destination = index->destinations[n];
+                if(storage.dirty[n])
+                {
+                    for(auto slot : storage.active_supports[n]) storage.supports[n][slot].clear();
+                    storage.active_supports[n].clear();
+                    integer_set rejected;
+                    arriving_entries[n].for_each_intersection(domain[n], [&](index_t i) {
+                        const auto &arrival = destination.entries[i];
+                        if(!domain[arrival.source].contains(arrival.departure)
+                           || (paired[arrival.source] != no_axis && paired[arrival.source] != n)) rejected.insert(i);
+                        else
+                        {
+                            auto &support = storage.supports[n][arrival.slot];
+                            if(support.empty()) storage.active_supports[n].push_back(arrival.slot);
+                            support.insert(arrival.departure);
+                        }
+                    });
+                    if(!rejected.empty()) { domain[n].minus(rejected); changed = true; }
+                }
+                for(auto slot : storage.active_supports[n])
+                    supported_departures[destination.sources[slot]] |= storage.supports[n][slot];
+            }
+        }
+        else
+            for(index_t n = 0; n < dimension(); ++n)
+            {
+                integer_set rejected;
+                arriving_entries[n].for_each_intersection(domain[n], [&](index_t i) {
+                    const auto &arrival = std::get<arriving_entry>(axis_coords[n][i]);
+                    const auto source = line_to_axis_unsafe(arrival.m.from.l());
+                    if(!domain[source].contains(arrival.idx) || (paired[source] != no_axis && paired[source] != n))
+                        rejected.insert(i);
+                    else supported_departures[source].insert(arrival.idx);
+                });
+                if(!rejected.empty()) { domain[n].minus(rejected); changed = true; }
+            }
+        for(index_t source = 0; source < dimension(); ++source)
+        {
+            auto unsupported = domain[source] & departing_entries[source];
+            unsupported.minus(supported_departures[source]);
+            if(!unsupported.empty()) { domain[source].minus(unsupported); changed = true; }
+        }
+        for(index_t source = 0; source < dimension(); ++source)
+        {
+            if(domain[source].size() != 1) continue;
+            const auto departure = *domain[source].begin();
+            if(!departing_entries[source].contains(departure)) continue;
+            index_t only_axis = no_axis;
+            integer_set only_values;
+            bool several = false;
+            if(index)
+            {
+                const auto found = index->departures[source].find(departure);
+                if(found != index->departures[source].end())
+                    for(const auto &[n, values] : found->second)
+                    {
+                        if(!domain[n].intersects(values)) continue;
+                        if(only_axis != no_axis) { several = true; break; }
+                        only_axis = n;
+                        only_values = domain[n] & values;
+                    }
+            }
+            else
+                for(index_t n = 0; n < dimension(); ++n)
+                {
+                    integer_set supported;
+                    arriving_entries[n].for_each_intersection(domain[n], [&](index_t i) {
+                        const auto &arrival = std::get<arriving_entry>(axis_coords[n][i]);
+                        if(line_to_axis_unsafe(arrival.m.from.l()) == source && arrival.idx == departure)
+                            supported.insert(i);
+                    });
+                    if(supported.empty()) continue;
+                    if(only_axis != no_axis) { several = true; break; }
+                    only_axis = n;
+                    only_values = std::move(supported);
+                }
+            if(only_axis == no_axis) return false;
+            if(!several) restrict_axis(only_axis, only_values);
+        }
+        for(index_t n = new_axis; n + 1 < dimension(); ++n)
+        {
+            if(domain[n].size() == 1 && domain[n].contains(null_coordinate))
+                restrict_axis(n + 1, integer_set{null_coordinate});
+            if(!domain[n + 1].contains(null_coordinate) && domain[n].erase(null_coordinate)) changed = true;
+        }
+    } while(changed);
+    return !domain.empty();
+}
+
+
+bool HC_info::local_contains(const local_space &local, const point &p)
+{
+    if(!local.outer_region.contains(p)) return false;
+    for(std::size_t variable = 0; variable < local.axes.size(); ++variable)
+        if(!local.universe[variable].contains(p[local.axes[variable]])) return false;
+    return true;
+}
+
+void HC_info::prepare_local_layout(local_space &local, const point &seed) const
+{
+    if(local.projection) return;
+    auto layout = std::make_unique<local_space::layout>();
+    if(local.representative.empty()) local.representative = seed;
+    layout->variables.assign(dimension(), no_axis);
+    layout->departures.assign(dimension(), no_axis);
+    layout->sources.assign(local.axes.size(), no_axis);
+    layout->partners.resize(local.axes.size());
+    for(index_t variable = 0; variable < local.axes.size(); ++variable)
+    {
+        const auto axis = local.axes[variable];
+        layout->variables[axis] = variable;
+        if(!arriving_entries[axis].contains(local.seed[variable])) continue;
+        const auto &anchor = std::get<arriving_entry>(axis_coords[axis][local.seed[variable]]);
+        const auto source = line_to_axis_unsafe(anchor.m.from.l());
+        layout->sources[variable] = source;
+        layout->departures[source] = variable;
+        for(auto coordinate : local.universe[variable])
+            layout->partners[variable][std::get<arriving_entry>(axis_coords[axis][coordinate]).idx].insert(coordinate);
+    }
+    local.projection = std::move(layout);
+}
+
+bool HC_info::restrict_local_axis(HC &projected, const local_space &local,
+                                   index_t axis, index_t coordinate) const
+{
+    const auto &layout = *local.projection;
+    if(const auto variable = layout.variables[axis]; variable != no_axis)
+    {
+        projected[variable] &= integer_set{coordinate};
+        return !projected[variable].empty();
+    }
+    if(const auto variable = layout.departures[axis]; variable != no_axis)
+    {
+        const auto found = layout.partners[variable].find(coordinate);
+        if(found == layout.partners[variable].end()) return false;
+        projected[variable] &= found->second;
+        return !projected[variable].empty();
+    }
+    return local.representative[axis] == coordinate;
+}
+
+bool HC_info::prepare_local_cursor(completion_space &space, std::unique_ptr<local_cursor> &cursor,
+    const local_cursor *parent, const point &seed, index_t axis, index_t coordinate) const
+{
+    if(!space.reuse_local) return false;
+    // A pinned class fixes move kinds and jump endpoints. Reject incompatible
+    // choices before class lookup or any domain allocation.
+    const auto &old_entry = axis_coords[axis][seed[axis]];
+    const auto &next_entry = axis_coords[axis][coordinate];
+    if(old_entry.index() != next_entry.index()) return false;
+    if(const auto *arrival = std::get_if<arriving_entry>(&old_entry))
+    {
+        const auto &next = std::get<arriving_entry>(next_entry);
+        if(arrival->m.from.tl() != next.m.from.tl() || arrival->m.to.tl() != next.m.to.tl()) return false;
+        const auto source = line_to_axis_unsafe(arrival->m.from.l());
+        if(source < axis && seed[source] != next.idx) return false;
+    }
+    if(cursor && cursor->prefix_length == axis && local_contains(*cursor->local, seed)) return true;
+    std::shared_ptr<local_space> local;
+    if(parent && local_contains(*parent->local, seed)) local = parent->local;
+    else if(space.local && local_contains(*space.local, seed)) local = space.local;
+    else
+        for(const auto &cached : space.local_cache)
+            if(local_contains(*cached, seed)) { local = cached; break; }
+    if(!local)
+    {
+        local = build_local_space(universe, seed);
+        if(!local) return false;
+        local->representative = seed;
+        if(space.local_capacity)
+        {
+            if(space.local_cache.size() >= space.local_capacity) space.local_cache.erase(space.local_cache.begin());
+            space.local_cache.push_back(local);
+        }
+    }
+    prepare_local_layout(*local, seed);
+    auto next = std::make_unique<local_cursor>();
+    next->local = std::move(local);
+    const bool inherit = parent && parent->local == next->local && parent->prefix_length <= axis;
+    next->domain = inherit ? parent->domain : next->local->universe;
+    for(index_t n = inherit ? parent->prefix_length : 0; n < axis; ++n)
+        if(!restrict_local_axis(next->domain, *next->local, n, seed[n])) return false;
+    next->prefix_length = axis;
+    cursor = std::move(next);
+    return true;
+}
+
+HC_info::completion_query HC_info::restrict_completion(
+    completion_space &space, HC domain, index_t axis, const completion_query *parent) const
+{
+    auto candidates = space.cells.restrict(domain, parent ? &parent->candidates : nullptr);
+    domain[axis] &= space.cells.supported(candidates, domain, axis);
+    const auto mixed_kinds = [&](index_t n) {
+        return int(domain[n].contains(null_coordinate))
+            + int(domain[n].intersects(nonjump_entries[n])
+                  && (domain[n].size() > 1 || !domain[n].contains(null_coordinate)))
+            + int(domain[n].intersects(departing_entries[n]))
+            + int(domain[n].intersects(arriving_entries[n])) > 1;
+    };
+    bool partition_kinds = false;
+    if(axis < new_axis && axis + 2 >= new_axis)
+        for(index_t n = axis; n < new_axis; ++n) partition_kinds |= mixed_kinds(n);
+    if(partition_kinds)
+    {
+        // A small move-kind partition fixes branch counts and exposes unary
+        // negatives near the end of the existing axes. Close both constraint
+        // families together before testing individual coordinate choices.
+        HC supported{std::vector<integer_set>(dimension())};
+        const auto close = [&](const HC &bounds, std::span<const slice *const> negative, const HC &part) {
+            bool closed = true;
+            for(index_t n = 0; n < dimension(); ++n)
+                if(!part[n].is_subset_of(bounds[n])) { closed = false; break; }
+            HC effective = closed ? part : bounds;
+            if(!closed)
+                for(index_t n = 0; n < dimension(); ++n) effective[n] &= part[n];
+            for(;;)
+            {
+                std::size_t before = 0, after_prune = 0, after_close = 0, after = 0;
+                for(index_t n = 0; n < dimension(); ++n) before += effective[n].size();
+                if(!prune_slice_refs(effective, negative)) return integer_set{};
+                for(index_t n = 0; n < dimension(); ++n) after_prune += effective[n].size();
+                // Each partition was already closed. If this cell contains it
+                // and no negative narrowed it, closing the same domain again
+                // cannot remove any additional coordinates.
+                if((!closed || after_prune != before) && !constrain_domain(effective, &space.propagation)) return integer_set{};
+                for(index_t n = 0; n < dimension(); ++n) after_close += effective[n].size();
+                if(!prune_slice_refs(effective, negative)) return integer_set{};
+                for(index_t n = 0; n < dimension(); ++n) after += effective[n].size();
+                if(before == after)
+                {
+                    for(index_t n = 0; n < dimension(); ++n) supported[n] |= effective[n];
+                    return effective[axis];
+                }
+                closed = after == after_close;
+            }
+        };
+        const auto partition = [&](const auto &self, const HC &input, index_t n) -> void {
+            for(int kind = 0; kind < 4; ++kind)
+            {
+                HC part = input;
+                if(kind == 0) part[n] &= integer_set{null_coordinate};
+                else if(kind == 1) { part[n] &= nonjump_entries[n]; part[n].erase(null_coordinate); }
+                else part[n] &= kind == 2 ? departing_entries[n] : arriving_entries[n];
+                if(part.empty() || !constrain_domain(part, &space.propagation)) continue;
+                if(n + 1 < new_axis) { self(self, part, n + 1); continue; }
+                space.cells.project(candidates, part, axis, [&](const HC &bounds, auto negative) {
+                    return close(bounds, negative, part);
+                }, true);
+            }
+        };
+        partition(partition, domain, axis);
+        for(index_t n = 0; n < dimension(); ++n) domain[n] &= supported[n];
+    }
+    if(!domain.empty() && !constrain_domain(domain, &space.propagation)) domain[axis].clear();
+    if(!domain.empty()) candidates = space.cells.restrict(domain, &candidates);
+    completion_query result(std::move(domain), std::move(candidates));
+    result.prefix_length = axis;
+    if(parent)
+    {
+        result.local = parent->local;
+    }
+    return result;
+}
+
+std::optional<slice> HC_info::project_local_problem(
+    const local_space &local, const point &seed, const slice &problem) const
+{
+    slice projected;
+    for(const auto &[axis, values] : problem.get_fixed_axes())
+    {
+        const auto found = std::lower_bound(local.axes.begin(), local.axes.end(), axis);
+        index_t variable = no_axis;
+        integer_set allowed;
+        if(found != local.axes.end() && *found == axis)
+        {
+            variable = found - local.axes.begin();
+            if(local.universe[variable].is_subset_of(values)) continue;
+            allowed = local.universe[variable] & values;
+        }
+        else
+        {
+            for(index_t n = 0; n < local.axes.size(); ++n)
+                if(const auto *arrival = std::get_if<arriving_entry>(&axis_coords[local.axes[n]][local.seed[n]]);
+                   arrival && line_to_axis_unsafe(arrival->m.from.l()) == axis)
+                {
+                    variable = n;
+                    for(auto coordinate : local.universe[n])
+                        if(values.contains(std::get<arriving_entry>(axis_coords[local.axes[n]][coordinate]).idx))
+                            allowed.insert(coordinate);
+                    break;
+                }
+            if(variable == no_axis)
+            {
+                if(!values.contains(seed[axis])) return std::nullopt;
+                continue;
+            }
+            if(local.universe[variable].is_subset_of(allowed)) continue;
+        }
+        if(const auto previous = projected.get_fixed_axes().find(variable);
+           previous != projected.get_fixed_axes().end()) allowed &= previous->second;
+        if(allowed.empty()) return std::nullopt;
+        projected.fix_axis(variable, std::move(allowed));
+    }
+    return projected;
+}

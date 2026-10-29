@@ -14,31 +14,31 @@
 
 namespace
 {
-generator<fine_node<> *> fine_ceilings(fine_node<> &node)
+generator<moveseq> fine_actions(fine_node<> &root)
 {
-    if(node.is_ceiling())
+    struct cursor { fine_node<> *node; std::size_t next_child; };
+    std::vector<cursor> stack{{&root, 0}};
+    const natural_HC_ordering order;
+    while(!stack.empty())
     {
-        co_yield &node;
-        co_return;
-    }
-
-    // Expansion creates a whole witness branch. Visit those existing children
-    // before searching for additional children at this level.
-    const std::size_t existing = node.get_children().size();
-    for(std::size_t j = 0; j < existing; ++j)
-    {
-        for(auto *ceiling : fine_ceilings(*node.get_children()[j]))
-            co_yield ceiling;
-    }
-    for([[maybe_unused]] index_t i : node.search(natural_HC_ordering{}))
-    {
-        // Separate cells can produce distinct children with the same index.
-        // Search appends the new branch; get_child(i) can find an older one.
-        for(auto *ceiling : fine_ceilings(*node.get_children().back()))
-            co_yield ceiling;
+        auto &top = stack.back();
+        if(top.node->is_ceiling())
+        {
+            co_yield top.node->to_action();
+            stack.pop_back();
+            continue;
+        }
+        const auto children = top.node->get_children();
+        if(top.next_child < children.size())
+        {
+            auto *child = children[top.next_child++];
+            stack.push_back({child, 0});
+            continue;
+        }
+        if(!top.node->expand_next(order)) stack.pop_back();
     }
 }
-}
+} /* anonymous namespace */
 
 namespace
 {
@@ -75,8 +75,7 @@ template<bool PRINT>
 std::size_t count_fine(state s, int limit)
 {
     auto root = fine_node<>::make_root(s);
-    return count_range<PRINT>(s, fine_ceilings(*root), limit,
-        [](const auto *ceiling) { return ceiling->to_action(); });
+    return count_range<PRINT>(s, fine_actions(*root), limit);
 }
 
 template <typename T>

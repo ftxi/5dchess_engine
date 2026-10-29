@@ -73,6 +73,14 @@ keeping the same source and destination timeline-turns and the same timeline
 pairing. Departures change together with their arrivals.
 The complete legal-action set is unchanged, but enumeration order can differ.
 
+The `fine` policy builds a tree of semimove prefixes. At each prefix it admits
+coordinates in the supplied HC ordering after verifying a legal completion.
+Prefixes share candidate-search information while retaining their own unexpanded
+choices. Its enumeration order can differ from Tree's physical-first and local
+group order. Fine retains prefix nodes; Tree streams completed actions. Both
+COUNT paths include conversion to complete actions, as well as construction and
+destruction of their search contexts.
+
 For `print`, `stats`, `count`, `all`, `checkmate`, and `diff`, `--at 0` and
 `--at 0b` select the initial
 position. A value such as `--at 16b` selects the state immediately after

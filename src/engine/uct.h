@@ -86,7 +86,8 @@ std::optional<index_t> ordered_search(
     Node *node, const Order &order, std::stop_token stop)
 {
     if(stop.stop_requested()) return std::nullopt;
-    return node->search(order).first();
+    if(auto *child = node->expand_next(order)) return child->get_i();
+    return std::nullopt;
 }
 } /* namespace uct_detail */
 
@@ -244,6 +245,13 @@ private:
     }
 
 public:
+    fine_search_options fine_options() const
+    {
+        fine_search_options options;
+        if(score_function) options.builder = fine_builder::solid;
+        return options;
+    }
+
     explicit uct_tree_policy(
         std::optional<std::uint32_t> seed = std::nullopt,
         coordinate_score_function score = nullptr)

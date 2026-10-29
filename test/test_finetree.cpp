@@ -110,8 +110,132 @@ void test_normalization_preserves_actions(const state &position)
     }
 }
 
+std::vector<point> legal_completions(const HC_info &info, search_space pending)
+{
+    std::vector<point> result;
+    while(!pending.empty())
+    {
+        auto domain = std::move(pending.back());
+        pending.pop_back();
+        auto p = info.take_point(domain);
+        if(!p) continue;
+        if(!info.find_problem(*p, info.get_universe())) result.push_back(*p);
+        pending.concat(std::move(domain).remove_point(*p));
+    }
+    return result;
+}
+
+template<HCOrdering Order>
+void check_ordered_prefixes(test_node *node, const std::vector<point> &legal,
+                            const Order &order)
+{
+    const auto axis = node->is_nodal() ? 0 : node->get_n() + 1;
+    if(axis >= node->get_hc_info().dimension()) return;
+    integer_set feasible;
+    std::vector<const point *> matching;
+    for(const auto &p : legal)
+    {
+        bool matches = true;
+        for(auto *prefix = node; !prefix->is_nodal(); prefix = prefix->get_parent())
+            matches &= p[prefix->get_n()] == prefix->get_i();
+        if(matches) { feasible.insert(p[axis]); matching.push_back(&p); }
+    }
+    for([[maybe_unused]] auto coordinate : node->search(order)) {}
+    std::vector<index_t> expected;
+    for(auto coordinate : order(axis, feasible)) expected.push_back(coordinate);
+    assert(node->get_children().size() == expected.size());
+    for(std::size_t i = 0; i < expected.size(); ++i)
+    {
+        auto *child = node->get_children()[i];
+        assert(child->get_i() == expected[i]);
+        check_ordered_prefixes(child, legal, order);
+    }
+}
+
+void check_changing_order_prefixes(test_node *node, const std::vector<point> &legal,
+                                   const random_HC_ordering &random_order)
+{
+    if(node->is_ceiling()) return;
+    const auto axis = node->is_nodal() ? 0 : node->get_n() + 1;
+    integer_set feasible;
+    for(const auto &p : legal)
+    {
+        bool matches = true;
+        for(auto *prefix = node; !prefix->is_nodal(); prefix = prefix->get_parent())
+            matches &= p[prefix->get_n()] == prefix->get_i();
+        if(matches) feasible.insert(p[axis]);
+    }
+    const auto existing = node->get_children().size();
+    for(std::size_t i = 0; i < existing; ++i)
+    {
+        auto *child = node->get_children()[i];
+        assert(feasible.erase(child->get_i()));
+        check_changing_order_prefixes(child, legal, random_order);
+    }
+    std::size_t iteration = 0;
+    while(!feasible.empty())
+    {
+        const bool use_random = iteration++ % 2 == 0;
+        auto expected = use_random ? *random_order(axis, feasible).begin()
+                                   : *natural_HC_ordering{}(axis, feasible).begin();
+        auto *child = use_random ? node->expand_next(random_order)
+                                 : node->expand_next(natural_HC_ordering{});
+        assert(child && child->get_i() == expected);
+        assert(feasible.erase(expected));
+        check_changing_order_prefixes(child, legal, random_order);
+    }
+    assert(!node->expand_next(random_order));
+}
+
+void test_shared_ordered_search()
+{
+    const auto position = state::from_pgn(
+        "[Board \"custom\"]\n[Size \"4x4\"]\n"
+        "[3k/4/4/KN2:0:1:w]\n[3k/4/4/KN2:1:1:w]\n");
+    auto [info, initial] = HC_info::build_HC(position);
+    const auto legal = legal_completions(info, initial);
+    assert(!legal.empty());
+    std::vector<std::vector<float>> scores(info.dimension());
+    for(index_t n = 0; n < info.dimension(); ++n)
+    {
+        const auto maximum = *std::max_element(info.get_universe()[n].begin(), info.get_universe()[n].end());
+        scores[n].resize(maximum + 1);
+        for(auto coordinate : info.get_universe()[n]) scores[n][coordinate] = float(coordinate % 7);
+    }
+    std::mt19937 random(91);
+    scored_HC_ordering order(info.get_universe(), scores, random);
+    for(auto builder : {fine_builder::regular, fine_builder::solid})
+    {
+        fine_search_options options;
+        options.builder = builder;
+        auto root = test_node::make_root(position, {}, options);
+        // Abandon and resume generators, interleaving siblings while their
+        // constraints and failure records live in the shared cell forest.
+        auto first = root->search(order).first();
+        assert(first);
+        auto *child = root->get_child(*first);
+        if(!child->is_ceiling()) child->search(order).first();
+        auto second = root->search(order).first();
+        if(second && !root->get_child(*second)->is_ceiling())
+            root->get_child(*second)->search(order).first();
+        check_ordered_prefixes(root.get(), legal, order);
+        auto *ceiling = finetree_nearby_ceiling(root.get());
+        assert(ceiling && position.can_apply(action::from_moveseq(ceiling->to_action(), position)));
+        ceiling->ignite();
+        assert(ceiling->get_search_options().builder == builder);
+        const auto *context = &ceiling->get_hc_info();
+        ceiling->ignite();
+        assert(&ceiling->get_hc_info() == context);
+    }
+    std::mt19937 changing_rng(119);
+    random_HC_ordering changing_order(info.get_universe(), changing_rng);
+    auto changing_root = test_node::make_root(position);
+    check_changing_order_prefixes(changing_root.get(), legal, changing_order);
+}
+
 int main()
 {
+    test_shared_ordered_search();
     state s = state::from_pgn<true>(str);
     test_normalization_preserves_actions(s);
 

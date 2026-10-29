@@ -67,7 +67,9 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     }
 
     if constexpr(requires { observer.reset(); }) observer.reset();
-    root = node_t::make_root(*get_current_state());
+    fine_search_options search_options;
+    if constexpr(requires { tree_policy.fine_options(); }) search_options = tree_policy.fine_options();
+    root = node_t::make_root(*get_current_state(), node_info{}, search_options);
     std::size_t iteration_count = 0;
     while(true)
     {

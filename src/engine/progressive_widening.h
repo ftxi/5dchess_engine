@@ -148,6 +148,13 @@ private:
     }
 
 public:
+    fine_search_options fine_options() const
+    {
+        fine_search_options options;
+        if(score_function) options.builder = fine_builder::solid;
+        return options;
+    }
+
     explicit progressive_widening_tree_policy(
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant_ = default_progressive_widening_constant,

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cassert>
 #include <limits>
+#include <iterator>
 #include <ranges>
 #include "graph.h"
 
@@ -10,6 +11,7 @@ std::optional<point> HC_info::match_point(
     HC &hc, const Ordering &order, workspace &ws, bool reuse_matching) const
 {
     assert(hc.dimension() == dimension());
+    if(ws.count_matching) ++ws.matching_calls;
     auto &g = ws.matching_graph;
     g.reset(dimension());
     auto &must_include = ws.must_include;
@@ -163,41 +165,8 @@ generator<moveseq> HC_info::local_search(
         const auto &values = found == fixed.end() ? outer_hc[departure_axis] : found->second;
         if(values.size() > 1) departures.push_back({variable, departure_axis, values});
     }
-    const auto project_problem = [&](const slice &problem) -> std::optional<slice> {
-        slice projected;
-        for(const auto &[axis, values] : problem.get_fixed_axes())
-        {
-            const auto found = std::lower_bound(local.axes.begin(), local.axes.end(), axis);
-            index_t n;
-            integer_set allowed;
-            if(found == local.axes.end() || *found != axis)
-            {
-                const auto departure = std::find_if(departures.begin(), departures.end(),
-                    [&](const local_departure &p) { return p.axis == axis; });
-                if(departure == departures.end())
-                {
-                    if(!values.contains(seed[axis])) return std::nullopt;
-                    continue;
-                }
-                if(departure->values.is_subset_of(values)) continue;
-                n = departure->variable;
-                for(index_t i : local.universe[n])
-                    if(values.contains(std::get<arriving_entry>(axis_coords[local.axes[n]][i]).idx))
-                        allowed.insert(i);
-            }
-            else
-            {
-                n = static_cast<index_t>(found - local.axes.begin());
-                if(local.universe[n].is_subset_of(values)) continue;
-                allowed = local.universe[n] & values;
-            }
-            // Both original axes may restrict the same paired local variable.
-            const auto previous = projected.get_fixed_axes().find(n);
-            if(previous != projected.get_fixed_axes().end()) allowed &= previous->second;
-            if(allowed.empty()) return std::nullopt;
-            projected.fix_axis(n, std::move(allowed));
-        }
-        return projected;
+    const auto project_problem = [&](const slice &problem) {
+        return project_local_problem(local, seed, problem);
     };
 
     search_space remaining = seed_already_yielded
@@ -526,6 +495,345 @@ std::optional<point> HC_info::find_witness(witness_space<Policy> &space,
                 space.positive.remove_slice_globally(*cheapest);
                 space.negative.erase(cheapest);
             }
+        }
+    }
+}
+
+
+template<HCOrdering Ordering>
+std::optional<point> HC_info::take_local_point(
+    const local_space &local, const point &seed, const HC &region, const Ordering &order) const
+{
+    if(!region.intersects(local.outer_region)) return std::nullopt;
+    point candidate = seed;
+    for(std::size_t variable = 0; variable < local.axes.size(); ++variable)
+    {
+        const auto axis = local.axes[variable];
+        const auto allowed = region[axis] & local.universe[variable];
+        bool found = false;
+        for(auto coordinate : order(axis, allowed))
+        {
+            if(const auto *arrival = std::get_if<arriving_entry>(&axis_coords[axis][coordinate]))
+            {
+                const auto source = line_to_axis_unsafe(arrival->m.from.l());
+                if(!region[source].contains(arrival->idx)) continue;
+                candidate[source] = arrival->idx;
+            }
+            candidate[axis] = coordinate;
+            found = true;
+            break;
+        }
+        if(!found) return std::nullopt;
+    }
+    if(!region.contains(candidate)) return std::nullopt;
+    return candidate;
+}
+
+template<HCOrdering Ordering>
+std::optional<point> HC_info::local_witness(
+    local_space &local, const point &seed, const HC &restriction, const Ordering &order) const
+{
+    if(!restriction.intersects(local.outer_region)) return std::nullopt;
+    std::optional<slice> first_problem;
+    if(!local.candidates)
+    {
+        auto candidate = take_local_point(local, seed, restriction, order);
+        if(!candidate) return std::nullopt;
+        first_problem = find_checks(*candidate, universe);
+        if(!first_problem) return candidate;
+        local.candidates = std::make_unique<hc_cell_tree>(
+            search_space{local.universe}, hc_cell_options{hc_failure_policy::all, 64, 0});
+    }
+    if(local.candidates->empty()) return std::nullopt;
+    HC projected = local.universe;
+    for(index_t n = 0; n < local.axes.size(); ++n)
+    {
+        const auto axis = local.axes[n];
+        projected[n] &= restriction[axis];
+        if(arriving_entries[axis].contains(local.seed[n]))
+        {
+            integer_set unsupported;
+            for(auto coordinate : projected[n])
+            {
+                const auto &arrival = std::get<arriving_entry>(axis_coords[axis][coordinate]);
+                if(!restriction[line_to_axis_unsafe(arrival.m.from.l())].contains(arrival.idx))
+                    unsupported.insert(coordinate);
+            }
+            projected[n].minus(unsupported);
+        }
+    }
+    if(projected.empty()) return std::nullopt;
+    const auto select = [&](const HC &domain) {
+        point full = seed;
+        for(index_t n = 0; n < local.axes.size(); ++n)
+        {
+            const auto axis = local.axes[n];
+            auto values = order(axis, domain[n]);
+            full[axis] = *values.begin();
+            if(const auto *arrival = std::get_if<arriving_entry>(&axis_coords[axis][full[axis]]))
+                full[line_to_axis_unsafe(arrival->m.from.l())] = arrival->idx;
+        }
+        return full;
+    };
+    // Fixed guards outside the local variables must hold before a failure can
+    // be memoized solely in projected coordinates.
+    if(!restriction.contains(select(projected))) return std::nullopt;
+    const auto publish = [&](slice problem) {
+        auto cut = project_local_problem(local, seed, problem);
+        assert(cut);
+        local.problems.push_back(std::move(problem));
+        if(cut->get_fixed_axes().size() <= 1) local.candidates->remove_slice_globally(*cut);
+        else
+        {
+            local.candidates->add_negative(std::move(*cut));
+            local.candidates->balance(local.universe);
+        }
+    };
+    if(first_problem) publish(std::move(*first_problem));
+    const std::size_t work = 0;
+    for(;;)
+    {
+        std::optional<point> result;
+        std::optional<slice> problem;
+        local.candidates->visit(projected, [&](const HC &bounds, auto negative) {
+            HC domain = bounds;
+            for(index_t n = 0; n < local.axes.size(); ++n) domain[n] &= projected[n];
+            if(!prune_slice_refs(domain, negative)) return false;
+            std::vector<std::pair<HC, std::size_t>> pending;
+            pending.emplace_back(std::move(domain), 0);
+            while(!pending.empty())
+            {
+                auto [part, next] = std::move(pending.back());
+                pending.pop_back();
+                while(next < negative.size() && !part.intersects(*negative[next])) ++next;
+                if(next != negative.size())
+                {
+                    auto pieces = std::move(part).remove_slice_carefully(*negative[next]);
+                    for(auto &piece : pieces) pending.emplace_back(std::move(piece), next + 1);
+                    continue;
+                }
+                auto candidate = select(part);
+                problem = find_checks(candidate, universe);
+                if(!problem) result = std::move(candidate);
+                return true;
+            }
+            return false;
+        }, work);
+        if(result || !problem) return result;
+        publish(std::move(*problem));
+    }
+}
+
+
+template<HCOrdering Ordering>
+std::optional<point> HC_info::resume_local(completion_space &space,
+    std::unique_ptr<local_cursor> &cursor, const local_cursor *parent,
+    const point &seed, index_t axis, index_t coordinate, const Ordering &order) const
+{
+    if(!prepare_local_cursor(space, cursor, parent, seed, axis, coordinate)) return std::nullopt;
+    ++space.local_resumes;
+    auto &local = *cursor->local;
+    const auto &layout = *local.projection;
+    HC projected = cursor->domain;
+    if(!restrict_local_axis(projected, local, axis, coordinate)) return std::nullopt;
+    const auto select = [&](const HC &domain) {
+        point full = local.representative;
+        for(index_t variable = 0; variable < local.axes.size(); ++variable)
+        {
+            const auto n = local.axes[variable];
+            auto values = order(n, domain[variable]);
+            full[n] = *values.begin();
+            if(layout.sources[variable] != no_axis)
+                full[layout.sources[variable]] = std::get<arriving_entry>(axis_coords[n][full[n]]).idx;
+        }
+        assert(full[axis] == coordinate);
+        for(index_t n = 0; n < axis; ++n) assert(full[n] == seed[n]);
+        return full;
+    };
+    const auto publish = [&](const slice &problem) {
+        auto cut = project_local_problem(local, local.representative, problem);
+        assert(cut);
+        if(cut->get_fixed_axes().size() <= 1) local.candidates->remove_slice_globally(*cut);
+        else
+        {
+            local.candidates->add_negative(std::move(*cut));
+            local.candidates->balance(local.universe);
+        }
+    };
+    if(!local.candidates)
+    {
+        auto candidate = select(projected);
+        auto problem = find_checks(candidate, universe);
+        if(!problem) { ++space.local_resume_hits; return candidate; }
+        local.candidates = std::make_unique<hc_cell_tree>(
+            search_space{local.universe}, hc_cell_options{hc_failure_policy::all, 64, 0});
+        publish(*problem);
+    }
+    if(!cursor->frontier_ready)
+    {
+        cursor->candidates = local.candidates->restrict(cursor->domain);
+        cursor->frontier_ready = true;
+    }
+    const std::size_t work = 0;
+    for(;;)
+    {
+        std::optional<point> result;
+        std::optional<slice> problem;
+        local.candidates->visit(cursor->candidates, projected, [&](const HC &bounds, auto negative) {
+            HC domain = bounds;
+            for(index_t n = 0; n < local.axes.size(); ++n) domain[n] &= projected[n];
+            if(!prune_slice_refs(domain, negative)) return false;
+            std::vector<std::pair<HC, std::size_t>> pending;
+            pending.emplace_back(std::move(domain), 0);
+            while(!pending.empty())
+            {
+                auto [part, next] = std::move(pending.back());
+                pending.pop_back();
+                while(next < negative.size() && !part.intersects(*negative[next])) ++next;
+                if(next != negative.size())
+                {
+                    auto pieces = std::move(part).remove_slice_carefully(*negative[next]);
+                    for(auto &piece : pieces) pending.emplace_back(std::move(piece), next + 1);
+                    continue;
+                }
+                auto candidate = select(part);
+                problem = find_checks(candidate, universe);
+                if(!problem) result = std::move(candidate);
+                return true;
+            }
+            return false;
+        }, work);
+        if(result) { ++space.local_resume_hits; return result; }
+        if(!problem) return std::nullopt;
+        publish(*problem);
+    }
+}
+
+template<HCOrdering Ordering>
+std::optional<point> HC_info::find_witness(
+    completion_space &space, const HC &restriction, const Ordering &order, completion_query *query) const
+{
+    assert(restriction.dimension() == dimension());
+    if(restriction.empty()) return std::nullopt;
+    ++space.witness_calls;
+    space.scratch.reuse_between_points = true;
+    space.scratch.count_matching = true;
+    // A validated class fixes null entries, jump partners and source/destination
+    // timelines. Like local_search(), its other completions need only checks.
+    // The shared forest excludes only illegal points, so a legal class member
+    // can be returned without traversing that index again.
+    if(space.reuse_local)
+    {
+        const auto try_class = [&](const std::shared_ptr<local_space> &local) -> std::optional<point> {
+            auto candidate = local_witness(*local, local->representative, restriction, order);
+            // Check exclusions belong to this guarded matching class. Its
+            // projected forest retains them without fragmenting the global one.
+            local->problems.clear();
+            if(candidate)
+            {
+                ++space.local_hits;
+                if(query) query->local = local;
+            }
+            return candidate;
+        };
+        if(query && query->local)
+            if(auto candidate = try_class(query->local)) return candidate;
+        if(space.local && (!query || query->local != space.local))
+            if(auto candidate = try_class(space.local)) return candidate;
+        for(auto it = space.local_cache.rbegin(); it != space.local_cache.rend(); ++it)
+        {
+            if(query && query->local == *it) continue;
+            if(auto candidate = try_class(*it)) return candidate;
+        }
+    }
+    HC selection = restriction;
+    if(!constrain_domain(selection, &space.propagation)) return std::nullopt;
+    for(;;)
+    {
+        std::optional<point> result;
+        std::optional<slice> problem;
+        const auto visit = [&](const HC &bounds, std::span<const slice *const> negative) {
+            for(index_t n = 0; n < dimension(); ++n)
+                if(!bounds[n].intersects(selection[n])) return false;
+            HC region = bounds;
+            for(std::size_t n = 0; n < dimension(); ++n) region[n] &= selection[n];
+            if(!prune_slice_refs(region, negative)) return false;
+            bool from_local = false;
+            const auto select = [&](HC &domain) -> std::optional<point> {
+                if(space.reuse_local && space.local)
+                    if(auto candidate = take_local_point(*space.local, space.local->representative, domain, order))
+                    {
+                        from_local = true;
+                        return candidate;
+                    }
+                from_local = false;
+                return take_point(domain, order, &space.scratch);
+            };
+            auto candidate = select(region);
+            if(!candidate || !prune_slice_refs(region, negative)) return false;
+            if(!region.contains(*candidate) || std::any_of(negative.begin(), negative.end(),
+                [&](const slice *p) { return p->contains(*candidate); }))
+            {
+                // Keep hard-negative subtraction temporary until Deferred's
+                // balance rule chooses a persistent cut in the shared forest.
+                std::vector<std::pair<HC, std::size_t>> pending;
+                pending.emplace_back(std::move(region), 0);
+                candidate.reset();
+                while(!pending.empty())
+                {
+                    auto [part, next] = std::move(pending.back());
+                    pending.pop_back();
+                    while(next < negative.size() && !part.intersects(*negative[next])) ++next;
+                    if(next == negative.size())
+                    {
+                        if(auto chosen = select(part)) { candidate = std::move(chosen); break; }
+                        continue;
+                    }
+                    auto pieces = std::move(part).remove_slice_carefully(*negative[next]);
+                    for(auto &piece : pieces) pending.emplace_back(std::move(piece), next + 1);
+                }
+            }
+            if(!candidate) return false;
+            problem = from_local ? find_checks(*candidate, universe) : find_problem(*candidate, universe);
+            if(!problem)
+            {
+                if(space.reuse_local && !from_local)
+                {
+                    std::shared_ptr<local_space> next;
+                    if(space.local && local_contains(*space.local, *candidate)) next = space.local;
+                    else
+                        for(const auto &cached : space.local_cache)
+                            if(local_contains(*cached, *candidate)) { next = cached; break; }
+                    if(!next)
+                    {
+                        next = build_local_space(universe, *candidate);
+                        if(next) next->representative = *candidate;
+                    }
+                    if(next) std::erase(space.local_cache, next);
+                    if(space.local && space.local_capacity && next != space.local)
+                    {
+                        if(space.local_cache.size() >= space.local_capacity) space.local_cache.erase(space.local_cache.begin());
+                        space.local_cache.push_back(std::move(space.local));
+                    }
+                    space.local = std::move(next);
+                }
+                if(query && space.local) query->local = space.local;
+                result = std::move(candidate);
+            }
+            return true;
+        };
+        ++space.forest_searches;
+        if(query) space.cells.visit(query->choices, restriction, visit, space.scratch.matching_calls);
+        else space.cells.visit(restriction, visit, space.scratch.matching_calls);
+        if(result || !problem) return result;
+        std::size_t codimension = 0;
+        for(const auto &[axis, values] : problem->get_fixed_axes())
+            codimension += !universe[axis].is_subset_of(values);
+        if(codimension <= 1) space.cells.remove_slice_globally(*problem);
+        else
+        {
+            space.cells.add_negative(std::move(*problem));
+            space.cells.balance(universe);
         }
     }
 }
