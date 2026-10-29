@@ -42,9 +42,9 @@ A **timeline** is a sequence of boards, with White's board and Black's board app
 
 A **multiverse** is a collection of all timelines. A timeline in a multiverse is numbered by its **L coordinate**. Timelines created by White have positive L coordinates and are located below initial timelines. Timelines created by Black have negative L coordinates and are located above initial timelines.
 
-A timeline is **active** if it is an initial timeline; or, it is the Nth timeline created by one player and the opponent has created at least (N-1) timelines. If a timeline is not active, then it is **inactive**. Both players can submit without playing any move from or to inactive timelines.
+A timeline is **active** if it is an initial timeline; or, it is the Nth timeline created by one player and the opponent has created at least (N-1) timelines. If a timeline is not active, then it is **inactive**.
 
-The **present** is the minimum turn index of all ends of all timelines. Players can only submit when they are able to shift the present to their opponent.
+The **present** is the minimum turn index among all *active* timelines, ordered by the turn number and board color. As a consequence, inactive timelines do not affect the present calculation. A player can only submit when the resulting present belong to their opponent and no royal pieces of the player is exposed to the opponent.
 
 A **state** consists of this information: a multiverse and the current player. A state is called **nodal** if it is the initial state or it is the state right after any player has submitted. Otherwise it is known as a **temporary state**.
 
@@ -54,13 +54,13 @@ A **playable board** refers to a board with the same color as the current player
 
 **Super-Physical move** or **jump** refers to moves whose destination board is not the same as its source board. A jump is **branching** if it creates a new timeline. Otherwise it is a **non-branching** jump.
 
-When a king is under immediate attack, it is under **check**.
+A player is in **check** if forcibly skipping all *active timelines at the present* would allow the opponent to capture one of that player’s royal pieces. By forcibly skipping a timeline, we mean the hypothetical multiverse of appending the same endpoint board in the next half-turn. Note: this hypothetical multiverse is only a way to determine check. In actual gameplay players cannot skip a move.
 
-**Checkmate** is a state where one or more kings of the current player are under check and there is no legal action.
+**Checkmate** is a state where current player is in check and there is no legal action.
 
-**Stalemate** is a state where there is no legal action, but no king is under attack.
+**Stalemate** is a state where there is no legal action, but the current player is not in check.
 
-**Softmate** is a state where one or more kings of the current player are under check and all legal actions rewind the present.
+**Softmate** is a state where one or more royal pieces of the current player is in check and all legal actions rewind the present.
 
 Coordinate
 -----------

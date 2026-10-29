@@ -92,7 +92,7 @@ class fine_node
     void remove_from_cell(const slice &, fine_cell<T> *);
     void remove_from_node(const slice &, fine_node<T> *);
     fine_node<T> *isolate(const point &, fine_cell<T> *, HC *);
-    fine_node<T> *normalize(const point &, fine_cell<T> *, fine_node<T> *);
+    fine_node<T> *normalize(const point &, fine_node<T> *);
 
 public:
     // copying/moving a fine_node needs to explicitly set the parent pointer of its children

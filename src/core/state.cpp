@@ -628,21 +628,48 @@ mate_type state::get_mate_type(bool legal_action_witness) const
         dprint("has non-branching action");
         return mate_type::NONE;
     }
-    search_space ss2 = ss;
-    /* player can only create timeline_advantage+1 active lines */
-    const auto [l0_min, l0_max] = get_initial_lines_range();
+    const index_t max_branches = w.dimension() - w.first_branch_axis();
+    index_t branch_cap = max_branches;
+    index_t max_reactivate = 0;
+    const auto [active_min, active_max] = get_active_range();
     const auto [l_min, l_max] = get_lines_range();
-    int whites_lines = l_max - l0_max;
-    int blacks_lines = l0_min - l_min;
-    int timeline_advantage = present.c() ? (whites_lines - blacks_lines) : (blacks_lines - whites_lines);
-    /* Build the search space `ss2` from `ss` so that
-    1. On new lines that are active, erase all moves traveling back in time
-    2. On other lines, do nothing */
-    for(HC &hc : ss2)
+    const int direction = present.c() ? 1 : -1;
+    const int first_inactive = present.c() ? active_max + 1 : active_min - 1;
+    // Each branch activates the next opponent timeline, nearest first. An
+    // earlier endpoint cannot catch up to the original Present in this action.
+    for(int l = first_inactive; l_min <= l && l <= l_max; l += direction)
     {
-        //NOTE: because most axes are the same, the following code can be optimized
-        int max_axis = std::min(w.first_branch_axis()+timeline_advantage+1, w.dimension()-1);
-        for(int n = w.first_branch_axis(); n <= max_axis; n++)
+        if(get_timeline_end(l) < present)
+        {
+            branch_cap = std::min(max_branches, max_reactivate);
+            break;
+        }
+        ++max_reactivate;
+    }
+
+    const auto [l0_min, l0_max] = get_initial_lines_range();
+    const int whites_lines = l_max - l0_max;
+    const int blacks_lines = l0_min - l_min;
+    const int timeline_advantage = present.c() ? (whites_lines - blacks_lines) : (blacks_lines - whites_lines);
+    const index_t active_branch_cap = static_cast<index_t>(std::max(0, timeline_advantage + 1));
+    search_space ss2;
+    // build_HC orders these cases from max_branches down to one branch.
+    // Preserve ss for the unrestricted legal-action search below.
+    index_t branches = max_branches; // Number of new timelines required by the current hypercuboid.
+    for(const HC &source : ss)
+    {
+        const index_t count = branches;
+        --branches;
+        if(count > branch_cap)
+        {
+            continue;
+        }
+        ss2.push_back(source);
+        HC &hc = ss2.back();
+        const index_t active_branches = std::min(count, active_branch_cap);
+        const index_t end_axis = w.first_branch_axis() + active_branches;
+        // Only active new timelines can rewind the Present through arrival.
+        for(index_t n = w.first_branch_axis(); n < end_axis; n++)
         {
             hc[n].erase_if([&w, n, old_t=present.t()](int i){
                 semimove sm = w.get_semimove(n, i);

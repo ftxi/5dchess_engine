@@ -216,7 +216,7 @@ inline fine_node<T> *fine_node<T>::expand(const Order &order)
     }
     const auto &[pt, cell, hc] = *ans;
     fine_node<T> *final_node = isolate(pt, cell, hc);
-    fine_node<T> *next_node = normalize(pt, cell, final_node);
+    fine_node<T> *next_node = normalize(pt, final_node);
     return next_node;
 }
 
@@ -326,7 +326,7 @@ inline fine_node<T> *fine_node<T>::isolate(const point &p, fine_cell<T> *target_
 
 template<typename T>
     requires std::default_initializable<T>
-inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *target_cell, fine_node<T> *final_node)
+inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_node<T> *final_node)
 {
     std::vector<fine_node<T> *> nodes(get_context()->hc_info.dimension()+1, nullptr);
     fine_node<T> *current_node = final_node;
@@ -338,9 +338,10 @@ inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *targe
     index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
     nodes[next_n] = this;
     
-    auto try_isolate = [current_node=this, &p, target_cell, &nodes](HC *target_hc)
+    auto try_isolate = [current_node=this, &p, &nodes](
+        fine_cell<T> *source_cell, HC *target_hc)
     -> void {
-        fine_cell<T> *current_cell = target_cell;
+        fine_cell<T> *current_cell = source_cell;
         HC *current_hc = target_hc;
         index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
         auto context = current_node->get_context();
@@ -364,9 +365,14 @@ inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *targe
         }
     };
 
-    for(HC &hc : target_cell->subspace)
+    // Transfer matching prefixes from every cell owned by this node.
+    // Each transferred region retains its source cell as its parent.
+    for(fine_cell<T> *source_cell : cells)
     {
-        try_isolate(&hc);
+        for(HC &hc : source_cell->subspace)
+        {
+            try_isolate(source_cell, &hc);
+        }
     }
     index_t n1 = next_n + 1;
     return nodes[n1];

@@ -130,6 +130,9 @@ warmup samples are discarded. Each timer covers finding a legal action or
 proving exhaustion, including search-context setup/cleanup and terminal
 classification. Parsing, replay, action validation, and printing are excluded.
 This does not run the separate softmate searches in `get_mate_type()`.
+The engine uses softmate for check with legal escapes that all move the Present
+backward, including through reactivation of existing timelines. Softmate is not
+checkmate: legal play can continue.
 For count records, the timer covers enumeration up to exhaustion or the action
 limit, and context setup/cleanup; terminal classification is included when the count is zero. Count workloads
 check the observed count for agreement between rounds, rather than validating
