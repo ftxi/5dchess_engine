@@ -29,9 +29,6 @@ endforeach()
 # Includes the formerly unbounded slow-position legality regression.
 set_tests_properties(test_hcutils PROPERTIES TIMEOUT 30)
 
-# Global propagation must resolve the formerly unbounded engine/fine searches.
-set_tests_properties(test_global_search PROPERTIES TIMEOUT 30)
-
 if(TOOLS)
     # Reuse the shell script's literal stdin records without requiring a shell in CTest.
     file(READ "${CMAKE_CURRENT_SOURCE_DIR}/hc_count.sh" HC_COUNT_SCRIPT)
