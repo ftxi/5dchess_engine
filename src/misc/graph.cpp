@@ -21,41 +21,66 @@ void graph::add_edge(index_t u, index_t v)
 }
 
 std::optional<std::vector<std::pair<index_t, index_t>>>
-graph::find_matching(const std::vector<index_t> &include) const
+graph::find_matching(const std::vector<index_t> &include, workspace &ws,
+    std::span<const std::pair<index_t, index_t>> initial) const
 {
     dprint("finding a match on" + to_string());
     // With no mandatory vertex, the empty matching is already a solution.
-    // This is also the common take_point() case, so avoid constructing the
-    // alternating-path workspace until it is actually needed.
+    // This is also the common take_point() case, so do not touch matching
+    // scratch until it is actually needed.
     if(include.empty())
     {
         return std::vector<std::pair<index_t, index_t>>{};
     }
 
-    std::vector<index_t> mate(n_vertices, nil_vertex);
-    std::vector<std::uint8_t> must_include(n_vertices, false);
-    for(index_t n : include)
+    auto &mate = ws.mate;
+    mate.assign(n_vertices, nil_vertex);
+    auto &must_include = ws.must_include;
+    must_include.clear();
+    for(index_t n : include) must_include.insert(n);
+    const auto collect = [&] {
+        std::vector<std::pair<index_t, index_t>> result;
+        result.reserve(initial.empty() ? include.size()
+            : std::min<std::size_t>(n_vertices / 2, include.size() + initial.size()));
+        for(index_t vertex = 0; vertex < n_vertices; ++vertex)
+            if(mate[vertex] < vertex) result.emplace_back(vertex, mate[vertex]);
+        return result;
+    };
+    if(!initial.empty())
     {
-        must_include[n] = true;
+        // A seed may come from another graph or dimension. Retain only useful
+        // surviving edges, without introducing optional-only matching pairs.
+        for(const auto &[u, v] : initial)
+        {
+            if(u >= n_vertices || v >= n_vertices || u == v
+                || (!must_include.contains(u) && !must_include.contains(v))
+                || !has_edge(u, v)
+                || mate[u] != nil_vertex || mate[v] != nil_vertex) continue;
+            mate[u] = v;
+            mate[v] = u;
+        }
+        if(std::all_of(include.begin(), include.end(),
+            [&](index_t vertex) { return mate[vertex] != nil_vertex; })) return collect();
     }
-
-    // Storage used by every augmenting-path search in this matching. Keeping it
-    // here makes its lifetime explicit and avoids reallocating it for each root.
+    // Prepare path-search storage only when the seed needs repair. Retain its
+    // capacity across calls, but initialize logical state for each new root.
     // the BFS search tree structure
-    std::vector<index_t> parent(n_vertices);
+    auto &parent = ws.parent;
+    parent.resize(n_vertices);
     // base[v] is the base of the blossom containing v, or v itself if v is not in a blossom
-    std::vector<index_t> base(n_vertices);
+    auto &base = ws.base;
+    base.resize(n_vertices);
     // whether a vertex is reachable from the root by an even-length alternating path
-    std::vector<std::uint8_t> is_even_reachable(n_vertices);
+    auto &is_even_reachable = ws.is_even_reachable;
     // bases included in the blossom currently being contracted
-    std::vector<std::uint8_t> in_blossom(n_vertices);
+    auto &in_blossom = ws.in_blossom;
     // used to find the lowest common ancestor of two vertices in the alternating tree
-    std::vector<std::uint8_t> in_ancestor_path(n_vertices);
+    auto &in_ancestor_path = ws.in_ancestor_path;
     // the BFS queue
-    std::vector<index_t> queue;
+    auto &queue = ws.queue;
     // the returned path and temporary storage used to reconstruct it
-    std::vector<index_t> path;
-    std::vector<index_t> reverse_path;
+    auto &path = ws.path;
+    auto &reverse_path = ws.reverse_path;
     queue.reserve(n_vertices);
     path.reserve(n_vertices);
     reverse_path.reserve(n_vertices);
@@ -63,17 +88,17 @@ graph::find_matching(const std::vector<index_t> &include) const
     const auto find_augmenting_path = [&](index_t root) {
         std::fill(parent.begin(), parent.end(), nil_vertex);
         std::iota(base.begin(), base.end(), index_t{0});
-        std::fill(is_even_reachable.begin(), is_even_reachable.end(), false);
+        is_even_reachable.clear();
         queue.clear();
         path.clear();
         reverse_path.clear();
 
         const auto lowest_common_ancestor = [&](index_t a, index_t b) {
-            std::fill(in_ancestor_path.begin(), in_ancestor_path.end(), false);
+            in_ancestor_path.clear();
             while(true)
             {
                 a = base[a];
-                in_ancestor_path[a] = true;
+                in_ancestor_path.insert(a);
                 if(mate[a] == nil_vertex)
                 {
                     break;
@@ -83,7 +108,7 @@ graph::find_matching(const std::vector<index_t> &include) const
             while(true)
             {
                 b = base[b];
-                if(in_ancestor_path[b])
+                if(in_ancestor_path.contains(b))
                 {
                     return b;
                 }
@@ -94,8 +119,8 @@ graph::find_matching(const std::vector<index_t> &include) const
         const auto mark_blossom_path = [&](index_t vertex, index_t blossom_base, index_t child) {
             while(base[vertex] != blossom_base)
             {
-                in_blossom[base[vertex]] = true;
-                in_blossom[base[mate[vertex]]] = true;
+                in_blossom.insert(base[vertex]);
+                in_blossom.insert(base[mate[vertex]]);
                 parent[vertex] = child;
                 child = mate[vertex];
                 vertex = parent[mate[vertex]];
@@ -125,7 +150,7 @@ graph::find_matching(const std::vector<index_t> &include) const
 
         // BFS starts
         queue.push_back(root);
-        is_even_reachable[root] = true;
+        is_even_reachable.insert(root);
         std::size_t queue_position = 0;
         while(queue_position < queue.size())
         {
@@ -153,28 +178,28 @@ graph::find_matching(const std::vector<index_t> &include) const
                 {
                     // mark the blossom
                     const index_t blossom_base = lowest_common_ancestor(vertex, neighbor);
-                    std::fill(in_blossom.begin(), in_blossom.end(), false);
+                    in_blossom.clear();
                     mark_blossom_path(vertex, blossom_base, neighbor);
                     mark_blossom_path(neighbor, blossom_base, vertex);
                     // for the contracted blossom
                     for(index_t v = 0; v < n_vertices; ++v)
                     {
-                        if(in_blossom[base[v]])
+                        if(in_blossom.contains(base[v]))
                         {
                             base[v] = blossom_base;
                             // since a blossom is an odd cycle, all vertices in it are even-reachable
                             // even those initially thought as odd (take another path through the blossom)
                             // they will need to be added to the searching queue
-                            if(!is_even_reachable[v])
+                            if(!is_even_reachable.contains(v))
                             {
                                 // A newly even-reachable vertex outside S is a valid endpoint.
-                                if(!must_include[v])
+                                if(!must_include.contains(v))
                                 {
                                     reconstruct_path(mate[v]);
                                     path.push_back(v);
                                     return true;
                                 }
-                                is_even_reachable[v] = true;
+                                is_even_reachable.insert(v);
                                 queue.push_back(v);
                             }
                         }
@@ -193,13 +218,13 @@ graph::find_matching(const std::vector<index_t> &include) const
                     // otherwise, add the neighbor's mate to the tree
                     // and add it to the searching queue
                     const index_t next = mate[neighbor];
-                    if(!must_include[next])
+                    if(!must_include.contains(next))
                     {
                         reconstruct_path(neighbor);
                         path.push_back(next);
                         return true;
                     }
-                    is_even_reachable[next] = true;
+                    is_even_reachable.insert(next);
                     queue.push_back(next);
                 }
             }
@@ -240,16 +265,7 @@ graph::find_matching(const std::vector<index_t> &include) const
         }
     }
 
-    std::vector<std::pair<index_t, index_t>> result;
-    result.reserve(include.size());
-    for(index_t vertex = 0; vertex < n_vertices; ++vertex)
-    {
-        if(mate[vertex] < vertex)
-        {
-            result.emplace_back(vertex, mate[vertex]);
-        }
-    }
-    return result;
+    return collect();
 }
 
 std::string graph::to_string() const

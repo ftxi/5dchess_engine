@@ -1,3 +1,7 @@
 # Force GitHub to treat all pgn files as text/plain
 *.pgn linguist-language=Text
 *.5dpgn linguist-language=Text
+
+# Suppress textual diffs for frequently changing data.
+docs/reports/res/** -diff
+test/pgn/online/** -diff

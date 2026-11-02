@@ -150,6 +150,7 @@ public:
                 std::optional<bool> winner = std::nullopt;
                 // Action selection has already exhausted the legal actions.
                 search_trace_phase phase("terminal_classification", &s);
+
                 if(s.has_phantom_check())
                 {
                     winner = !player;

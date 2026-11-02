@@ -28,3 +28,25 @@ endforeach()
 
 # Bound cancellation regressions even if timer shutdown deadlocks.
 set_tests_properties(test_search_control PROPERTIES TIMEOUT 15)
+# Includes the formerly unbounded slow-position legality regression.
+set_tests_properties(test_hcutils PROPERTIES TIMEOUT 30)
+
+if(TOOLS)
+    # Reuse the shell script's literal stdin records without requiring a shell in CTest.
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/hc_count.sh" HC_COUNT_SCRIPT)
+    string(REGEX MATCH "HC_PROFILE_INPUT'\n(.*)\nHC_PROFILE_INPUT" HC_COUNT_MATCH "${HC_COUNT_SCRIPT}")
+    if(NOT HC_COUNT_MATCH)
+        message(FATAL_ERROR "Missing hc_count.sh input records")
+    endif()
+    set(HC_COUNT_INPUT "${CMAKE_CURRENT_BINARY_DIR}/hc_count.in")
+    file(WRITE "${HC_COUNT_INPUT}" "${CMAKE_MATCH_1}\n")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS hc_count.sh)
+    foreach(POLICY balanced stable deferred fine)
+        add_test(NAME hc_count_${POLICY}
+            COMMAND ${CMAKE_COMMAND}
+                "-DTOOLS=$<TARGET_FILE:5dtools>"
+                "-DINPUT=${HC_COUNT_INPUT}" "-DPOLICY=${POLICY}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/run_hc_count.cmake")
+        set_tests_properties(hc_count_${POLICY} PROPERTIES TIMEOUT 30)
+    endforeach()
+endif()

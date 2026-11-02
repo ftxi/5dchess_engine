@@ -4,6 +4,7 @@
 #include <charconv>
 #include <sstream>
 #include <limits>
+#include <stack>
 
 //#define DEBUGMSG
 #include "debug.h"
@@ -838,47 +839,78 @@ std::optional<actions> pgnparser::parse_actions()
  */
 std::optional<gametree> pgnparser::parse_gametree()
 {
-    PARSE_START;
-    dprint("parse_gametree()");
-    if (buffer.token == WHITE_WINS || buffer.token == BLACK_WINS || buffer.token == DRAW)
+    gametree root;
+    auto *current = &root;
+    auto entry = buffer;
+    bool entering = true;
+    enum class tree_context { root, continuation, branch };
+    auto context = tree_context::root;
+    struct branch_frame {
+        gametree *parent;
+        decltype(buffer) entry;
+        tree_context context;
+    };
+    std::stack<branch_frame> branches;
+    while(true)
     {
-        token_t outcome = buffer.token;
-        next_token();
-        return gametree{outcome};
-    }
-    gametree::variations_t variations;
-    std::optional<actions> act_buffer;
-    std::optional<gametree> gt_buffer;
-    const turn branch_start_turn = buffer.turn;
-    const bool before_turn_zero = buffer.before_turn_zero;
-    while (buffer.token == LEFT_PAREN)
-    {
-        next_token();
-        parse_comments();
-        act_buffer = parse_actions();
-        if(!act_buffer.has_value()) PARSE_FAIL;
-        gt_buffer = parse_gametree();
-        if(!gt_buffer.has_value())
-            fail(parse_error::unexpected_input{{"a game tree branch"}});
-        else if(buffer.token != RIGHT_PAREN)
-            fail(parse_error::unexpected_input{{"')'"}});
+        if(entering && (buffer.token == WHITE_WINS || buffer.token == BLACK_WINS || buffer.token == DRAW))
+        {
+            current->variations_or_outcome = buffer.token;
+            next_token();
+        }
         else
-            variations.push_back({*act_buffer, std::make_unique<gametree>(std::move(*gt_buffer))});
-        buffer.turn = branch_start_turn; //last branch is over, reset turn number
-        buffer.before_turn_zero = before_turn_zero;
-        dprint("turn reset to:", buffer.turn.t(), buffer.turn.c()?"b":"w");
+        {
+            auto &variations = std::get<gametree::variations_t>(current->variations_or_outcome);
+            if(buffer.token == LEFT_PAREN)
+            {
+                next_token();
+                parse_comments();
+                auto act = parse_actions();
+                if(!act)
+                {
+                    buffer = entry;
+                    if(context == tree_context::root) return std::nullopt;
+                    fail(parse_error::unexpected_input{{context == tree_context::branch
+                        ? "a game tree branch" : "a game tree continuation"}});
+                }
+                auto child = std::make_unique<gametree>();
+                auto *next = child.get();
+                variations.emplace_back(std::move(*act), std::move(child));
+                branches.push({current, entry, context});
+                current = next;
+                entry = buffer;
+                entering = true;
+                context = tree_context::branch;
+                continue;
+            }
+            auto act = parse_actions();
+            if(act)
+            {
+                auto child = std::make_unique<gametree>();
+                auto *next = child.get();
+                variations.emplace_back(std::move(*act), std::move(child));
+                current = next;
+                entry = buffer;
+                entering = true;
+                context = tree_context::continuation;
+                continue;
+            }
+        }
+
+        if(branches.empty()) return root;
+        if(buffer.token != RIGHT_PAREN)
+            fail(parse_error::unexpected_input{{"')'"}});
+        const auto frame = branches.top();
+        branches.pop();
+        current = frame.parent;
+        entry = frame.entry;
+        context = frame.context;
+        buffer.turn = entry.turn;
+        buffer.before_turn_zero = entry.before_turn_zero;
         next_token();
         parse_comments();
+        entering = false;
     }
-    act_buffer = parse_actions();
-    if(act_buffer)
-    {
-        gt_buffer = parse_gametree();
-        if(!gt_buffer)
-            fail(parse_error::unexpected_input{{"a game tree continuation"}});
-        variations.push_back(std::make_pair(*act_buffer, std::make_unique<gametree>(std::move(*gt_buffer))));
-    }
-    return gametree{std::move(variations)};
 }
 
 /*
@@ -890,7 +922,7 @@ std::optional<gametree> pgnparser::parse_gametree()
  <fen-string> ::= any sequence of words not containing ':' or ']' ;to be parsed separately
  */
 
-std::optional<game> pgnparser::parse_game()
+std::optional<game> pgnparser::parse_game(bool initial_position_only)
 {
     dprint("parse_game()");
     std::map<std::string, std::string> headers;
@@ -963,18 +995,23 @@ std::optional<game> pgnparser::parse_game()
         append_vectors(comments, parse_comments());
     }
     append_vectors(comments, parse_comments());
-    auto gt_opt = parse_gametree();
-    if(!gt_opt) {
-        if(furthest_error) throw *furthest_error;
-        fail(parse_error::unexpected_input{{"a game tree"}});
+    gametree gt;
+    if(!initial_position_only)
+    {
+        auto gt_opt = parse_gametree();
+        if(!gt_opt) {
+            if(furthest_error) throw *furthest_error;
+            fail(parse_error::unexpected_input{{"a game tree"}});
+        }
+        gt = std::move(*gt_opt);
+        parse_comments();
+        if(buffer.token != END) {
+            if(furthest_error && furthest_error->get_start() >= buffer.start)
+                throw *furthest_error;
+            fail(parse_error::unexpected_input{{"end of input"}});
+        }
     }
-    parse_comments();
-    if(buffer.token != END) {
-        if(furthest_error && furthest_error->get_start() >= buffer.start)
-            throw *furthest_error;
-        fail(parse_error::unexpected_input{{"end of input"}});
-    }
-    return game{headers, boards, std::move(*gt_opt), views_to_strings(comments), source,
+    return game{headers, boards, std::move(gt), views_to_strings(comments), source,
         std::move(board_sources), std::move(header_sources)};
 }
 

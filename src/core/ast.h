@@ -10,6 +10,7 @@
 #include <string_view>
 #include <map>
 #include <cstddef>
+#include <utility>
 #include "turn.h"
 
 namespace pgnparser_ast {
@@ -88,7 +89,16 @@ struct gametree {
     using variation_t = std::pair<actions, std::unique_ptr<gametree>>;
     using variations_t = std::vector<variation_t>;
     std::variant<variations_t, token_t> variations_or_outcome;
+    gametree() = default;
+    gametree(variations_t variations) : variations_or_outcome(std::move(variations)) {}
+    gametree(token_t outcome) : variations_or_outcome(outcome) {}
+    gametree(gametree &&) noexcept = default;
+    gametree &operator=(gametree &&) noexcept = default;
+    ~gametree() noexcept; // custom destructor to prevent stack overflow
     friend std::ostream &operator<<(std::ostream &os, const gametree &gt);
+private:
+    // Temporary parent link used only during allocation-free destruction.
+    gametree *destruction_parent = nullptr;
 };
 struct board_source {
     source_range declaration;

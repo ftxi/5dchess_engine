@@ -90,7 +90,7 @@ void test_normalization_preserves_actions(const state &position)
 {
     auto [info, space] = HC_info::build_HC(position);
     std::set<moveseq> expected;
-    for(auto moves : info.search(std::move(space)))
+    for(auto moves : info.search<natural_HC_ordering, hc_policy::balanced>(std::move(space)))
         expected.insert(std::move(moves));
     assert(!expected.empty());
 

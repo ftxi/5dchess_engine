@@ -31,6 +31,8 @@ public:
 
     struct load_options {
         bool allow_illegal_history = false;
+        // With allow_illegal_history, setup legality is unchecked for display preparation.
+        bool initial_position_only = false;
     };
 
     /* Metadata edits do not change the loaded game’s rules or position. During PGN export, headers 
@@ -38,7 +40,7 @@ public:
     metadata values. */
     std::map<std::string, std::string> metadata;
     
-    static game from_pgn(std::string str, load_options options = {false});
+    static game from_pgn(std::string str, load_options options = {false, false});
 
     // Flags describe submitted history, not temporary draft moves or previews.
     bool has_illegal_history() const noexcept;

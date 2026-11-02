@@ -70,72 +70,40 @@ generator<moveseq> mixed_search(
     legality_trace trace(hc_info.get_state(), space.size());
     constexpr std::size_t iterative_problem_limit = 100;
     std::size_t num_problems = 0;
-    while(!space.empty() && num_problems < iterative_problem_limit)
-    {
-        if(stop_token.stop_requested())
-        {
-            co_return;
-        }
-
-        HC hc = std::move(space.back());
-        space.pop_back();
-        trace.observe(space.size());
-        ++trace.candidates;
-        auto point = trace.measure(trace.point_ms, [&] { return hc_info.take_point(hc, order); });
-        if(!point)
-        {
-            continue;
-        }
-
-        auto problem = trace.measure(trace.problem_ms, [&] { return hc_info.find_problem(*point, hc); });
-        if(problem)
-        {
-            ++num_problems;
-            ++trace.rejected;
-            trace.measure(trace.pruning_ms, [&] { space.concat(hc.remove_slice(*problem)); });
-            trace.observe(space.size());
-        }
-        else
-        {
-            trace.legal_found = true;
-            co_yield hc_info.to_action(*point);
-            space.concat(hc.remove_point(*point));
-        }
-    }
-
     while(!space.empty())
     {
-        if(stop_token.stop_requested())
-        {
-            co_return;
-        }
-
+        if(stop_token.stop_requested()) co_return;
         HC hc = std::move(space.back());
         space.pop_back();
         trace.observe(space.size());
         ++trace.candidates;
         auto point = trace.measure(trace.point_ms, [&] { return hc_info.take_point(hc, order); });
-        if(!point)
-        {
-            continue;
-        }
-
-        auto problem = trace.measure(trace.problem_ms, [&] { return hc_info.find_problem(*point, hc); });
-        if(problem)
-        {
-            ++trace.rejected;
-            trace.measure(trace.pruning_ms, [&] {
-                space.push_back(std::move(hc));
-                space.remove_slice_backwards(*problem, true, 10);
-            });
-            trace.observe(space.size());
-        }
-        else
+        if(!point) continue;
+        if(stop_token.stop_requested()) co_return;
+        const bool iterative = num_problems < iterative_problem_limit;
+        auto problem = trace.measure(trace.problem_ms, [&] {
+            return hc_info.find_problem(*point, iterative ? hc : hc_info.get_universe());
+        });
+        if(stop_token.stop_requested()) co_return;
+        if(!problem)
         {
             trace.legal_found = true;
             co_yield hc_info.to_action(*point);
-            space.concat(hc.remove_point(*point));
+            space.concat(std::move(hc).remove_point(*point));
+            trace.observe(space.size());
+            continue;
         }
+        ++num_problems;
+        ++trace.rejected;
+        trace.measure(trace.pruning_ms, [&] {
+            if(iterative) space.concat(std::move(hc).remove_slice(*problem));
+            else
+            {
+                space.push_back(std::move(hc));
+                space.remove_slice_globally(*problem, stop_token);
+            }
+        });
+        trace.observe(space.size());
     }
 }
 } /* anonymous namespace */
@@ -148,6 +116,7 @@ std::optional<moveseq> random_action_selection::operator()(
         search_trace_phase phase("build_HC", &s);
         return HC_info::build_HC(s);
     }();
+    if(stop.stop_requested()) return std::nullopt;
     auto order = rng ? random_HC_ordering(info.get_universe(), *rng)
                      : random_HC_ordering(info.get_universe());
     return mixed_search(info, std::move(space), std::move(order), stop).first();
@@ -197,6 +166,7 @@ std::optional<moveseq> weighted_action_selection::operator()(
         search_trace_phase phase("build_HC", &s);
         return HC_info::build_HC(s);
     }();
+    if(stop.stop_requested()) return std::nullopt;
     const float weight_temperature = get_temperature();
     move_evaluator evaluator(info, weights);
     std::vector<std::vector<float>> coordinate_weights(info.get_universe().dimension());

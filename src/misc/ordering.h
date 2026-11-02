@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <concepts>
+#include <iterator>
 #include <random>
 #include <vector>
 #include <utility>
@@ -12,7 +13,10 @@
 /*
 Given a hypercuboid (as universe), assign each axis a consistent ordering
 
-`for_each(n,s,f)` iterates over the elements of `s` in the order assigned to axis `n`, calling `f(i)` for each element `i`.
+`order(n, s)` returns a forward range over `s` in the order assigned to
+axis `n`. Every coordinate occurs exactly once. Repeated traversal preserves
+the order and does not draw fresh randomness. The ordering and set must remain
+alive and unchanged during traversal; the returned range does not allocate.
 
 In principle `s` should be a subset of axis `n` of the hypercuboid, but there
 is no enforcement of this. Use at your own risk.
@@ -20,12 +24,87 @@ is no enforcement of this. Use at your own risk.
 The code is written as static polymorphism.
 */
 
-template<typename T>
-concept HCOrdering =
-    requires(const T &order, index_t n, const integer_set &s)
+template<class R>
+concept HCCoordinateRange = requires(R &r)
 {
-    order.for_each(n, s, [](index_t) {});
+    { r.begin() } -> std::forward_iterator;
+    { r.end() } -> std::sentinel_for<decltype(r.begin())>;
+    requires std::same_as<std::iter_value_t<decltype(r.begin())>, index_t>;
 };
+
+template<class T>
+concept HCOrdering = requires(const T &order, index_t n, const integer_set &s)
+{
+    { order(n, s) } -> HCCoordinateRange;
+};
+
+namespace detail {
+
+class natural_coordinate_range
+{
+    const integer_set *allowed;
+public:
+    explicit natural_coordinate_range(const integer_set &s) : allowed{&s} {}
+    auto begin() const noexcept { return allowed->begin(); }
+    auto end() const noexcept { return allowed->end(); }
+};
+
+class ordered_coordinate_range
+{
+    const std::vector<index_t> *ordering;
+    const integer_set *allowed;
+public:
+    class iterator
+    {
+        using base_iterator = std::vector<index_t>::const_iterator;
+        base_iterator current{};
+        base_iterator finish{};
+        const integer_set *allowed = nullptr;
+
+        void skip_excluded() noexcept
+        {
+            while(current != finish && !allowed->contains(*current)) ++current;
+        }
+    public:
+        using value_type = index_t;
+        using difference_type = std::ptrdiff_t;
+        using reference = index_t;
+        using pointer = void;
+        using iterator_category = std::forward_iterator_tag;
+        using iterator_concept = std::forward_iterator_tag;
+
+        iterator() = default;
+        iterator(base_iterator current, base_iterator finish, const integer_set &s)
+            : current{current}, finish{finish}, allowed{&s}
+        {
+            skip_excluded();
+        }
+        index_t operator*() const noexcept { return *current; }
+        iterator &operator++() noexcept
+        {
+            ++current;
+            skip_excluded();
+            return *this;
+        }
+        iterator operator++(int) noexcept
+        {
+            iterator previous = *this;
+            ++*this;
+            return previous;
+        }
+        bool operator==(const iterator &other) const noexcept
+        {
+            return current == other.current;
+        }
+    };
+
+    ordered_coordinate_range(const std::vector<index_t> &ordering, const integer_set &s)
+        : ordering{&ordering}, allowed{&s} {}
+    iterator begin() const noexcept { return {ordering->begin(), ordering->end(), *allowed}; }
+    iterator end() const noexcept { return {ordering->end(), ordering->end(), *allowed}; }
+};
+
+} /* namespace detail */
 
 /*
 There are four orderings implemented in this file:
@@ -43,12 +122,9 @@ class natural_HC_ordering
 {
 public:
     natural_HC_ordering() = default;
-    void for_each(index_t, const integer_set &s, auto &&f) const
+    detail::natural_coordinate_range operator()(index_t, const integer_set &s) const
     {
-        for(index_t i: s)
-        {
-            f(i);
-        }
+        return detail::natural_coordinate_range{s};
     }
 };
 
@@ -61,20 +137,14 @@ template<class Derived>
 struct precomputed_HC_ordering
 {
     std::vector<std::vector<index_t>> orderings;
+    ordered_coordinate_range operator()(index_t n, const integer_set &s) const
+    {
+        return {orderings[n], s};
+    }
     static std::mt19937 &default_rng()
     {
         static thread_local std::mt19937 rng(std::random_device{}());
         return rng;
-    }
-    void for_each(index_t n, const integer_set &s, auto &&f) const
-    {
-        for(index_t i: orderings[n])
-        {
-            if(s.contains(i))
-            {
-                f(i);
-            }
-        }
     }
 };
 
@@ -89,7 +159,7 @@ public:
     {}
 
     random_HC_ordering(const HC &hc, std::mt19937 &rng);
-    using base::for_each;
+    using base::operator();
 
     // Shuffle candidates independently of the precomputed per-axis order.
     template<class Range>
@@ -113,7 +183,7 @@ public:
     {}
     scored_HC_ordering(const HC &hc, const std::vector<std::vector<float>> &scores, std::mt19937 &rng);
     std::size_t rank(index_t n, index_t i) const;
-    using base::for_each;
+    using base::operator();
 };
 
 static_assert(HCOrdering<scored_HC_ordering>);
@@ -127,7 +197,7 @@ public:
     {}
 
     weighted_HC_ordering(const HC &hc, std::vector<std::vector<float>> weights, std::mt19937 &rng);
-    using base::for_each;
+    using base::operator();
 };
 
 static_assert(HCOrdering<weighted_HC_ordering>);

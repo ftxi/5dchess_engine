@@ -8,6 +8,7 @@
 #include <variant>
 #include <array>
 #include <string_view>
+#include <stack>
 #include "check_position.h"
 #include "pgnparser.h"
 #include "pgn_loading.h"
@@ -36,11 +37,13 @@ game::game(std::unique_ptr<gnode<comments_t>> gt)
 
 game game::from_pgn(std::string input, game::load_options options)
 {
-    auto ag = pgnparser(input).parse_game();
+    auto ag = pgnparser(input).parse_game(options.initial_position_only);
     if(!ag.has_value())
         throw std::runtime_error("Bad input, parse failed");
     pgnparser_ast::gametree &gt_ast = ag->gt;
-    auto [initial, error] = pgn_loading::load_initial_position<false>(*ag);
+    auto [initial, error] = options.initial_position_only && options.allow_illegal_history
+        ? pgn_loading::load_initial_position<true>(*ag)
+        : pgn_loading::load_initial_position<false>(*ag);
     const bool illegal_setup = error.has_value();
     if(illegal_setup && !options.allow_illegal_history)
         throw *error;
@@ -55,55 +58,92 @@ game game::from_pgn(std::string input, game::load_options options)
     {
         g.metadata["promotions"] = format_promotions(promotions);
     }
-    // parse moves
-    std::function<gnode<comments_t> *(gnode<comments_t> *, const pgnparser_ast::gametree &)> dfs;
-    dfs = [&dfs, &ag, options](gnode<comments_t> *node, const pgnparser_ast::gametree &gt_ast) -> gnode<comments_t> * {
-        auto *last = node;
-        if(std::holds_alternative<pgnparser_ast::gametree::variations_t>(gt_ast.variations_or_outcome))
+    if(options.initial_position_only)
+        return g;
+    using node_t = gnode<comments_t>;
+    using ast_tree = pgnparser_ast::gametree;
+    auto make_child = [&ag, options](node_t *node, const pgnparser_ast::actions &act_ast) {
+        state s = node->get_state();
+        std::vector<ext_move> moves;
+        for(const auto &mv_ast: act_ast.moves)
         {
-            const auto &variations = std::get<pgnparser_ast::gametree::variations_t>(gt_ast.variations_or_outcome);
-            for(const auto &[act_ast, child_gt] : variations)
-            {
-                state s = node->get_state();
-                std::vector<ext_move> moves;
-                for(const auto &mv_ast: act_ast.moves)
-                {
-                    moves.push_back(s.apply_move_ast(mv_ast, ag->source_text));
-                }
-                if(!s.test_present())
-                {
-                    throw pgn_validation_error(
-                        pgn_validation_error::present_not_advanced{},
-                        pgn_validation_error::make_subject(act_ast, ag->source_text)
-                    );
-                }
-                s.submit<true>();
-                bool illegal_history = node->has_illegal_history();
-                if(!illegal_history) 
-                {
-                    const auto exposure = s.find_royal_exposure(false);
-                    illegal_history = exposure.has_value();
-                    if(illegal_history && !options.allow_illegal_history)
-                        throw pgn_validation_error(*exposure,
-                            pgn_validation_error::make_subject(act_ast, ag->source_text));
-                }
-                action act = action::from_vector(moves, node->get_state());
-                std::unique_ptr<gnode<comments_t>> child_node = gnode<comments_t>::create_child(
-                    node, std::move(s), std::move(act), act_ast.comments, illegal_history);
-                // Validate the complete incoming subtree before replacing a duplicate.
-                auto *endpoint = dfs(child_node.get(), *child_gt);
-                if(node->find_child(child_node->get_action()))
-                {
-                    node->delete_child(child_node->get_action());
-                }
-                node->add_child(std::move(child_node));
-                last = endpoint;
-            }
+            moves.push_back(s.apply_move_ast(mv_ast, ag->source_text));
         }
-        return last;
+        if(!s.test_present())
+        {
+            throw pgn_validation_error(
+                pgn_validation_error::present_not_advanced{},
+                pgn_validation_error::make_subject(act_ast, ag->source_text)
+            );
+        }
+        s.submit<true>();
+        bool illegal_history = node->has_illegal_history();
+        if(!illegal_history)
+        {
+            const auto exposure = s.find_royal_exposure(false);
+            illegal_history = exposure.has_value();
+            if(illegal_history && !options.allow_illegal_history)
+                throw pgn_validation_error(*exposure,
+                    pgn_validation_error::make_subject(act_ast, ag->source_text));
+        }
+        action act = action::from_vector(moves, node->get_state());
+        return node_t::create_child(
+            node, std::move(s), std::move(act), act_ast.comments, illegal_history);
     };
+    struct branch_frame {
+        node_t *parent;
+        const ast_tree::variations_t *variations;
+        std::size_t next_child;
+        std::unique_ptr<node_t> pending_child;
+    };
+    // DFS stack
+    std::stack<branch_frame> branches;
+    auto *node = g.gametree.get();
+    const auto *tree = &gt_ast;
+    while(true)
+    {
+        const auto *variations = std::get_if<ast_tree::variations_t>(&tree->variations_or_outcome);
+        if(variations && !variations->empty())
+        {
+            const auto &[act_ast, child_tree] = variations->front();
+            auto child = make_child(node, act_ast);
+            auto *next = child.get();
+            if(variations->size() == 1)
+            {
+                // Single continuations always start at a fresh node.
+                assert(node->get_children().empty());
+                node->add_child(std::move(child));
+            }
+            else
+            {
+                // Keep an incoming branch detached until fully validated.
+                branches.push({node, variations, 1, std::move(child)});
+            }
+            node = next;
+            tree = child_tree.get();
+            continue;
+        }
 
-    g.current_node = dfs(g.gametree.get(), gt_ast);
+        // node is the last endpoint visited, including after a nested fork.
+        while(!branches.empty())
+        {
+            auto &frame = branches.top();
+            if(frame.parent->find_child(frame.pending_child->get_action()))
+                frame.parent->delete_child(frame.pending_child->get_action());
+            frame.parent->add_child(std::move(frame.pending_child));
+            if(frame.next_child < frame.variations->size())
+            {
+                const auto &[act_ast, child_tree] = (*frame.variations)[frame.next_child++];
+                frame.pending_child = make_child(frame.parent, act_ast);
+                node = frame.pending_child.get();
+                tree = child_tree.get();
+                break;
+            }
+            branches.pop();
+        }
+        if(branches.empty()) break;
+    }
+    g.current_node = node;
     g.fresh();
     return g;
 }

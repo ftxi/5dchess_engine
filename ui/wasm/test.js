@@ -16,8 +16,8 @@ async function runTest() {
 [Timeline "odd"]
 [7k/8/8/8/8/8/8/K7:0:1:w]
 [7k/3r4/8/8/3K4/8/8/8:1:1:b]`;
-    if (engine_wasm.from_pgn(illegalSetup, false).success) throw new Error('Strict loading accepted illegal setup');
-    const setupFailure = engine_wasm.from_pgn(illegalSetup, false).diagnostic;
+    if (engine_wasm.from_pgn(illegalSetup, { allowIllegalHistory: false }).success) throw new Error('Strict loading accepted illegal setup');
+    const setupFailure = engine_wasm.from_pgn(illegalSetup, { allowIllegalHistory: false }).diagnostic;
     if (setupFailure.code !== 'royal_exposed' || !setupFailure.canAllowIllegalHistory
         || illegalSetup.slice(setupFailure.range.start, setupFailure.range.end) !== '[7k/3r4/8/8/3K4/8/8/8:1:1:b]') {
       throw new Error('Illegal setup diagnostic lost its board range or permission hint');
@@ -52,7 +52,7 @@ async function runTest() {
       ['Promotions', '*Q', 'invalid_promotions'],
     ]) {
       const input = `[Event "😀 café"]\n[${header} "${value}"]`;
-      const diagnostic = engine_wasm.from_pgn(input, true).diagnostic;
+      const diagnostic = engine_wasm.from_pgn(input, { allowIllegalHistory: true }).diagnostic;
       const start = input.lastIndexOf('"', input.length - 3) + 1;
       if (diagnostic.category !== 'validation' || diagnostic.code !== code
           || diagnostic.range.start !== start || diagnostic.range.end !== start + value.length
@@ -64,7 +64,7 @@ async function runTest() {
     if (missingSetup.code !== 'missing_setup' || missingSetup.range !== null || missingSetup.canAllowIllegalHistory) {
       throw new Error('Missing setup diagnostic invented a header range or permission');
     }
-    const permissive = engine_wasm.from_pgn(illegalSetup, true);
+    const permissive = engine_wasm.from_pgn(illegalSetup, { allowIllegalHistory: true });
     if (!permissive.success) throw new Error(permissive.message);
     if (!permissive.game.has_illegal_history() || permissive.game.suggest_action() !== null
         || permissive.game.get_match_status() !== "White's Move (Illegal History)") {
@@ -85,7 +85,7 @@ async function runTest() {
       throw new Error('Explicit permissive submission must record illegal history');
     }
     policy.delete();
-    const history = engine_wasm.from_pgn('[Board "Standard - Turn Zero"] 1. f3 / e5 2. g4 / Qh4 3. a3 / a6', true);
+    const history = engine_wasm.from_pgn('[Board "Standard - Turn Zero"] 1. f3 / e5 2. g4 / Qh4 3. a3 / a6', { allowIllegalHistory: true });
     if (!history.success) throw new Error(history.message);
     history.game.visit_parent();
     const inherited = history.game.get_child_actions()[0];

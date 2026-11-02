@@ -1276,6 +1276,7 @@ export const UI = (() => {
          * @param {Function} callback - Function that receives the imported data
          */
         receiveImportResult(result) { return importDiagnostics.receive(result); },
+        setImportPreparing(requestId, preparing) { importDiagnostics.setPreparing(requestId, preparing); },
         completeImport(requestId) {
             if (!importDiagnostics.complete(requestId)) return;
             if (popupStack.at(-1)?.popupName === 'popupImport') closePopup();

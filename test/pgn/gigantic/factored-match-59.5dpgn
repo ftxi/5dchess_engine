@@ -1,0 +1,44 @@
+[Event "Factored shared-coordinate experiment — 192 additional games"]
+[Site "Local/Batch 10"]
+[Date "2026.09.21"]
+[Round "5"]
+[White "Linear r40"]
+[Black "Factored"]
+[Result "*"]
+[Board "Standard - Turn Zero"]
+[Size "8x8"]
+[Timeline "odd"]
+[Matchid "59"]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
+
+1. b3 / e6 
+2. Nc3 / Bb4 
+3. Nb5 / B>>d4 
+4. (L-1)Na3 (L0)B>>b1 / Bxa1 
+5. c4 / (L-1)Na6 (L1)N>>b6 
+6. (L-2)Nxc7 (L-1)h3 (L1)a3 / (L1)Bxc3 (L0)c5 (L-1)Bd4 (L-2)Qxc7 
+7. (L-2)Ba3 (L-1)Nf3 (L0)a4 (L1)Nh3 / (L1)Bxd2 (L0)d5 (L-1)Bxf2 (L-2)Bxd2 
+8. (L-2)Kxd2 (L-1)Kxf2 (L0)Rc1 (L1)Bxd2 / (L1)d6 (L0)Qd7 (L-1)b6 (L-2)Qc3 
+9. (L-1)N>xc3 (L0)Nh3 (L1)Bg5 / (L1)Qxg5 (L0)Qxb5 (L-1)Nh6 (L-2)Nc4 
+10. (L-2)bxc4 (L-1)Kg1 (L0)Rg1 (L1)Nxg5 / (L1)f5 (L0)Qxe2 (L-1)Ng4 (L-2)g5 
+11. (L-2)Rb1 (L-1)b4 (L0)Kxe2 (L1)b4 / (L1)a5 (L0)Kd7 (L-1)Nxb4 (L-2)Ne7 
+12. (L-2)Rb5 (L-1)Ne1 (L0)c3 (L1)bxa5 / (L1)Rxa5 (L0)g6 (L-1)Nxa2 (L-2)f5 
+13. (L-2)Re5 (L-1)Ba3 (L0)Ra1 (L1)e3 / (L1)Rxa3 (L0)Ke8 (L-1)Nb4 (L-2)Nec6 
+14. (L-2)e3 (L-1)Nd3 (L0)Ke1 (L1)f3 / (L1)Rxe3 (L0)b5 (L-1)Nxd3 (L-2)Nxe5 
+15. (L-2)Bd6 (L-1)Rh2 (L0)axb5 (L1)Kf2 / (L1)Rxf3 (L0)a5 (L-1)Nxh2 (L-2)Nxc4 
+16. (L-2)Ke1 (L-1)g4 (L0)Ke2 (L1)gxf3 / (L1)Kd8 (L0)h5 (L-1)Nxf1 (L-2)Nxe3 
+17. (L-1)Qxf1 (L1)c3 (L0)Q>>f3 / (L2)bxa4 (L1)Kd7 (L0)e5 (L-1)Nf2 
+18. (L-2)fxe3 (L-1)Qxf2 (L0)d3 (L1)Ra5 (L2)b4 / (L2)Nf6 (L0)Bxh3 (L-1)f5 
+19. (L-1)Bd6 (L0)b4 (L2)Qf5 / (L2)gxf5 (L0)axb4 (L-1)fxg4 (L-2)Rg8 
+20. (L-2)Bxb8 (L-1)Qxf8 (L0)Ra4 (L2)Ng5 / (L0)Rxa4 (L-1)Kxf8 (L-2)Kf8 (1T16)N>>(-1T15)g8 
+21. (L-3)Qd1 (L-2)h4 (L-1)e4 (L0)Ke3 (L1)Kg2 / (L2)cxb4 (L1)Kc6 (L0)Bxg2 (L-1)cxd6 (L-2)gxh4 (L-3)Nc1 
+22. (L-3)Bxc1 (L-2)e4 (L-1)e5 (L0)Rxg2 (L1)f4 (L2)Bb5 / (L2)Kf8 (L1)Re8 (L-3)Ba6 (L-2)K>>xf8 (L-1)Q>>xf8 (0T20)K>>(-1T20)e8 
+23. (L-6)Kf1 (L-5)Kh1 (L-4)Kh1 (L-3)e4 (L-2)Qd5 (L-1)hxg4 (L0)b6 (L1)Bfd3 (L2)Nf3 / (L2)bxc3 (L1)h5 (L0)bxc3 (L-1)dxe5 (L-2)Rxg2 (L-3)Bxc4 (L-4)cxd6 (L-5)cxd6 (L-6)gxh3 
+24. (L-3)Kh2 (L-2)Nge2 (L-1)c5 (L0)h3 (L1)Qg4 (L2)Qc2 / (L2)cxd2 (L1)fxg4 (L0)d4 (L-1)bxc5 (L-2)Rxe2 (L-3)Be6 
+25. (L-6)d3 (L-4)h4 (L-2)Bxe2 (L-1)d3 (L0)Ke2 (L1)Ra7 (2T20)K>>(1T19)e1 / (L3)h5 (L2)Ne4 (L0)Ra2 (L-1)Rg8 (L-2)exd5 (L-4)Rb8 (L-6)Ke>>f7 
+26. (L-7)hxg4 (L-6)c5 (L-5)Kh2 (L-4)c5 (L-2)Bc7 (L-1)Kh2 (3T20)Q>>(2T19)e2 / (L4)Ng4 (L1)Kd7 (L-1)d6 (L-2)dxe4 (L-4)dxc5 (-7T22)Q>>(-6T21)c7 (-6T23)Q>>(-7T22)c7 (L-5)d>>xd6 
+27. (L-10)c5 (L-9)Kg1 (L-8)Kf2 (L-6)Ke1 (L-5)hxg4 (L-4)d3 (L-1)Kh1 (L0)Ke1 (L1)Ne4 (L2)Qxe4 (-2T23)B>>(2T19)e2 / (L5)cxd2 (L2)fxe4 (L0)Rxf2 (L-1)Bxg4 (L-2)h3 (L-8)dxe5 (L-10)gxh3 (-9T23)Kf8>>(-8T22)f7 (L-6)B>>b8 (-5T21)Q>>(-6T21)f7 (-4T22)Q>>(-5T21)c7 
+28. (L-14)Kg2 (L-13)Kg2 (L-12)Ke1 (L-11)c5 (L-10)d3 (L-9)e6 (L-8)Kg3 (L-7)exd6 (L-6)Kd2 (L-5)Kg2 (L-2)Nb1 (L0)Rh2 (L5)Kf1 (L2)B>>xb8 / (L6)cxd2 (L5)Nbd7 (L3)Rf8 (L2)exf3 (L1)Rg8 (L0)Rxf1 (L-2)h2 (L-5)Bb7 (L-6)bxc5 (L-7)exd6 (L-8)Qxc4 (L-11)Qxc5 (L-13)gxh3 (L-14)Q>>b7 (L-12)h>>xh3 (L-10)Kf>>f7 (-9T24)K>>(-8T23)g6 
+29. (L-18)Kh4 (L-17)Kg1 (L-16)cxb6 (L-15)Kg3 (L-14)g5 (L-13)Kh2 (L-12)exd6 (L-10)c6 (L-8)Kg2 (L-7)d4 (L-6)Kc1 (L-5)Kh2 (L-4)e4 (L0)Kxf1 (L2)Rgc1 (L3)Nh3 (L5)h3 (L6)Kf1 (1T23)B>>(-3T19)b1 / (L7)Bf1 (L6)Rxb8 (L5)Nb6 (L2)dxc1=Q (L1)Re8 (L0)c4 (L-4)h5 (L-5)Bh1 (L-6)dxe5 (L-7)Kd8 (L-8)gxh3 (L-10)dxc6 (L-12)Bxd6 (L-13)dxe5 (L-14)Qf3 (L-15)gxh3 (L-16)Qxb6 (L-17)bxc5 (L-18)gxh3 {White [Linear r40] timed out.}
+

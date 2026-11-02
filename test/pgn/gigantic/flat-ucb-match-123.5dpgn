@@ -1,0 +1,84 @@
+[Event "Autoplay"]
+[Site "Local/Batch 1"]
+[Date "2026.10.22"]
+[Round "123"]
+[White "flat-ucb"]
+[Black "zero-capture-check-pw"]
+[Result "*"]
+[Board "Standard - Turn Zero"]
+[Size "8x8"]
+[Timeline "odd"]
+[Matchid "123"]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
+[r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
+
+1. Nf3 / a5 
+2. h3 / Na6 
+3. b4 / axb4 
+4. N>>g3 / (L1)Ra6 (L0)h5 
+5. Nh5 / Rb6 
+6. Nxg7 / Bxg7 
+7. (L0)h4 (L1)Ng5 / (L1)Rxb2 (L0)Rh7 
+8. (L0)g4 (L1)Nxh7 / (L1)Rxc2 (L0)hxg4 
+9. (L0)h5 (L1)Nf8 / (L1)Kxf8 (L0)Rxh5 
+10. (L0)f4 (L1)h4 / (L1)N>g6 
+11. (L0)f5 (L1)h5 / (L1)Rxc1 (L0)Rxh1 
+12. (L0)fxg6 (L1)h6 / (L1)Rxd1 (L0)Rxf1 
+13. (L0)K>>f2 (L1)K>>xf1 / (L0)Rxd1 (1T11)R>>x(1T10)d1 (L2)R>>xh1 (L3)N>>b6 
+14. (L-2)N>xd1 (L2)fxg6 / (L-2)Rxf1 (L-1)R>>xc1 (L2)N>>xg6 
+15. (L-4)gxf7 (L-3)h7 (L-2)Kxf1 (L-1)h7 (L0)gxf7 (L1)h7 (L2)gxf7 (L3)gxf7 / (L3)Kxf7 (L2)Kxf7 (L1)Bxa1 (L0)Kxf7 (L-1)Rxh7 (L-2)Rxd1 (L-4)Rxf7 (-3T12)R>>x(-2T12)d1 
+16. (L-4)e4 (L-3)g4 (L-2)Rxd1 (L-1)g4 (L0)e4 (L1)g4 (L2)Kg3 (L3)e4 / (L3)Rxa2 (L2)d6 (L1)Rxh7 (L-4)Rxd1 (L-3)K>>xf7 (L-2)B>>xg4 (-1T13)R>>x(-3T13)h7 (0T13)R>>x(-1T13)d1 
+17. (L-4)e5 (L-3)g5 (L-2)h7 (L-1)g5 (L0)e5 (L1)g5 (L2)Kh4 (L3)e5 / (L3)Rxa1 (L2)e6 (L-4)Rxb1 (L-3)B>>xh7 (-2T14)R>>(2T14)h8 (L-1)B>>xh7 (L0)g>>xg4 (1T14)R>>x(-2T14)h7 
+18. (L-4)e6 (L-3)g6 (L-2)h8=Q (L-1)g6 (L0)e6 (L1)g6 (L2)Kh5 (L3)e6 / (L3)Kxe6 (L2)Qg5 (L1)fxg6 (L-4)N>xh8 (L-3)R>>xh8 (-1T15)K>>(-2T14)e8 (0T15)K>>x(1T15)g6 
+19. (L-4)exf7 (L-3)h8=Q (L-2)g4 (L-1)g7 (L0)exd7 (L1)f4 (L2)Kxg5 (L3)d4 / (L3)Rxb1 (L2)Be7 (L0)Bxd7 (L-1)e5 (L-2)f5 (L1)Q>xh8 (L-4)Kxf7 
+20. (L-4)d4 (L-3)g7 (L-2)g5 (L-1)g8=Q (L0)d4 (L1)f5 (L2)Kh5 (L3)d5 / (L3)Kd6 (L2)Bh4 (L1)gxf5 (L0)Rb8 (L-1)Qxg8 (L-4)Rxa1 (L-3)Q>>xe5 (L-2)K>>xg8 
+21. (L-5)e4 (L-3)g>>xg7 / (L-5)Nb8 (L-3)N>>d6 (L4)B>>xf5 
+22. e5 / Nxe5 
+23. (-5T14)d4 / Rxa2 
+24. dxe5 / Rxa1 
+25. e6 / dxe6 
+26. (-5T17)c4 / Qxd1 
+27. (L1)B>>xf7 / (L5)Bxh6 (L1)d6 
+28. (L-6)K>xf1 (L5)Bg8 / (L5)Rxg8 (L-6)Rxa1 (L-7)N>>a5 
+29. (L-6)h7 (L5)g4 / (L5)Rxg4 (L-6)Rxa2 
+30. (L-6)g4 (L5)f4 / (L5)Rxf4 (L-6)Rdxd2 
+31. (L-6)g5 (L5)e4 / (L5)Rxf1 (L-6)Rxe2 
+32. (L-6)g6 (L5)Rxf1 / (L5)Ke8 (L-6)Rxh7 
+33. (L0)B>>h1 / (L6)Rxh1 (L0)Be6 
+34. (L-7)e4 (L6)e4 / (L6)Rxc1 (L-7)Rxd1 
+35. (L-7)Kg2 (L6)e5 / (L6)Rxc2 (L-7)Rxd2 
+36. (L-7)Kg3 (L6)e6 / (L6)Kxe6 (L-7)Rxa2 
+37. (L-7)e5 (L6)d4 / (L6)Rxa2 (L-7)Rxa1 
+38. (L-8)f4 (-7T18)K>>(-7T17)h4 / (L-8)Bxe2 (L-7)K>>xg6 (L7)R>>xa2 
+39. f5 / Bxf1 
+40. Rxf1 / Rxh7 
+41. f6 / exf6 
+42. (L-9)g5 (-8T18)N>>(-8T17)b3 / (L-9)Bxa1 (-8T18)B>>x(-8T17)b1 (L8)R>>xh7 
+43. (-9T15)g6 / Rxh1 
+44. g7 / Bxg7 
+45. (-9T17)f4 / Rxf1 
+46. (L-10)Kxd1 (-9T18)N>>(-9T17)b3 / (L-10)Rxh1 (-9T18)R>>x(-8T18)f1 (L9)R>>xh1 
+47. (-10T15)g5 / Rxf1 
+48. Kc2 / Bxa1 
+49. (-10T17)g6 / Rxf2 
+50. (L-11)g5 (-10T18)K>>(-10T17)d3 / (L-11)Bxb1 (L-10)B>>xb1 (L10)R>>xf1 
+51. (-11T15)g6 / Rxh1 
+52. (L-12)K>>g4 / (L11)Rxh1 (L-12)Bd7 
+53. (L-12)Q>>xd1 / (L12)Rxh1 (L-12)Qc8 
+54. (L-13)g4 (L12)g5 / (L12)Rxf1 (L-13)Bc2 
+55. (L-14)f4 (-13T16)K>>(-13T15)g1 / (L-14)Rxh7 (-13T16)B>>x(-12T16)d2 (L13)B>>h5 
+56. (-14T15)f5 / Rxh1 
+57. (L-14)B>>f3 / (L14)Rxh7 (L-14)Rxb1 
+58. (L-15)g4 (L14)Bxb7 / (L14)Bxb7 (L-15)Rh1 
+59. (-15T16)K>>(-15T15)g1 / (L15)Rh1 (L-15)Rxd1 
+60. (-12T17)B>>(-9T14)c1 / (L16)Bxa1 (L-12)e5 
+61. (L-17)g4 (L16)g5 / (L16)Rxh1 (L-17)Rxh7 
+62. (L-17)K>>g1 / (L17)Rxh7 (L-17)Rh6 
+63. (L-19)d4 (L-18)B>>f1 / (L18)Qxa1 (L-18)f6 (L-19)Qxd4 
+64. (-19T16)B>>(-19T15)d1 / (L19)Qxa1 (L-19)Qxa1 
+65. (-16T16)K>>(-17T15)g1 / (L20)Rxh7 (L-16)Rg8 
+66. (L11)K>>g5 / (L21)Rxf1 (L11)Bxa2 
+67. (L-23)e6 (L12)K>>e1 / (L-23)fxe6 (12T16)R>>x(12T15)f1 (L22)B>>xb1 
+68. (-23T15)d4 / b6 
+69. (L-23)Q>>f3 / (L23)gxf3 (L-23)Ba6 {White [flat-ucb] timed out.}
+

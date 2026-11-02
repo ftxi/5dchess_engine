@@ -88,11 +88,11 @@ class fine_node
     fine_node<T> *expand(const Order &order);
     template<HCOrdering Order>
     std::optional<std::tuple<point, fine_cell<T> *, HC *>> explore(const Order &order);
-    void remove_problem(const slice &, fine_cell<T> *origin_cell);
-    void remove_from_cell(const slice &, fine_cell<T> *, bool force_back_removal);
-    void remove_from_node(const slice &, fine_node<T> *, fine_cell<T> *critical_cell, bool force_critical_removal);
+    void remove_problem(const slice &);
+    void remove_from_cell(const slice &, fine_cell<T> *);
+    void remove_from_node(const slice &, fine_node<T> *);
     fine_node<T> *isolate(const point &, fine_cell<T> *, HC *);
-    fine_node<T> *normalize(const point &, fine_cell<T> *, fine_node<T> *);
+    fine_node<T> *normalize(const point &, fine_node<T> *);
 
 public:
     // copying/moving a fine_node needs to explicitly set the parent pointer of its children

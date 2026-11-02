@@ -22,15 +22,4 @@ if(TOOLS)
 
     add_dependencies(5dtools copy_pgn_fixtures)
 
-    if(TEST)
-        message(STATUS "Registering tools related tests...")
-        file(GLOB PGN_FILES "${CMAKE_SOURCE_DIR}/test/pgn/*.5dpgn")
-        foreach(PGN_FILE ${PGN_FILES})
-            get_filename_component(PGN_NAME ${PGN_FILE} NAME_WE)
-            add_test(
-                NAME perftest_${PGN_NAME}
-                COMMAND bash -c "cat ${PGN_FILE} | $<TARGET_FILE:5dtools> perftest"
-            )
-        endforeach()
-    endif()
 endif()

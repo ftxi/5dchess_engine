@@ -155,6 +155,19 @@ On opening the interface, the engine initializes alongside chess-piece loading.
 The starting position appears once both are ready; bundled board-label fonts
 load in the background.
 
+When zoomed out, board surfaces and frames use cached images; highlighted
+boards keep direct drawing to preserve their highlight layering. Zooming in
+restores direct drawing and the file/rank labels. Phantom-board labels use the
+same opacity as their board, combined with their zoom fade.
+
+The analyzer prepares board images while checking an import. The import dialog
+shows **Checking import and preparing boards…** while both tasks run, then
+**Checking import…** or **Preparing boards…** if one finishes first. The loaded
+position opens after both tasks finish and the import is accepted. Zoomed-out
+boards use these images even at the furthest zoom; close views show file/rank
+labels. Phantom-board opacity applies uniformly to each board
+surface, including its labels.
+
 For interface structure and behavior, see
 [Web UI architecture](../architecture/webui.md).
 
@@ -162,7 +175,9 @@ For interface structure and behavior, see
 
 On opening the analyzer, a text-only loading screen shows numbered checkpoints
 while WebAssembly and chess pieces load, the interface is prepared, and the
-starting position loads. Checkpoint 3 names whichever resource is still loading
+starting position loads. The final checkpoint includes preparing board images;
+the loading screen closes only after preparation finishes and the position is
+drawn. Checkpoint 3 names whichever resource is still loading
 and may be skipped. The numbers identify startup checkpoints rather than a
 percentage. The screen closes when the starting board is drawn.
 
@@ -184,6 +199,11 @@ darkhttpd ui/
 ```
 
 ### Correcting PGN imports
+
+Long game histories and deeply nested variations can be imported in browser
+workers, including Safari. Importing and discarding these trees no longer use
+call-stack space proportional to their depth; available memory still limits
+the size of a game.
 
 If a PGN cannot be loaded, the import dialog stays open and shows the full error
 below the input. Hover over the underlined yellow location to highlight the

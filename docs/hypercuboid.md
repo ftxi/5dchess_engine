@@ -291,20 +291,49 @@ Empirically, an effective strategy is to start from the last hypercuboid, remove
 
 Another strategy, which is probably better, is to remove the problem slice from the last hypercuboid, and only remove the problem slice from the previous hypercuboids if the codimension of the problem slice is 1. We stop trying if the non-intersecting hypercuboid reaches 10% of all the hypercuboids visited. This way, we avoid fragmenting the search space too much, while still removing some invalid points from previous hypercuboids.
 
-The default `HC_info::search()` uses this adaptive strategy, continuing while
-`10 * disjoint_count < intersect_count`, including the current hypercuboid in
-the intersection count. Each pruned hypercuboid is replaced by its remaining
-pieces at its original position in the list. Propagation preserves the order
-of hypercuboids and of the pieces produced by each removal. Search consumes
-the list from the back, so the current hypercuboid's remaining pieces are
-searched before earlier hypercuboids. With the initial partition produced by
-`build_HC()`, this preserves the preference for fewer branching moves.
+`iterative_search()` constructs each problem against the current HC and cuts
+only that HC, preserving its original behavior and the subset contract of
+`remove_slice()`.
 
-`stable_search()` propagates a problem through all remaining hypercuboids,
-replacing them in the same order and keeping the current hypercuboid's pieces
-at the back. Rollout action selection first uses iterative search for up to
-100 problems, then uses the same order-preserving adaptive propagation as
-`search()`. Rollout search checks cancellation at each search-loop iteration.
+`stable_search()` takes its point from the current HC but constructs the problem
+against the whole universe. It removes that global problem from every remaining
+HC, including the selected one, using `remove_slice_carefully()`. Clipping the
+problem to the current HC before propagation can lose most of the reason for
+rejection; see [the slow-position analysis](reports/hc-design-profile.md).
+
+The default `HC_info::search()` begins with its original adaptive policy for
+100 discovered problems: construct an HC-local problem, always cut the selected
+HC, and propagate good cuts backward while intersections remain dense. It then
+falls back to stable search, using universe-wide problems and full propagation.
+Both phases retain the supplied custom coordinate ordering. Successful actions
+are yielded normally; unmatched HCs do not count toward the 100-problem limit.
+
+All removal policies preserve the order of HCs and of the pieces produced by
+each removal. Search consumes the list from the back, so the selected HC's remaining
+pieces precede earlier HCs. With the initial `build_HC()` partition, this retains
+the preference for fewer branching moves.
+
+Engine action selection retains `mixed_search`: its first 100 problems use
+HC-local iterative removal, followed by universe-wide problems and full
+propagation. Cooperative cancellation is polled between candidates and between
+HC removals. An interrupted search remains distinct from exhaustive proof that
+no legal action exists.
+
+`search_space::remove_slice_globally()` removes a slice from every intersecting
+HC without quality or density limits. It replaces each original HC in place,
+so pieces from one region never move across another original region. The
+optional stop token supports engine cancellation; fine-tree APIs remain unchanged.
+
+Fine-tree expansion also constructs universe-wide problems. It carefully prunes
+every residual HC in each cell of the current node and its ancestors, stopping
+at the owning nodal context. It does not enter descendants, off-path sibling
+subtrees, or a different position context. Cell traversal order is preserved.
+Fine-tree APIs do not acquire stop tokens as part of this change.
+
+After exhaustive action search, engine terminal evaluators use the phantom
+check directly to distinguish checkmate from stalemate rather than invoking
+`get_mate_type()` and repeating legality searches. Cancellation is checked again
+before returning a terminal reward.
 
 The shared `search_space::remove_slice_backwards()` helper accepts
 `disjoint_weight` (default two) and `max_codim` (default one) to tune propagation

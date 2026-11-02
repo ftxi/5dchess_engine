@@ -1,4 +1,5 @@
 #include "position_tools.h"
+#include "turn_selection.h"
 
 #include <charconv>
 #include <cmath>
@@ -16,6 +17,7 @@
 
 #include "pgnparser.h"
 #include "search_tools.h"
+#include "hypercuboid.h"
 #include "statistics.h"
 #include "utils.h"
 
@@ -46,51 +48,7 @@ struct parsed_position
     std::size_t actions_played;
 };
 
-struct turn_selection
-{
-    std::size_t actions;
-    std::string label;
-};
-
 enum class output_format { text, json };
-
-std::string submitted_turn(std::size_t actions)
-{
-    if(actions == 0) return "0b";
-    const bool black = actions % 2 == 0;
-    return std::to_string(black ? actions / 2 : (actions + 1) / 2)
-        + (black ? "b" : "w");
-}
-
-std::optional<turn_selection> parse_turn_selection(
-    std::string_view value, std::string &error)
-{
-    const auto invalid = [&] {
-        error = "invalid turn selector '" + std::string(value)
-            + "'; expected 0 or a value such as 1w or 10b";
-        return std::optional<turn_selection>{};
-    };
-    if(value == "0" || value == "0b" || value == "0B")
-        return turn_selection{0, "0b"};
-    if(value.size() < 2) return invalid();
-    const char color = value.back();
-    if(color != 'w' && color != 'W' && color != 'b' && color != 'B')
-        return invalid();
-    const std::string_view digits = value.substr(0, value.size() - 1);
-    std::size_t number = 0;
-    const auto [end, ec]
-        = std::from_chars(digits.data(), digits.data() + digits.size(), number);
-    if(ec != std::errc{} || end != digits.data() + digits.size() || number == 0)
-        return invalid();
-    const bool black = color == 'b' || color == 'B';
-    if(number > std::numeric_limits<std::size_t>::max() / 2)
-    {
-        error = "turn selector is too large: '" + std::string(value) + "'";
-        return std::nullopt;
-    }
-    const std::size_t actions = number * 2 - (black ? 0 : 1);
-    return turn_selection{actions, submitted_turn(actions)};
-}
 
 bool parse_at_arguments(
     int argc,
@@ -245,18 +203,6 @@ int with_position(
     return 0;
 }
 
-std::size_t count_actions(state s, search_mode mode, int maximum)
-{
-    switch(mode)
-    {
-        case search_mode::balanced: return count_balanced(s, maximum);
-        case search_mode::naive: return count_naive(s, maximum);
-        case search_mode::stable: return count_stable(s, maximum);
-        case search_mode::iterative: return count_iterative(s, maximum);
-    }
-    throw std::logic_error("unknown search mode");
-}
-
 void print_count(std::size_t count, output_format format)
 {
     if(format == output_format::json)
@@ -379,7 +325,7 @@ int run_count(int argc, const char *argv[])
             << "  A result equal to max means at least max actions may exist.\n"
             << "  --at turn          select the state after a submitted turn (0, 1w, 1b, ...)\n"
             << "  --format text|json select output format (default: text)\n"
-            << "  policy             balanced, naive, stable, or iterative\n"
+            << "  policy             deferred (default), balanced, naive, stable, iterative, or fine\n"
             << "  max                positive enumeration limit\n";
     };
     std::optional<turn_selection> selection;
@@ -454,10 +400,12 @@ int run_all(int argc, const char *argv[])
         std::size_t count = 0;
         switch(mode)
         {
-            case search_mode::balanced: count = count_balanced<true>(s, max); break;
+            case search_mode::balanced: count = count_hc<hc_policy::balanced, true>(s, max); break;
             case search_mode::naive: count = count_naive<true>(s, max); break;
-            case search_mode::stable: count = count_stable<true>(s, max); break;
-            case search_mode::iterative: count = count_iterative<true>(s, max); break;
+            case search_mode::stable: count = count_hc<hc_policy::stable, true>(s, max); break;
+            case search_mode::deferred: count = count_hc<hc_policy::deferred, true>(s, max); break;
+            case search_mode::iterative: count = count_hc<hc_policy::iterative, true>(s, max); break;
+            case search_mode::fine: count = count_fine<true>(s, max); break;
         }
         print_count(count, output_format::text);
     }, selection);
