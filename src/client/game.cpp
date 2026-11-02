@@ -37,11 +37,13 @@ game::game(std::unique_ptr<gnode<comments_t>> gt)
 
 game game::from_pgn(std::string input, game::load_options options)
 {
-    auto ag = pgnparser(input).parse_game();
+    auto ag = pgnparser(input).parse_game(options.initial_position_only);
     if(!ag.has_value())
         throw std::runtime_error("Bad input, parse failed");
     pgnparser_ast::gametree &gt_ast = ag->gt;
-    auto [initial, error] = pgn_loading::load_initial_position<false>(*ag);
+    auto [initial, error] = options.initial_position_only && options.allow_illegal_history
+        ? pgn_loading::load_initial_position<true>(*ag)
+        : pgn_loading::load_initial_position<false>(*ag);
     const bool illegal_setup = error.has_value();
     if(illegal_setup && !options.allow_illegal_history)
         throw *error;
@@ -56,6 +58,8 @@ game game::from_pgn(std::string input, game::load_options options)
     {
         g.metadata["promotions"] = format_promotions(promotions);
     }
+    if(options.initial_position_only)
+        return g;
     using node_t = gnode<comments_t>;
     using ast_tree = pgnparser_ast::gametree;
     auto make_child = [&ag, options](node_t *node, const pgnparser_ast::actions &act_ast) {

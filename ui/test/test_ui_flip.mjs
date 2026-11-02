@@ -7,7 +7,22 @@ import test from 'node:test';
 const source = (await readFile(new URL('../scripts/draw.js', import.meta.url), 'utf8'))
     .replace(/^import .*;\n/gm, '');
 const { default: ChessBoardCanvas, safeOpacity } = await import(`data:text/javascript;base64,${Buffer.from(
-    'const chooseLOD = () => ({ P: "piece" });\n' + source
+    `const chooseLOD = () => ({ P: "piece" });
+    // Geometry-only composition stub; actual grouped pixels are checked separately.
+    function composeSurface(ctx, width, height, scale, x, y, opacity, draw) {
+        const surface = {
+            save: () => ctx.save(), restore: () => ctx.restore(),
+            get globalAlpha() { return ctx.globalAlpha; },
+            set globalAlpha(value) { ctx.globalAlpha = value; },
+            get fillStyle() { return ctx.fillStyle; },
+            set fillStyle(value) { ctx.fillStyle = value; },
+            fillRect: (a, b, w, h) => ctx.fillRect(a + x, b + y, w, h),
+            fillText: (text, a, b) => ctx.fillText(text, a + x, b + y),
+            measureText: text => ctx.measureText(text),
+        };
+        ctx.save(); ctx.globalAlpha *= opacity; draw(surface); ctx.restore();
+    }
+    ` + source
 ).toString('base64')}`);
 
 function board(width, height, flipped, preserveFiles) {
@@ -214,8 +229,12 @@ function arrowCanvas(zoom, flipped = false) {
     const fills = [];
     let paths = 0, gradients = 0;
     canvas._drawArrow = () => paths++;
+    const alphaStack = [];
     const ctx = {
-        save() {}, restore() {}, fillRect() {}, fillText() {},
+        globalAlpha: 1,
+        save() { alphaStack.push(this.globalAlpha); },
+        restore() { this.globalAlpha = alphaStack.pop(); },
+        fillRect() {}, fillText() {},
         measureText() { return { actualBoundingBoxAscent: 2 }; },
         fill() { fills.push(this.globalAlpha); },
         createLinearGradient() { gradients++; return { addColorStop() {} }; },

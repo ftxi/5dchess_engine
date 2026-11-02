@@ -1457,8 +1457,49 @@ void run()
 }
 } /* namespace stack_safety_tests */
 
+namespace initial_position_tests
+{
+void run()
+{
+    const std::string setup = "[Board \"Standard - Turn Zero\"]\n";
+    const auto initial = game::from_pgn(setup);
+    const auto endpoint = game::from_pgn(setup + "1. e4 / e5");
+    const auto only = game::from_pgn(setup + "1. e4 / e5",
+        {.allow_illegal_history = true, .initial_position_only = true});
+    assert(only.get_current_boards() == initial.get_current_boards());
+    assert(only.get_current_boards() != endpoint.get_current_boards());
+    assert(!only.has_parent());
+    assert(only.get_child_actions().empty());
+    const auto ast = pgnparser(setup + "1. e4 / e5").parse_game(true);
+    assert(ast && std::get<pgnparser_ast::gametree::variations_t>(ast->gt.variations_or_outcome).empty());
+    // A valid first token can precede malformed history; only full loading
+    // parses the rest. Existing one-token lexer lookahead is intentional.
+    const auto partial = game::from_pgn(setup + "1. {",
+        {.allow_illegal_history = true, .initial_position_only = true});
+    assert(partial.get_current_boards() == initial.get_current_boards());
+    bool rejected = false;
+    try { game::from_pgn(setup + "1. {"); }
+    catch(const parse_error &) { rejected = true; }
+    assert(rejected);
+    const std::string exposed = "[Board \"Custom\"]\n[7k/3r4/8/8/3K4/8/8/8:0:1:b]";
+    const auto unchecked = game::from_pgn(exposed,
+        {.allow_illegal_history = true, .initial_position_only = true});
+    assert(!unchecked.get_current_boards().empty());
+    rejected = false;
+    try { game::from_pgn(exposed, {.initial_position_only = true}); }
+    catch(const pgn_validation_error &) { rejected = true; }
+    assert(rejected);
+    rejected = false;
+    try { game::from_pgn("[Board \"Custom\"] [bad:0:1:w]",
+        {.allow_illegal_history = true, .initial_position_only = true}); }
+    catch(const board_fen_error &) { rejected = true; }
+    assert(rejected);
+}
+} /* namespace initial_position_tests */
+
 int main()
 {
+    initial_position_tests::run();
     stack_safety_tests::run();
     import_diagnostic_tests::run();
     std::cerr << "Running FEN tests\n";

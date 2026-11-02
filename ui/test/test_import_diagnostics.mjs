@@ -127,7 +127,7 @@ test('new checks suspend old diagnostics and restore current errors after a fail
     f.location.fire('click');
     const request = f.controller.begin();
     assert.equal(f.row.attrs['data-state'], 'loading');
-    assert.equal(f.heading.textContent, 'Error at line 2, 1–4');
+    assert.equal(f.heading.textContent, 'Checking import…');
     assert.equal(f.textarea.attrs['aria-busy'], 'true');
     assert.equal(f.textarea.attrs['aria-invalid'], undefined);
     assert.equal(f.location.disabled, true);

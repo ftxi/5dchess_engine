@@ -18,6 +18,9 @@ let positionId = 0;
 let showPhantom = true;
 let focusOnNextData = true;
 let committedData = null;
+let rasterImportRequestId;
+let rasterImportPreparation = Promise.resolve();
+let startupBoardsReady = false;
 
 class ChessBoardCanvas extends ChessBoardCanvasBase {
     onClickSquare(l, t, c, x, y) {
@@ -37,7 +40,7 @@ window.chessBoardCanvas = new ChessBoardCanvas('canvas');
 const renderBoard = window.chessBoardCanvas.infCanvas.onRender;
 window.chessBoardCanvas.infCanvas.onRender = (ctx, bounds) => {
     renderBoard(ctx, bounds);
-    if (committedData) {
+    if (committedData && startupBoardsReady) {
         window.chessBoardCanvas.infCanvas.onRender = renderBoard;
         reportLoaded('position');
         UI.showInfoPage();
@@ -119,6 +122,13 @@ function addHighlight(data, color, field, values) {
 }
 
 
+function finishStartupPreparation() {
+    if (startupBoardsReady) return;
+    startupBoardsReady = true;
+    reportLoaded('boards');
+    window.chessBoardCanvas.infCanvas.startAnimation();
+}
+
 function onWorkerMessage(e) {
     const msg = e.data;
     if (msg.type === 'ready') {
@@ -137,8 +147,29 @@ function onWorkerMessage(e) {
     else if (msg.type === 'alert') {
         alert(msg.message);
     }
+    else if (msg.type === 'initial_boards') {
+        if (msg.requestId === rasterImportRequestId) {
+            const isCurrent = () => msg.requestId === rasterImportRequestId;
+            UI.setImportPreparing(msg.requestId, true);
+            rasterImportPreparation = window.chessBoardCanvas.prepareBoardRasters(msg.data, isCurrent)
+                .then(() => {
+                    if (!isCurrent()) return;
+                    UI.setImportPreparing(msg.requestId, false);
+                    if (msg.requestId === undefined) finishStartupPreparation();
+                });
+        }
+    }
     else if (msg.type === 'load_result') {
-        if (UI.receiveImportResult(msg)) worker.postMessage({ type: 'commit_load', requestId: msg.requestId });
+        if (UI.receiveImportResult(msg)) {
+            rasterImportPreparation.then(() => {
+                if (msg.requestId === rasterImportRequestId) {
+                    worker.postMessage({ type: 'commit_load', requestId: msg.requestId });
+                }
+            });
+        } else if (msg.requestId === rasterImportRequestId) {
+            // Stop outstanding preparation after a failed or rejected import.
+            rasterImportRequestId = null;
+        }
     }
     else if (msg.type === 'load_committed') {
         UI.completeImport(msg.requestId);
@@ -153,6 +184,10 @@ function onWorkerMessage(e) {
             committedData = data;
         }
         showPosition(data, msg.previewId != null);
+        if (!startupBoardsReady && rasterImportRequestId === undefined) {
+            // setData also prepares any appearances absent from the early setup.
+            rasterImportPreparation.then(finishStartupPreparation);
+        }
         if (msg.previewId == null && focusOnNextData && compactViewport.matches) window.chessBoardCanvas.goToNextFocus();
         if (msg.previewId == null) focusOnNextData = false;
     }
@@ -271,10 +306,15 @@ UI.setCanvasNavigationCallback((action, options) => {
 UI.setImportCallback((data, requestId) => {
     deselect();
     focusOnNextData = true;
+    rasterImportRequestId = requestId;
+    rasterImportPreparation = Promise.resolve();
     worker.postMessage({type: 'load', pgn: data, requestId});
 });
 
-UI.setImportCancelCallback(requestId => worker.postMessage({ type: 'cancel_load', requestId }));
+UI.setImportCancelCallback(requestId => {
+    if (rasterImportRequestId === requestId) rasterImportRequestId = null;
+    worker.postMessage({ type: 'cancel_load', requestId });
+});
 
 UI.setExportCallback((requestId) => {
     worker.postMessage({type: 'export', requestId});

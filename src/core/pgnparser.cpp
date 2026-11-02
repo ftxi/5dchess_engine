@@ -922,7 +922,7 @@ std::optional<gametree> pgnparser::parse_gametree()
  <fen-string> ::= any sequence of words not containing ':' or ']' ;to be parsed separately
  */
 
-std::optional<game> pgnparser::parse_game()
+std::optional<game> pgnparser::parse_game(bool initial_position_only)
 {
     dprint("parse_game()");
     std::map<std::string, std::string> headers;
@@ -995,18 +995,23 @@ std::optional<game> pgnparser::parse_game()
         append_vectors(comments, parse_comments());
     }
     append_vectors(comments, parse_comments());
-    auto gt_opt = parse_gametree();
-    if(!gt_opt) {
-        if(furthest_error) throw *furthest_error;
-        fail(parse_error::unexpected_input{{"a game tree"}});
+    gametree gt;
+    if(!initial_position_only)
+    {
+        auto gt_opt = parse_gametree();
+        if(!gt_opt) {
+            if(furthest_error) throw *furthest_error;
+            fail(parse_error::unexpected_input{{"a game tree"}});
+        }
+        gt = std::move(*gt_opt);
+        parse_comments();
+        if(buffer.token != END) {
+            if(furthest_error && furthest_error->get_start() >= buffer.start)
+                throw *furthest_error;
+            fail(parse_error::unexpected_input{{"end of input"}});
+        }
     }
-    parse_comments();
-    if(buffer.token != END) {
-        if(furthest_error && furthest_error->get_start() >= buffer.start)
-            throw *furthest_error;
-        fail(parse_error::unexpected_input{{"end of input"}});
-    }
-    return game{headers, boards, std::move(*gt_opt), views_to_strings(comments), source,
+    return game{headers, boards, std::move(gt), views_to_strings(comments), source,
         std::move(board_sources), std::move(header_sources)};
 }
 

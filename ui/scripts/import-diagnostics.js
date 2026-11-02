@@ -46,8 +46,11 @@ export function createImportDiagnostics({ textarea, overlay, mirror, row, locati
     function updateState() {
         const state = active ? 'loading' : diagnostic ? (edited ? 'edited' : 'error') : 'empty';
         row.setAttribute('data-state', state);
-        heading.textContent = diagnostic ? (range ? `Error at ${formatDiagnosticLocation(snapshot, range)}` : 'Error:')
-            : active ? 'Checking import…' : '';
+        const progress = active?.preparing
+            ? (active.checking ? 'Checking import and preparing boards…' : 'Preparing boards…')
+            : active?.checking ? 'Checking import…' : 'Loading position…';
+        heading.textContent = active ? progress
+            : diagnostic ? (range ? `Error at ${formatDiagnosticLocation(snapshot, range)}` : 'Error:') : '';
         row.setAttribute('data-has-error', String(Boolean(diagnostic)));
         row.setAttribute('data-has-range', String(Boolean(range)));
         location.hidden = !diagnostic && active === null;
@@ -89,21 +92,30 @@ export function createImportDiagnostics({ textarea, overlay, mirror, row, locati
         cancelPending,
         begin() {
             if (active !== null) cancel?.(active.id);
-            active = { id: ++nextId, text: textarea.value };
+            active = { id: ++nextId, text: textarea.value, checking: true, preparing: false };
             pinned = hovered = focused = false;
+            textarea.readOnly = false;
             textarea.setAttribute('aria-busy', 'true');
             updateState();
             return { requestId: active.id, pgn: active.text };
         },
+        setPreparing(requestId, preparing) {
+            if (!active || requestId !== active.id) return;
+            active.preparing = preparing;
+            textarea.readOnly = !active.checking && !active.preparing;
+            updateState();
+        },
         receive(result) {
             if (!active || result.requestId !== active.id || textarea.value !== active.text) return false;
-            textarea.removeAttribute('aria-busy');
             if (result.success) {
-                // The worker commits only after the main thread accepts this
-                // result. Prevent edits in the short commit/ack interval.
-                textarea.readOnly = true;
+                active.checking = false;
+                // Edits may still cancel preparation. Freeze them only once
+                // both tasks finish and the commit/ack interval begins.
+                textarea.readOnly = !active.preparing;
+                updateState();
                 return true;
             }
+            textarea.removeAttribute('aria-busy');
             snapshot = active.text;
             active = null;
             diagnostic = result.diagnostic || { message: result.message || 'Could not load PGN.' };

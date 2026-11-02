@@ -114,7 +114,23 @@ createModule().then((engine) => {
     function loadGame(pgn, requestId) {
         if (pendingLoad) pendingLoad.game.delete();
         pendingLoad = null;
-        const result = self.engine.from_pgn(pgn, self.settings.allowSubmitWithChecks);
+        // Resolve setup without replaying history or checking royal exposure.
+        // Post it before entering the synchronous full import, so the main
+        // thread can prepare every surface LOD while this worker is occupied.
+        const initial = self.engine.from_pgn(pgn, { allowIllegalHistory: true, initialPositionOnly: true });
+        if (initial.success) {
+            try {
+                const size = initial.game.get_board_size();
+                const boards = initial.game.get_current_boards();
+                for (const board of boards) {
+                    if (board.fen) board.parsed = parse_FEN(board.fen, size.x, size.y);
+                }
+                self.postMessage({ type: 'initial_boards', requestId, data: { size, boards } });
+            } finally {
+                initial.game.delete();
+            }
+        }
+        const result = self.engine.from_pgn(pgn, { allowIllegalHistory: self.settings.allowSubmitWithChecks });
         if (requestId !== undefined && requestId !== null) {
             if (result.success) pendingLoad = { requestId, game: result.game };
             self.postMessage({ type: 'load_result', requestId, success: result.success,

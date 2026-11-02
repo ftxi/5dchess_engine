@@ -20,7 +20,7 @@ function updateLoading() {
     } else if (!loadedItems.has('interface')) {
         step = 4;
         message = 'Preparing the interface';
-    } else if (!loadedItems.has('position')) {
+    } else if (!loadedItems.has('position') || !loadedItems.has('boards')) {
         step = 5;
         message = 'Loading the starting position';
     } else {
