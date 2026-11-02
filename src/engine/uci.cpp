@@ -1,5 +1,7 @@
 #include <charconv>
 #include <cstdlib>
+#include <chrono>
+#include <condition_variable>
 #include <type_traits>
 #include "uci.h"
 #include <pgnparser.h>
@@ -82,6 +84,45 @@ void engine::stop_search()
     {
         search_thread.request_stop();
     }
+}
+
+std::optional<action> engine::search(
+    std::optional<int> depth_limit,
+    std::optional<int> time_limit_ms,
+    std::stop_token stop)
+{
+    const auto started = std::chrono::steady_clock::now();
+    std::stop_source cancellation;
+    std::stop_callback forward_stop(stop, [&cancellation]() {
+        cancellation.request_stop();
+    });
+    std::jthread deadline_timer;
+    if(time_limit_ms.has_value())
+    {
+        const auto deadline = started + std::chrono::milliseconds(*time_limit_ms);
+        if(std::chrono::steady_clock::now() >= deadline)
+        {
+            cancellation.request_stop();
+        }
+        else if(!cancellation.stop_requested())
+        {
+            deadline_timer = std::jthread(
+                [deadline, cancellation](std::stop_token timer_stop) {
+                    std::mutex mutex;
+                    std::condition_variable_any cv;
+                    std::unique_lock<std::mutex> lock(mutex);
+                    cv.wait_until(lock, timer_stop, deadline, []() {
+                        return false;
+                    });
+                    if(!timer_stop.stop_requested())
+                    {
+                        cancellation.request_stop();
+                    }
+                });
+        }
+    }
+    // The timer's destructor interrupts its wait and joins, including on failure.
+    return find_best_move(depth_limit, time_limit_ms, cancellation.get_token());
 }
 
 void engine::write_line(const std::string &line)
@@ -212,7 +253,7 @@ void engine::mainloop()
                 launch_async_task(task_state::searching,
                     [this, depth_limit, time_limit_ms](std::stop_token st)
                     -> std::optional<std::string> {
-                    auto best_move = find_best_move(depth_limit, time_limit_ms, st);
+                    auto best_move = search(depth_limit, time_limit_ms, st);
                     if(quit_requested.load())
                     {
                         return std::nullopt;

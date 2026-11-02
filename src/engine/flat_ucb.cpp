@@ -42,7 +42,7 @@ void basic_flat_ucb_engine<DefaultPolicy>::on_option_changed(
 template<class DefaultPolicy>
 std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
     std::optional<int> depth_limit,
-    std::optional<int> time_limit_ms,
+    std::optional<int>,
     std::stop_token stop_token)
 {
     const auto search_started = std::chrono::steady_clock::now();
@@ -70,19 +70,12 @@ std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
         iteration_limit = static_cast<std::size_t>(*depth_limit)
             * depth_to_iteration_multiplier;
     }
-    std::optional<std::chrono::steady_clock::time_point> deadline;
-    if(time_limit_ms.has_value())
-    {
-        deadline = std::chrono::steady_clock::now()
-            + std::chrono::milliseconds(*time_limit_ms);
-    }
 
     flat_ucb_observer observer;
     const bool maximizing_player = !root.get_present().c();
     std::size_t total_visits = 0;
     while(!stop_token.stop_requested()
-          && (!iteration_limit.has_value() || total_visits < *iteration_limit)
-          && (!deadline.has_value() || std::chrono::steady_clock::now() < *deadline))
+          && (!iteration_limit.has_value() || total_visits < *iteration_limit))
     {
         std::size_t selected = 0;
         float best_score = maximizing_player
