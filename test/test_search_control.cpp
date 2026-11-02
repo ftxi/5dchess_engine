@@ -71,7 +71,7 @@ void test_cancellation_scope()
         std::jthread stopper;
         {
             search_stop_scope scope(source.get_token(), clock_type::now() + 1h);
-            stopper = std::jthread([source] { source.request_stop(); });
+            stopper = std::jthread([source]() mutable { source.request_stop(); });
         }
     }
 }

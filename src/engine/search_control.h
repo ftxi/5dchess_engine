@@ -20,7 +20,7 @@ private:
     struct forward_stop
     {
         std::stop_source source;
-        void operator()() const noexcept { source.request_stop(); }
+        void operator()() noexcept { source.request_stop(); }
     };
     std::stop_callback<forward_stop> external_callback;
     std::optional<clock::time_point> deadline;
