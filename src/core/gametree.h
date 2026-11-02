@@ -43,6 +43,26 @@ class gnode {
         bool has_continuation
     );
 public:
+    ~gnode() noexcept
+    {
+        // Walk down existing ownership links and back up parent links. Delete
+        // only empty nodes, retaining descendant-before-parent destruction.
+        auto *node = this;
+        for(;;)
+        {
+            node->child_index.clear();
+            if(!node->children.empty())
+            {
+                node = node->children.back().get();
+                continue;
+            }
+            if(node == this) break;
+            auto *parent = node->parent;
+            parent->children.pop_back();
+            node = parent;
+        }
+    }
+
     // Callers classify royal safety once at insertion; trusted legal search can
     // use the default without rescanning. Descendants always inherit the flag.
     static std::unique_ptr<gnode<T>> create_root(state s, T info, bool illegal_history = false)

@@ -3,6 +3,31 @@
 
 namespace pgnparser_ast {
 
+gametree::~gametree() noexcept
+{
+    auto *node = this;
+    for(;;)
+    {
+        auto *variations = std::get_if<variations_t>(&node->variations_or_outcome);
+        if(variations && !variations->empty())
+        {
+            if(auto *child = variations->back().second.get())
+            {
+                child->destruction_parent = node;
+                node = child;
+            }
+            else
+                variations->pop_back();
+            continue;
+        }
+        if(node == this) break;
+        auto *parent = node->destruction_parent;
+        // This node is empty; its own destructor will return immediately.
+        std::get<variations_t>(parent->variations_or_outcome).pop_back();
+        node = parent;
+    }
+}
+
 std::ostream &operator<<(std::ostream &os, const relative_board &rb)
 {
     return os << "rb{ld:" << (rb.line_difference ? std::to_string(*rb.line_difference) : "?")

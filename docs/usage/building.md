@@ -155,6 +155,11 @@ On opening the interface, the engine initializes alongside chess-piece loading.
 The starting position appears once both are ready; bundled board-label fonts
 load in the background.
 
+When zoomed out, board surfaces and frames use cached images; highlighted
+boards keep direct drawing to preserve their highlight layering. Zooming in
+restores direct drawing and the file/rank labels. Phantom-board labels use the
+same opacity as their board, combined with their zoom fade.
+
 For interface structure and behavior, see
 [Web UI architecture](../architecture/webui.md).
 
@@ -184,6 +189,11 @@ darkhttpd ui/
 ```
 
 ### Correcting PGN imports
+
+Long game histories and deeply nested variations can be imported in browser
+workers, including Safari. Importing and discarding these trees no longer use
+call-stack space proportional to their depth; available memory still limits
+the size of a game.
 
 If a PGN cannot be loaded, the import dialog stays open and shows the full error
 below the input. Hover over the underlined yellow location to highlight the
