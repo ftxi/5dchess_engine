@@ -77,6 +77,20 @@ The rollout action limit can be changed through 5DUCI with
 is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
 position instead. Setting the limit to zero disables rollout entirely.
 
+## Search limits and stopping
+
+`go movetime <milliseconds>` requests cancellation when the time limit expires,
+measured from search start, including setup. Zero or negative limits request
+cancellation before search begins. The `stop` command requests cancellation of
+the current search through the same mechanism.
+
+Search stops at the next existing cancellation checkpoint. Fine-tree and
+hypercuboid operations run uninterrupted, so slow operations and timer scheduling
+can cause searches to exceed `movetime`. After cancellation, engines still
+select a move from discovered candidates and return `bestmove`, or `nobestmove`
+if no candidate is available. A search that finishes early cancels its timer
+without waiting for the time limit.
+
 ## Autoplay
 
 To play a match between two engines, first [build the Python module and engine](../usage/building.md#python-module), then run `scripts/autoplay.py` with the two engines specified as arguments. Example:

@@ -22,7 +22,7 @@
  * An engine must implement the following methods:
  * - initialize(): called once received "5duci" command. When this methods halts, the base class will send "5duciok" to the GUI.
  * - start_new_game(): called when the engine received "5ducinewgame" command. The derived class should reset its internal state to prepare for a new game.
- * - find_best_move(depth, time): called when the engine received "go" command. Return the best action found within the given limits. The base class will send "bestmove <move>" to the GUI after this method returns an action, or "nobestmove" if it returns std::nullopt.
+ * - find_best_move(depth, time, stop): called by search() when the engine receives "go". Observe the stop token for cancellation, including the time limit. The base class will send "bestmove <move>" to the GUI after this method returns an action, or "nobestmove" if it returns std::nullopt.
  * on_option_changed(key, value): called when the engine received "setoption" command. The derived class may override this method to react to specific options instantly. The base class will store the option in a map and provide `get_option(key)` and `set_option(key, value)` methods for the derived class to access the options.
  */
 
@@ -91,6 +91,10 @@ public:
     static option_value_t parse_option_value(const std::string &value);
     void send_info(const std::string &info);
     void send_debug_info(const std::string &info);
+    // Synchronous search entry point. Combines caller cancellation and movetime;
+    // cancellation takes effect at the implementation's next token check.
+    std::optional<action> search(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop = {});
+    // Implementation hook; direct calls bypass the shared deadline timer.
     virtual std::optional<action> find_best_move(std::optional<int> depth_limit, std::optional<int> time_limit_ms, std::stop_token stop_token) = 0;
     void stop_search();
     virtual ~engine();

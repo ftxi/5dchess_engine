@@ -50,7 +50,7 @@ inline std::optional<action>
 basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     std::optional<int> depth_limit,
     std::optional<int> time_limit_ms,
-    std::stop_token external_stop
+    std::stop_token stop_token
 )
 {
     constexpr static int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
@@ -59,8 +59,6 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     const auto deadline = time_limit_ms
         ? std::optional{time_search_start + std::chrono::milliseconds(*time_limit_ms)}
         : std::nullopt;
-    search_stop_scope control(external_stop, deadline);
-    const auto stop_token = control.get_token();
     search_trace trace(*get_current_state(), stop_token, deadline);
     if(trace.enabled()) trace.set_configuration(
         "depth_limit=" + (depth_limit ? std::to_string(*depth_limit) : "none")
@@ -86,24 +84,16 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
-                .reason = control.deadline_expired() ? "time limit reached" : "stop requested"
+                .reason = (deadline && std::chrono::steady_clock::now() >= *deadline) ? "time limit reached" : "stop requested"
             });
             break;
         }
-        // Check iteration limit and time limit
+        // The shared search wrapper requests stop when movetime expires.
         if(iteration_limit.has_value() && iteration_count >= iteration_limit.value())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
                 .reason = "iteration limit reached"
-            });
-            break;
-        }
-        if(control.deadline_expired())
-        {
-            watch_event(observer, event::search_aborted{
-                .iteration = iteration_count,
-                .reason = "time limit reached"
             });
             break;
         }
@@ -117,7 +107,7 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
-                .reason = control.deadline_expired()
+                .reason = (deadline && std::chrono::steady_clock::now() >= *deadline)
                     ? "time limit reached during tree policy selection"
                     : "stop requested during tree policy selection"
             });
@@ -140,7 +130,7 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
-                .reason = control.deadline_expired()
+                .reason = (deadline && std::chrono::steady_clock::now() >= *deadline)
                     ? "time limit reached during ceiling completion"
                     : "stop requested during ceiling completion"
             });
@@ -168,7 +158,7 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
                 .reason = stop_token.stop_requested()
-                    ? (control.deadline_expired()
+                    ? ((deadline && std::chrono::steady_clock::now() >= *deadline)
                         ? "time limit reached during default policy evaluation"
                         : "stop requested during default policy evaluation")
                     : "default policy returned no result"

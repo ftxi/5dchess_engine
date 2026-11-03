@@ -45,14 +45,12 @@ template<class DefaultPolicy>
 std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
     std::optional<int> depth_limit,
     std::optional<int> time_limit_ms,
-    std::stop_token external_stop)
+    std::stop_token stop_token)
 {
     const auto search_started = std::chrono::steady_clock::now();
     const auto deadline = time_limit_ms
         ? std::optional{search_started + std::chrono::milliseconds(*time_limit_ms)}
         : std::nullopt;
-    search_stop_scope control(external_stop, deadline);
-    const auto stop_token = control.get_token();
     const state &root = get_current_state().value();
     search_trace trace(root, stop_token, deadline);
     if(trace.enabled()) trace.set_configuration(
@@ -95,8 +93,7 @@ std::optional<action> basic_flat_ucb_engine<DefaultPolicy>::find_best_move(
     const bool maximizing_player = !root.get_present().c();
     std::size_t total_visits = 0;
     while(!stop_token.stop_requested()
-          && (!iteration_limit.has_value() || total_visits < *iteration_limit)
-          && !control.deadline_expired())
+          && (!iteration_limit.has_value() || total_visits < *iteration_limit))
     {
         std::size_t selected = 0;
         float best_score = maximizing_player

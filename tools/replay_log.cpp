@@ -130,7 +130,7 @@ int replay_log(int argc, const char *argv[])
             throw std::runtime_error("replayed position was rejected");
         std::cout << "set_position " << seconds_since(started) << " s\n" << std::flush;
         started = clock_type::now();
-        auto best = selected->find_best_move(std::nullopt, movetime, {});
+        auto best = selected->search(std::nullopt, movetime);
         std::cout << selected->search_configuration() << "\nmovetime " << movetime << ' '
                   << seconds_since(started) << " s, result=" << (best ? "move" : "none")
                   << "\n" << std::flush;

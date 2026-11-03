@@ -133,7 +133,7 @@ void test_deadline_inside_evaluation(bool use_external_stop)
             external.request_stop();
         });
     const auto start = clock_type::now();
-    auto best = engine.find_best_move(std::nullopt,
+    auto best = engine.search(std::nullopt,
         use_external_stop ? std::optional<int>{} : std::optional<int>{100}, external.get_token());
     assert(entered && cancelled && selected);
     assert(committed == 0);
@@ -148,11 +148,11 @@ void test_flat_deadline()
     Engine engine(std::make_unique<sink_io>(), 42, 100000);
     engine.set_position("startpos", "");
     const auto start = clock_type::now();
-    auto best = engine.find_best_move(std::nullopt, 20, {});
+    auto best = engine.search(std::nullopt, 20, {});
     assert(best && engine.get_current_state()->can_apply(*best));
     assert(clock_type::now() - start < 1s);
     // An expired budget still permits a discovered legal fallback.
-    best = engine.find_best_move(std::nullopt, 0, {});
+    best = engine.search(std::nullopt, 0, {});
     assert(best && engine.get_current_state()->can_apply(*best));
 }
 

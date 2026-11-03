@@ -1,5 +1,7 @@
 #include <charconv>
 #include <cstdlib>
+#include <chrono>
+#include "search_control.h"
 #include <type_traits>
 #include "uci.h"
 #include <pgnparser.h>
@@ -82,6 +84,19 @@ void engine::stop_search()
     {
         search_thread.request_stop();
     }
+}
+
+std::optional<action> engine::search(
+    std::optional<int> depth_limit,
+    std::optional<int> time_limit_ms,
+    std::stop_token stop)
+{
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = time_limit_ms
+        ? std::optional{started + std::chrono::milliseconds(*time_limit_ms)}
+        : std::nullopt;
+    search_stop_scope control(stop, deadline);
+    return find_best_move(depth_limit, time_limit_ms, control.get_token());
 }
 
 void engine::write_line(const std::string &line)
@@ -212,7 +227,7 @@ void engine::mainloop()
                 launch_async_task(task_state::searching,
                     [this, depth_limit, time_limit_ms](std::stop_token st)
                     -> std::optional<std::string> {
-                    auto best_move = find_best_move(depth_limit, time_limit_ms, st);
+                    auto best_move = search(depth_limit, time_limit_ms, st);
                     if(quit_requested.load())
                     {
                         return std::nullopt;
