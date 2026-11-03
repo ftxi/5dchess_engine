@@ -658,19 +658,17 @@ async def play_game(
     players = [target, baseline] if target_white else [baseline, target]
     commands: asyncio.Queue[str] = asyncio.Queue()
     game = rules.game.from_pgn(opening)
-    metadata = dict(game.metadata)
-    metadata.update(
-        {
-            "event": args.event,
-            "site": "Local",
-            "date": datetime.now().strftime("%Y.%m.%d"),
-            "round": f"{ratio:g}.{pair_number}.{1 if target_white else 2}",
-            "white": "Target" if target_white else "Baseline",
-            "black": "Baseline" if target_white else "Target",
-            "result": "*",
-        }
-    )
-    game.metadata = metadata
+    headers = {
+        "Event": args.event,
+        "Site": "Local",
+        "Date": datetime.now().strftime("%Y.%m.%d"),
+        "Round": f"{ratio:g}.{pair_number}.{1 if target_white else 2}",
+        "White": "Target" if target_white else "Baseline",
+        "Black": "Baseline" if target_white else "Target",
+        "Result": "*",
+    }
+    for key, value in headers.items():
+        game.set_header(key, value)
     initial_position = autoplay.uci_position(game)
     history: list[str] = []
     show_flags = rules.SHOW_CAPTURE | rules.SHOW_PROMOTION | rules.SHOW_SHORT

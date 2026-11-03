@@ -504,20 +504,20 @@ def uci_position(game) -> str:
     """
 
     size_x, size_y = game.get_board_size()
-    parity = game.metadata.get("timeline", "odd")
+    parity = game.get_header("Timeline")
 
     # state::show_fen() preserves unmoved markers (`*`).  The older
     # get_current_boards() binding omitted them and therefore changed pawn,
     # castling, and related move rights while reconstructing the position.
     blocks = " ".join(game.get_current_fen().splitlines())
-    return f"size {size_x}x{size_y} {parity} fen {blocks}"
+    return f"size {size_x}x{size_y} {parity.lower()} fen {blocks}"
 
 
 def snapshot_pgn(game) -> str:
     """Create a history-free PGN snapshot suitable for isolated adjudication."""
 
     size_x, size_y = game.get_board_size()
-    parity = game.metadata.get("timeline", "odd")
+    parity = game.get_header("Timeline")
     boards = game.get_current_fen().rstrip()
     return f'[Size "{size_x}x{size_y}"]\n[Timeline "{parity}"]\n{boards}\n'
 
@@ -532,34 +532,31 @@ def configure_pgn_metadata(
 ) -> None:
     """Set the standard match headers owned by the autoplay controller."""
 
-    metadata = dict(game.metadata)
-    metadata.update(
-        {
-            "event": getattr(args, "event", "Autoplay"),
-            "site": getattr(args, "site", "Local") if site is None else site,
-            "date": date.today().strftime("%Y.%m.%d"),
-            "round": str(round_number),
-            "white": args.white_name or args.white,
-            "black": args.black_name or args.black,
-            "result": "*",
-        }
-    )
+    headers = {
+        "Event": getattr(args, "event", "Autoplay"),
+        "Site": getattr(args, "site", "Local") if site is None else site,
+        "Date": date.today().strftime("%Y.%m.%d"),
+        "Round": str(round_number),
+        "White": args.white_name or args.white,
+        "Black": args.black_name or args.black,
+        "Result": "*",
+    }
     if match_id is not None:
-        metadata["matchid"] = str(match_id)
-    game.metadata = metadata
+        headers["Matchid"] = str(match_id)
+    for key, value in headers.items():
+        game.set_header(key, value)
 
 
 def set_pgn_result(game, outcome: str) -> None:
     """Translate an autoplay outcome into a standard PGN Result header."""
 
-    metadata = dict(game.metadata)
-    metadata["result"] = {
+    result = {
         "white": "1-0",
         "black": "0-1",
         "draw": "1/2-1/2",
         "cap": "1/2-1/2",
     }.get(outcome, "*")
-    game.metadata = metadata
+    game.set_header("Result", result)
 
 
 def append_termination_comment(game, comment: str) -> None:

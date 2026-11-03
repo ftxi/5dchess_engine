@@ -560,45 +560,54 @@ class BindingContracts(ContractCase):
         self.assertTrue(game.visit_child(action))
         self.assertTrue(game.has_illegal_history())
 
-    def test_metadata_edits_are_live_and_assignment_preserves_views(self):
+    def test_header_access_preserves_spelling_and_loaded_rules(self):
         rules = self.bindings()
-        game = rules.game.from_pgn(STANDARD_GAME)
+        game = rules.game.from_pgn(
+            STANDARD_GAME + '\n[tImElInE "odd"]\n[TimeControl "60"]\n[pUzZlE "Mate"]'
+        )
         position = game.get_current_fen()
-        metadata = game.metadata
-        metadata["event"] = "Live edits"
-        self.assertEqual(game.metadata["event"], "Live edits")
-        self.assertIn('[Event "Live edits"]', game.show_pgn(rules.SHOW_NOTHING))
-        metadata.update({"white": "Alice", "black": "Bob"})
-        self.assertEqual(metadata.get("white"), "Alice")
-        self.assertIsNone(metadata.get("missing"))
-        self.assertEqual(metadata.get("missing", "fallback"), "fallback")
-        snapshot = dict(metadata)
-        snapshot["event"] = "Independent copy"
-        self.assertEqual(metadata["event"], "Live edits")
-        del metadata["event"]
-        self.assertNotIn("event", game.metadata)
-        with self.assertRaises(KeyError):
-            metadata["event"]
-        with self.assertRaises(KeyError):
-            del metadata["event"]
-        # Materialize an independent dictionary before replacing live data.
-        old_headers = dict(metadata)
-        game.metadata = {"event": "Replacement"}
-        self.assertEqual(old_headers["white"], "Alice")
-        self.assertEqual(dict(metadata), {"event": "Replacement"})
+
+        game.set_header("eVeNt", "Match")
+        game.set_header("TIMECONTROL", "90")
+        self.assertEqual(game.get_header("event"), "Match")
+        self.assertEqual(game.get_header("timecontrol"), "90")
+        self.assertIsNone(game.get_header("missing"))
+        self.assertEqual(game.get_header("Variant"), "Standard - Turn Zero")
+        game.set_header("variant", "Other")
+        self.assertEqual(game.get_header("Variant"), "Other")
+        game.set_header("Variant", "")
+        self.assertEqual(game.get_header("Variant"), "Standard - Turn Zero")
+        self.assertIn("TimeControl", game.header_keys())
+
+        for key, actual in {"Size": "8x8", "Timeline": "Odd", "Promotions": "Q"}.items():
+            game.set_header(key.lower(), "ignored")
+            self.assertEqual(game.get_header(key), actual)
+            self.assertIn(key, game.header_keys())
+
+        exported = game.show_pgn(rules.SHOW_NOTHING)
+        self.assertIn('[Board "Standard - Turn Zero"]', exported)
+        self.assertNotIn('[Variant ', exported)
+        self.assertIn('[Timeline "Odd"]', exported)
+        self.assertIn('[TimeControl "90"]', exported)
+        self.assertIn('[Puzzle "Mate"]', exported)
+        self.assertNotIn('[Promotions ', exported)
+
+        standard = game.show_pgn(rules.SHOW_NOTHING, standard_metadata_only=True)
+        self.assertIn('[Variant "Standard - Turn Zero"]', standard)
+        self.assertIn('[Puzzle "Mate"]', standard)
+        self.assertNotIn('[TimeControl ', standard)
+
+        snapshot = game.metadata
+        snapshot["Event"] = "Independent copy"
+        self.assertEqual(game.get_header("Event"), "Match")
+        game.metadata = {"event": "Replacement", "timeline": "Even"}
+        self.assertEqual(game.get_header("Event"), "Replacement")
+        self.assertEqual(game.get_header("Timeline"), "Odd")
+        self.assertEqual(game.get_header("TimeControl"), "90")
         self.assertEqual(game.get_current_fen(), position)
         with self.assertRaises(TypeError):
             game.metadata = {"event": 42}
-        self.assertEqual(dict(metadata), {"event": "Replacement"})
-        self.assertEqual(dict(rules.Metadata({"event": "Standalone"})), {"event": "Standalone"})
-        # A retained mapping owns the game even after its Python name is gone.
-        del game
-        metadata["event"] = "Still alive"
-        self.assertEqual(metadata.copy(), {"event": "Still alive"})
-        self.assertEqual(list(metadata.items()), [("event", "Still alive")])
-        self.assertEqual(list(metadata.values()), ["Still alive"])
-        metadata.clear()
-        self.assertEqual(len(metadata), 0)
+        self.assertEqual(game.get_header("Event"), "Replacement")
 
     def test_endpoint_hash_ignores_metadata_and_tracks_navigation(self):
         rules = self.bindings()

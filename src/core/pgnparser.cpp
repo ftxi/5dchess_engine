@@ -1,3 +1,4 @@
+#include <locale>
 #include "pgnparser.h"
 #include "utils.h"
 #include "vec4.h"
@@ -925,11 +926,11 @@ std::optional<gametree> pgnparser::parse_gametree()
 std::optional<game> pgnparser::parse_game(bool initial_position_only)
 {
     dprint("parse_game()");
-    std::map<std::string, std::string> headers;
+    pgnparser_ast::header_map headers;
     std::vector<std::tuple<std::string, token_t, int, int, bool>> boards;
     std::vector<std::string_view> comments;
     std::vector<pgnparser_ast::board_source> board_sources;
-    std::map<std::string, pgnparser_ast::header_source> header_sources;
+    std::map<std::string, pgnparser_ast::header_source, pgnparser_ast::header_key_less> header_sources;
     parse_comments();
     while(buffer.token == METADATA)
     {
@@ -983,11 +984,13 @@ std::optional<game> pgnparser::parse_game(bool initial_position_only)
             value = std::string(s.begin() + prev, s.begin() + now);
             if(now+1 != len)
                 header_error(parse_error::unexpected_input{{"end of header"}}, now + 1, len);
-            for(auto &c: key) // keys are not case-sensitive, convert to lower cases
-                c = tolower(static_cast<unsigned char>(c));
             auto [_, success] = headers.insert({key, value});
             if(!success)
+            {
+                for(auto &c : key)
+                    c = std::tolower(c, std::locale::classic());
                 header_error(parse_error::duplicate_header{key}, 0, key.size());
+            }
             header_sources.emplace(key, pgnparser_ast::header_source{{buffer.start, buffer.end},
                 {content_start + prev, content_start + now}});
         }

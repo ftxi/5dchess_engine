@@ -237,14 +237,18 @@ inline val convert_action_to_js(const action &act)
     return js_act;
 }
 
-inline val convert_metadata_to_js(const std::map<std::string, std::string> &metadata)
+inline val convert_metadata_to_js(const game &g)
 {
-    val js_metadata = val::object();
-    for (const auto &[key, value] : metadata)
+    val entries = val::array();
+    unsigned index = 0;
+    for(const auto &key : g.header_keys())
     {
-        js_metadata.set(key, value);
+        val entry = val::array();
+        entry.set(0u, key);
+        entry.set(1u, *g.get_header(key));
+        entries.set(index++, entry);
     }
-    return js_metadata;
+    return val::global("Object").call<val>("fromEntries", entries);
 }
 
 ///////////////////////////////
@@ -326,13 +330,21 @@ EMSCRIPTEN_BINDINGS(engine) {
     // Class: game
     class_<game>("game")
         .smart_ptr<std::shared_ptr<game>>("game")
-        .property("metadata", &game::metadata)
         .function("has_illegal_history", &game::has_illegal_history)
+        .function("get_header", optional_override([](const game &self, const std::string &key) {
+            const auto value = self.get_header(key);
+            return value ? val(*value) : val::undefined();
+        }))
+        .function("set_header", &game::set_header)
+        .function("header_keys", optional_override([](const game &self) {
+            return val::array(self.header_keys());
+        }))
         .function("get_metadata", optional_override([](const game &self) {
-            return convert_metadata_to_js(self.metadata);
+            return convert_metadata_to_js(self);
         }))
         .function("set_metadata", optional_override([](game &self, val js_metadata) {
-            self.metadata = convert_js_to_metadata(js_metadata);
+            for(const auto &[key, value] : convert_js_to_metadata(js_metadata))
+                self.set_header(key, value);
         }))
         .function("get_current_present", optional_override([](const game &self) {
             const auto [t, c] = self.get_current_present();

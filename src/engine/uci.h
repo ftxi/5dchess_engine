@@ -47,6 +47,7 @@ private:
     std::mutex task_mutex;
     std::mutex io_mutex;
     mutable std::mutex options_mutex;
+    std::string search_description;
 protected:
     bool is_debug_mode = true;
     std::map<std::string, option_value_t> options;
@@ -81,6 +82,10 @@ public:
         s = std::nullopt;
     }
     void set_position(const std::string &position, const std::string &moves);
+    // Native callers supply an already validated, submitted position.
+    void set_position(state position) { s = std::move(position); }
+    void set_search_description(std::string description);
+    std::string search_configuration() const;
     option_value_t get_option(const std::string &key) const;
     void set_option(const std::string &key, const option_value_t &value);
     static option_value_t parse_option_value(const std::string &value);

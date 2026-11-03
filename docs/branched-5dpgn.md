@@ -12,7 +12,7 @@ The Branched 5DPGN is an extension to Shad's 5D Chess algebraic notation (5DPGN)
 + Explicit odd/even timeline
 + Game result
 
-The goals of Branched 5DPGN are:
+The goals of Branched 5DPGN include:
 + accuracy of transcription of game trees
 + ease of reading by a human
 + ease of parsing by a computer program
@@ -30,7 +30,7 @@ A **move** is an act of moving a piece to a legal position.
 
 A **move sequence** is a sequence of moves within a player's sub-turn. If in addition the game can be submitted after playing all moves within this sequence, this move sequence is known as a (legal) **action**. Otherwise, it is an **illegal action**. (Note: This concept is known as “actions” in Shad's notation. Another name is “moveset”.)
 
-A **board** is a two-dimensional chessboard. Each move creates one of two boards. The columns of a board are known as **files**, and the rows of a board are known as **ranks**.
+A **board** is a two-dimensional chessboard. Each move creates one or two boards. The columns of a board are known as **files**, and the rows of a board are known as **ranks**.
 
 Files are identified by letters a to h, from left to right from the White player's point of view.
 
@@ -44,11 +44,11 @@ A **multiverse** is a collection of all timelines. A timeline in a multiverse is
 
 A timeline is **active** if it is an initial timeline; or, it is the Nth timeline created by one player and the opponent has created at least (N-1) timelines. If a timeline is not active, then it is **inactive**.
 
-The **present** is the minimum turn index among all *active* timelines, ordered by the turn number and board color. As a consequence, inactive timelines do not affect the present calculation. A player can only submit when the resulting present belong to their opponent and no royal pieces of the player is exposed to the opponent.
+The **present** is the minimum turn index among all *active* timelines, ordered lexicographically by the turn number and board color. As a consequence, inactive timelines do not affect the present calculation. A player can only submit when the resulting present belong to their opponent and no royal pieces of the player is exposed to the opponent.
 
 A **state** consists of this information: a multiverse and the current player. A state is called **nodal** if it is the initial state or it is the state right after any player has submitted. Otherwise it is known as a **temporary state**.
 
-A **playable board** refers to a board with the same color as the current player and located on the end of a timeline. If a board is not playable, then it is called **historical**.
+A **playable board** refers to a board with the same color as the current player and located on the end of a timeline. If a board is not located on the endpoint of a timeline, then it is called **historical**.
 
 **Physical move** refers to moves within the same board.
 
@@ -60,7 +60,7 @@ A player is in **check** if forcibly skipping all *active timelines at the prese
 
 **Stalemate** is a state where there is no legal action, but the current player is not in check.
 
-**Softmate** is a state where one or more royal pieces of the current player is in check and all legal actions rewind the present.
+**Softmate** is a state where one or more royal pieces of the current player is in check, and there is at least one legal action, but all legal actions rewind the present.
 
 Coordinate
 -----------
@@ -91,7 +91,7 @@ A Branched 5DPGN consists of these parts: headers, 5DFEN, and game tree. Example
 1w. Nd3 
 ```
 
-First two lines are the headers, which specify some basic settings of the game. The next line is the 5DFEN, which sets the initial state. The rest is the game tree.
+First two lines are the headers, which specify some basic settings of the game. The next line is the 5DFEN, which sets the initial state. The rest is the game tree. Note: 5DFEN can be ommited if `Variant` header sets the initial position. The game tree is also optional.
 
 Headers
 ----------
@@ -106,27 +106,16 @@ A program that supports Branched 5DPGN should be able to handle these header key
 + `Variant`: Which variant is chosen (`Standard - Turn Zero`, `Princess`, etc.)
 + `Size`: Size of a board. Values have the form `<m>x<n>`, e.g. `8x8`, `5x5`, etc.
 + `Timeline`: If the starting state has odd or even timelines. Values are `Odd` or `Even`.
++ `Promotions`: A list of capital letters, describing which piece pawns/brawns can promote to.
+If `Variant` is given, then `Size`, `Timeline`, `Promotions` or the 5DFEN string (see below) may be absent. In this case, the variant's rules applies. If they are present, customized rules have higher priority.
 
 Here are some other recommended headers:
-+ `Promotions`: A list of capital letters, describing which piece pawns/brawns can promote to.
 + `Puzzle`: indicates what kind of puzzle it is (mate in N, aid mate, find the best move, etc.)
 
-These named variants supply their starting boards and timeline layout without
-explicit 5DFEN or `Timeline` headers:
-
-| Variant | Starting position |
-| --- | --- |
-| `Standard - Half Reflected` | Standard board with White's king on d1 and queen on e1; one odd timeline at turn 1 |
-| `Standard - Defended Pawn` | Standard board with queens on b1/b8 and knights on d1/d8; one odd timeline at turn 1 |
-| `Standard - Two Timelines` | Two standard boards at turn 1, on even timelines -0 and +0 |
-
-If `Promotions` is omitted, it defaults to `Q`. Commas and whitespace in its
-value are ignored, so `RBNQ` and `R B N, Q` are equivalent. `*` allows every
-non-pawn, non-brawn, non-royal promotion piece: queen, princess, rook, bishop,
-knight, common king, unicorn, and dragon. The `*` form cannot be combined with
-piece letters. An empty value, `[Promotions ""]`, disables promotion: a pawn
-or brawn reaching the opposite terminal rank remains a pawn or brawn, and an
-explicit promotion suffix is illegal.
+These named variants must be supported:
+- "Standard": A size 8x8, odd timeline variant with a classical chess initial board placed on `(0T1w)`.
+- "Standard - Turn Zero": Same classical chess initial board placed on both `(0T0b)` and `(0T1w)`.
+For both variants, `Size` is "8x8", `Timeline` is "Odd" and `Promotions` is "Q".
 
 If two or more of the headers within `Event` `Site` `Date` `Round` `White` `Black` `Result` are used, they should appear in this order.
 
@@ -180,13 +169,13 @@ A physical move usually has the form
 ```
 (<L>T<T>)<Piece><X1><Y1><X2><Y2>
 ```
-If the piece is a pawn, then the piece letter `P` is usually omitted. Thus the syntax is just board coordinate followed by SAN (standard algebraic notation) of traditional chess.
+If the piece is a pawn, then the piece letter `P` is usually omitted. Thus a physical move is written as putting the board coordinate in front of the move as you would write it in algebraic notation for classical chess.
 
 Note that there is no `<C>` coordinate, since the player who is applying this move is implied by context. `<Piece>` should always be written in upper case and files should always be written in lower case letters.
 
 The above move happens on a board with the same color as the current player. It is located on timeline `<L>` and turn `<T>`. On it, a piece of type `<Piece>` is moved from a square on file `<X1>`, rank `<Y1>` to file `<X2>`, rank `<Y2>`.
 
-If the move captures another piece, then it is allowed to place an `x` (the capture symbol) between `<X1><X2>` and `<Y1><Y2>`. Therefore, `(0T1)Rb1xb4` means on board `(0T1)`, a rook moves from square `b1` and takes the piece on `b4`.
+If the move captures another piece, then it is allowed to place an `x` (the capture symbol) between `<X1><Y1>` and `<X2><Y2>`. Therefore, `(0T1)Rb1xb4` means on board `(0T1)`, a rook moves from square `b1` and takes the piece on `b4`.
 
 ### Super-Physical Moves (Full Notation)
 
@@ -230,7 +219,7 @@ Example: `(0T33)a7a8=Q`
 
 Following a physical or super-physical move, it is allowed to use `+` to indicate this is a check. The character `+` should be placed immediately after each move (or promotion, if any).
 
-If the state after submission is checkmate, it is allowed to replace the last `+` in this action with `#`. For softmate, replace the last `+` with `#`.
+If the state after submission is checkmate, it is allowed to replace the last `+` in this action with `#`. For softmate, replace the last `+` with `*`.
 
 ### Evaluation Symbols
 
@@ -256,7 +245,7 @@ Comments can be used as separator of moves and turns. However, comments must not
 It is encouraged to put comments at the end of an action.
 
 > **Examples:**
-> + Good: `(0T1){the starting board}Ng1f3`
+> + Good: `(0T1)Ng1f3 {the starting board}`
 > + Bad: `(0T1){the starting board}Ng1f3`.
 > + Recommended: `(+0T1)Ng1f3 (-0T1)e2e3 {the first action on two-timelines}`
 > + Not recommended: `(+0T1)Ng1f3 {the first action on two-timelines} (-0T1)Pe2e3`
@@ -269,7 +258,7 @@ Sometimes, one move inside an action depends on another. For example, if an acti
 
 However, physical moves and non-branching jumps do not rely on anything prior. Therefore they are interchangeable.
 
-The **standard ordering** of moves is performed as follows: given an action, sort all physical moves and non-branching jumps by the timeline it arrives at. The sorting is in increasing order if it is White's sub-turn, and is in decreasing order if it is Black's sub-turn. After applying physical and non-branching moves in this order, apply the branching moves. The resulting state will be identical to the state where all moves are made in the original order.
+The **standard ordering** of moves is performed as follows: first identify which superphysical moves branch by replaying the moves in their original order. Then sort the physical moves and non-branching jumps by the timeline it arrives at, in increasing order for White and decreasing order for Black. Append the branching jumps in their original relative order. Note: The reordered action reaches the identical state as the original action.
 
 For ease of implementing branching notation, it is recommended to write an action with moves sorted in standard ordering. (That's why comments are recommended to be written at the end of an action: expect the action to be sorted.)
 
@@ -303,7 +292,7 @@ The example in the last row is not a match because their third entries `N` and `
 
 For pattern matching related to shortened physical moves, we focus on the skeleton of physical moves, i.e. information related to the piece name and coordinates. Other information, such as capture symbol and check symbol, are beyond the scope of our consideration.
 
-Patterns and skeletons of shortened move notation can be converted to each other naturally. For example, `Nf3` converts to `(?,?,?,?,?,f,3)` and `(0,1,N,g,1,f,3)` stands for `(0T1)Ng1f3`.
+Patterns and skeletons of shortened move notation can be converted to each other naturally. For example, `Nf3` converts to `(?,?,N,?,?,f,3)` and `(0,1,N,g,1,f,3)` stands for `(0T1)Ng1f3`.
 
 To tell whether a shortened move is valid and unambiguous, do this:
 + If the shortened move has non-null piece information, match its pattern against all full patterns of playable moves in the current state. If there is exactly one full pattern that can be matched, then the shortened move is considered valid. If more than one can be matched, the shortened move is ambiguous.
@@ -323,7 +312,7 @@ Nevertheless, here is some non-mandatory guidance:
 1. Prefer omitting the piece name for pawn.
 2. For physical pawn capture, whenever capture symbol is used, always include the source file. Write 'bxc4' rather than 'xc4'.
 3. For pawn jump, always include the source file. Write 'a>>a2' rather than '>>a2'.
-4. When the turn number is omitted, place an extra letter L inside parenthesis. Write `(L2)c3` rather than `(2)C3`.
+4. When the turn number is omitted, place an extra letter L inside parenthesis. Write `(L2)c3` rather than `(2)c3`.
 
 Final note on extra information: Symbols indicating capture, check, and similar annotations, if present, should be used correctly. These symbols are not considered by the pattern-matching process, which is defined solely for disambiguation. Implementations supporting Branched 5DPGN may, at their discretion, reject inputs in which such symbols are used incorrectly.
 
@@ -379,7 +368,7 @@ In the notation, for each node of the game tree, child states of that node shoul
 
 > **Example:** In this setting:
 > ```
-> [Variation "Two Timelines"]
+> [Variant "Standard - Two Timelines"]
 > [Timeline "Even"]
 > [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:+0:1:w]
 > [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:-0:1:w]
@@ -403,7 +392,9 @@ In the game tree syntax, a subtree may be replaced by `1-0`, `0-1`, or `1/2-1/2`
 Formal Definition
 -----------------
 
-Here is the BNF of Branched 5DPGN:
+The grammars below define which game records are syntactically valid. Whether a starting position or action sequence is legal is resolved separately under the applicable game rules. Implementations may reject initial positions that expose royal pieces, or action sequences that contain an entry which cannot be submitted.
+
+BNF of Branched 5DPGN:
 
 ```bnf
 <game> ::= {<space-comment>* <header>}* {<space-comment>* <board-fen>}* <space-comment>* <game-tree>
@@ -423,17 +414,15 @@ Here is the BNF of Branched 5DPGN:
 
 <move> ::= <physical-move> | <super-physical-move>
 <physical-move> ::= [<board>] ([<piece-name>] [<file>] [<rank>] ['x'] <file> <rank> ['=' <promote-to>] | 'O-O' | 'O-O-O') [<check-symbol>] [<evaluation-symbol>]
-<super-physical-move> ::= [<board>] [<piece-name>] [<file>] [<rank>] (<jump-indicator> ['x'] | [<jump-indicator>] ['x'] <board>) <file> <rank> ['=' <promote-to>] [<check-symbol>] [<present-moved-symbol>] [<evaluation-symbol>] <timeline-comment>*
+<super-physical-move> ::= [<board>] [<piece-name>] [<file>] [<rank>] (<jump-indicator> ['x'] | [<jump-indicator>] ['x'] <board>) <file> <rank> ['=' <promote-to>] [<check-symbol>] [<evaluation-symbol>]
 <board> ::= '(' (['L'] <line> | [['L'] <line>] 'T' <time>) ')'
 <piece-name> ::= 'P' | 'W' | 'K' | 'C' | 'Q' | 'Y' | 'S' | 'N' | 'R' | 'B' | 'U' | 'D'
-<promote-to> ::= a piece symbol enabled by the `Promotions` header
+<promote-to> ::= a piece symbol enabled by the `Promotions` header or inferred from variant rules
 <jump-indicator> ::= '>' | '>>'
 <file> ::= 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h'
 <rank> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8'
 <check-symbol> ::= '+' | '#' | '*'
 <evaluation-symbol> ::= '!!' | '!' | '??' | '?' | '!?' | '?!'
-<present-moved-symbol> ::= '~'
-<timeline-comment> ::= <whitespace> '(' {'>L' <line> | '~T' <time>} ')'
 <line> ::= ['+' | '-'] <natural-number>
 <time> ::= <natural-number>
 <natural-number> ::= '0' | <positive-number>
@@ -443,7 +432,7 @@ Here is the BNF of Branched 5DPGN:
 <result> ::= '1-0' | '0-1' | '1/2-1/2'
 ```
 
-And here is the BNF of 5DFEN:
+BNF for 5DFEN:
 ```bnf
 <board-fen> ::= '[' <fen-string> ':' <line> ':' <time> ':' {'w' | 'b'} ']'
 <fen-string> ::= {<piece> | <blanks> | '/'}*
@@ -452,6 +441,7 @@ And here is the BNF of 5DFEN:
 <white-piece> ::= 'P' | 'W' | 'K' | 'C' | 'Q' | 'Y' | 'S' | 'N' | 'R' | 'B' | 'U' | 'D' | 'P*' | 'W*' | 'K*' | 'R*'
 <black-piece> ::= 'p' | 'w' | 'k' | 'c' | 'q' | 'y' | 's' | 'n' | 'r' | 'b' | 'u' | 'd' | 'p*' | 'w*' | 'k*' | 'r*'
 ```
+The board string is supposed to decode to a valid board of declared size.
 
 Game Analysis
 -----------------
@@ -462,7 +452,7 @@ This example game uses Branched 5DPGN encoding and includes commentary and analy
 [White "fantasie"]
 [Black "Mr.Nikita"]
 [Variant "Standard - Turn Zero"]
-[Timeline "odd"]
+[Timeline "Odd"]
 [Size "8x8"]
 [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:0:b]
 [r*nbqk*bnr*/p*p*p*p*p*p*p*p*/8/8/8/8/P*P*P*P*P*P*P*P*/R*NBQK*BNR*:0:1:w]
@@ -520,5 +510,5 @@ This example game uses Branched 5DPGN encoding and includes commentary and analy
  25w. Kg2 {White cannot move the king here. Otherwise, black's rook can go to White's king's starting position and checkmate the historical king long ago.}/ Re1# )
 17b. Rc8 {If not, White can capture the pawn at e7 for free.}
 18. Bxe7 {Black's Queen cannot capture the bishop, because if it fails to protect the pawn at g6, White will win immediately.}/ Qxe7 
-19. Nxg6# 
+19. Nxg6# 1-0
 ```

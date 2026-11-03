@@ -1,7 +1,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <chrono>
-#include <condition_variable>
+#include "search_control.h"
 #include <type_traits>
 #include "uci.h"
 #include <pgnparser.h>
@@ -92,37 +92,11 @@ std::optional<action> engine::search(
     std::stop_token stop)
 {
     const auto started = std::chrono::steady_clock::now();
-    std::stop_source cancellation;
-    std::stop_callback forward_stop(stop, [&cancellation]() {
-        cancellation.request_stop();
-    });
-    std::jthread deadline_timer;
-    if(time_limit_ms.has_value())
-    {
-        const auto deadline = started + std::chrono::milliseconds(*time_limit_ms);
-        if(std::chrono::steady_clock::now() >= deadline)
-        {
-            cancellation.request_stop();
-        }
-        else if(!cancellation.stop_requested())
-        {
-            deadline_timer = std::jthread(
-                [deadline, cancellation](std::stop_token timer_stop) {
-                    std::mutex mutex;
-                    std::condition_variable_any cv;
-                    std::unique_lock<std::mutex> lock(mutex);
-                    cv.wait_until(lock, timer_stop, deadline, []() {
-                        return false;
-                    });
-                    if(!timer_stop.stop_requested())
-                    {
-                        cancellation.request_stop();
-                    }
-                });
-        }
-    }
-    // The timer's destructor interrupts its wait and joins, including on failure.
-    return find_best_move(depth_limit, time_limit_ms, cancellation.get_token());
+    const auto deadline = time_limit_ms
+        ? std::optional{started + std::chrono::milliseconds(*time_limit_ms)}
+        : std::nullopt;
+    search_stop_scope control(stop, deadline);
+    return find_best_move(depth_limit, time_limit_ms, control.get_token());
 }
 
 void engine::write_line(const std::string &line)
@@ -608,4 +582,26 @@ void engine::send_debug_info(const std::string &info)
 void engine::on_option_changed(const std::string & /*key*/, const option_value_t & /*value*/)
 {
     // Default no-op — derived engines override to react to specific options.
+}
+
+void engine::set_search_description(std::string description)
+{
+    std::lock_guard lock(options_mutex);
+    search_description = std::move(description);
+}
+
+std::string engine::search_configuration() const
+{
+    std::lock_guard lock(options_mutex);
+    std::ostringstream out;
+    out << "engine_command=" << search_description;
+    for(const auto &[key, value] : options)
+    {
+        out << "\noption " << key << '=';
+        std::visit([&](const auto &entry) {
+            if constexpr(!std::is_same_v<std::decay_t<decltype(entry)>, std::monostate>)
+                out << entry;
+        }, value);
+    }
+    return out.str();
 }

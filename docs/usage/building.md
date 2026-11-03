@@ -136,6 +136,19 @@ pass `allow_submit_with_checks=True` to both methods. This still requires a
 completed turn and marks accepted exposed actions as illegal history. Loading
 such games separately requires `game.from_pgn(pgn, allow_illegal_history=True)`.
 
+Use `game.get_header("event")` to read a header, `game.set_header("Event", value)`
+to edit it, and `game.header_keys()` to list the available names. Lookups and edits
+match keys case-insensitively. Export uses canonical spelling for known headers,
+including `Puzzle`, and preserves the original spelling of custom headers.
+Standard-only export includes `Puzzle` and omits custom headers.
+
+`Size`, `Timeline`, and `Promotions` report the loaded rules and ignore edits.
+`Timeline` uses `Odd` or `Even`. Reading `Variant` falls back to `Board` when
+`Variant` is empty or absent. Loading and export prefer `Board` when both are
+present. In Python, `game.metadata` returns a snapshot dictionary. Assign a
+dictionary to update the supplied editable headers, or use `set_header` to edit
+one header. Headers omitted from the dictionary keep their values.
+
 ## WebAssembly
 
 Requires [emscripten](https://emscripten.org).
