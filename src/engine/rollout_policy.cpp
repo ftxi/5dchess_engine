@@ -1,4 +1,5 @@
 #include "rollout_policy.h"
+#include "statistics.h"
 #include "hypercuboid.h"
 #include "utils.h"
 #include "search_trace.h"
@@ -123,7 +124,7 @@ std::optional<moveseq> random_action_selection::operator()(
 }
 
 std::optional<reward_t<rollout_details>> evaluate_zero_position(
-    state s, std::stop_token stop)
+    state s, std::stop_token stop, move_space_data *move_space)
 {
     if(stop.stop_requested()) return std::nullopt;
     auto [info, space] = [&] {
@@ -145,6 +146,7 @@ std::optional<reward_t<rollout_details>> evaluate_zero_position(
         if(stop.stop_requested()) return std::nullopt;
         return evaluation.mate_reward(winner, 0);
     }
+    if(move_space) *move_space = count_move_space(info);
     return evaluation.cutoff_reward(std::move(s), 0, stop, nullptr);
 }
 

@@ -3,8 +3,10 @@
 For reproducible engine experiments, use the fixed human-position suite and
 the [canonical testing workflow](testing.md).
 
-There are thirteen engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
-`zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `linear`, `linear-trained`, `linear-weighted`,
+There are nineteen engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
+`zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-exposure-pn`,
+`linear`, `linear-trained`, `linear-weighted`,
+`linear-pw`, `linear-safety-pw`, `linear-trained-pw`, `neural-pw`, `amaf-pw`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
 
@@ -51,10 +53,150 @@ does not establish a legal or available recapture. Cross-timeline exposure
 and subsequent exchanges are not measured. The existing `mvvlva` remains
 available for comparison.
 
+`mvvlva-exposure-pn` adds the PN-MCTS tree policy to `mvvlva-exposure`.
+It keeps the same move ordering, zero leaf evaluation, progressive widening,
+and most-visited final move selection. `--pn-constant` controls the proof-number
+rank bias (default 1; finite and nonnegative); zero uses ordinary UCT selection.
+For example:
+
+```sh
+./build/5dchess mvvlva-exposure-pn --seed 42 --pn-constant 0.5 \
+  --pw-constant 2 --pw-alpha 0.5
+```
+
+The policy follows the [UCT-PN rank formula](https://arxiv.org/abs/2303.09449).
+It ranks admitted, visited children by proof number on the root player's
+decisions and by disproof number on the opponent's decisions. Equal numbers
+share a rank. Terminal wins prove the root player's win goal; terminal losses
+and stalemates disprove it. Unsearched continuations remain unknown while
+widening is incomplete, so exploring only some moves cannot establish that
+all moves win or lose. Cutoff evaluations do not establish proofs. This engine
+uses PN information for tree selection; solved subtrees are still searched
+and final selection still uses visits.
+
 The Linear engines evaluate inconclusive rollout positions with the same
-bounded 64-feature model. `linear` and `linear-weighted` use hand-written
+bounded feature model. `linear` and `linear-weighted` use hand-written
 weights, while `linear-trained` uses a frozen experimental profile. See
 [Linear evaluation features](linear-features.md).
+
+For comparisons without rollouts, `linear-pw`, `linear-safety-pw`, and
+`linear-trained-pw` preserve `mvvlva-exposure` ordering and progressive widening
+while replacing its nonterminal zero evaluation. `linear-safety-pw` enables six
+additional king-safety features; the other two retain zero coefficients for
+those features. These engines do not accept rollout options.
+
+`neural-pw` uses the same MVV-LVA exposure move ordering and progressive
+widening, with no rollouts. It evaluates only nonterminal positions through
+a 70-input network with hidden layers of 32 and 16 ReLU units and a final
+`tanh` value. Terminal wins, losses and stalemates retain their exact values.
+The model predicts the side-to-move value; the search converts it to its
+White-relative reward convention. The network never changes move ordering.
+
+```sh
+./build-canonical/5dchess neural-pw --model /absolute/path/to/model.nn \
+  --pw-constant 2 --pw-alpha 0.5
+```
+
+The model is required and loaded before the protocol handshake. Native
+inference needs no additional library. Version 1 is a whitespace-separated
+text file beginning with `5DNEURAL 1`, feature schema `linear70-v1-mover`,
+and dimensions `70 32 16 1`. It contains 70 training means, 70 inverse
+standard deviations, then row-major weights and biases for each layer
+(2,817 parameters). Constant training columns use inverse scale zero.
+Numbers must be finite; incorrect versions, dimensions, truncated files,
+negative scales and trailing content are rejected.
+
+To prepare and train a model with the Python rules binding, NumPy and PyTorch
+installed in the Python used for the build:
+
+```sh
+python scripts/neural_dataset.py prepare --build build-canonical \
+  --output /absolute/path/to/new-dataset
+python scripts/neural_train.py --build build-canonical \
+  --dataset /absolute/path/to/new-dataset --output /absolute/path/to/new-training
+```
+
+The exporter validates each game in an isolated process, records exclusions,
+groups related games before splitting, excludes canonical-suite source
+families, and deduplicates sampled states. It samples completed played
+actions with their original full multiverse history. Missing outcomes and
+ambiguous variations are excluded. The trainer fits normalization only on
+training data, selects across three seeds using validation loss, evaluates
+the selected checkpoint on the test split once, and checks native output
+agreement. `model.nn`, its normalization, hashes, learning curves and
+metrics are saved in the training output directory. The binding exposes raw
+features through `game.get_evaluation_features()` and native model inference
+through `neural_model.load(path).evaluate_features(features)`.
+
+`amaf-pw` adds action-local AMAF credit sharing to the MVV-LVA exposure/PW
+search, without rollouts. Semimoves under different partial-action prefixes
+share reward/count statistics only when they belong to the same completed
+action's HC context. By default, shared estimates influence UCT selection among admitted
+children; admission and action completion retain MVV-LVA exposure ordering.
+They never establish legality or prune a continuation.
+
+```sh
+./build-canonical/5dchess amaf-pw --amaf-strength 0.5 \
+  --amaf-horizon 32 --amaf-decay inverse --pw-constant 2 --pw-alpha 0.5
+```
+
+`--amaf-strength` is a finite mixing amplitude in `[0,1]` (default 1), and
+`--amaf-horizon` is a finite nonnegative visit scale (default 32). For direct
+child visits `n`, horizon `h`, and strength `a`, the supported decay weights
+are `a/(1+n/h)` (`inverse`), `a/sqrt(1+n/h)` (`sqrt`), and
+`a*exp(-n/h)` (`exponential`). Strength or horizon zero disables sharing.
+The shared mean is used only when it includes more observations than that
+child's direct statistics. Initial-axis coordinates have no alternative
+prefix within the action, so they need no shared estimate.
+
+`--amaf-credit blend` mixes the shared mean into the direct child value.
+`--amaf-credit centered` keeps the direct value and adds a decaying shared
+advantage relative to that action's average reward. Both retain the UCT
+exploration term; the default is `blend`.
+
+`--amaf-application admission` uses ordinary UCT selection and applies shared
+credit when admitting children or completing a partial action.
+`--amaf-application both` applies credit at both stages; `selection` is the
+default. Admission adds a bounded, mover-relative shared advantage to the
+existing MVV-LVA exposure score. Its decay uses shared coordinate visits,
+since a new prefix has no direct child history. It keeps every allowed
+coordinate and passes the resulting action through normal legality checks.
+With absent or all-zero shared evidence, ordering is exactly the original
+seeded ordering. Cached rankings update between completed MCTS iterations.
+
+`--amaf-application children` applies shared credit only when choosing among
+children already discovered through completed legal actions. New-action
+discovery retains the original MVV-LVA exposure ordering, and ordinary UCT
+selection is unchanged. Shared marginal credit therefore cannot reorder the
+legality search for previously unexamined combinations of semimoves.
+
+`--amaf-evidence unique-leaves` counts each completed leaf node once in shared
+AMAF statistics, including when that node is revisited after ignition.
+Ordinary UCT rewards and visits still update every iteration. This option
+requires `admission` or `children` mode; the default `visits` counts every
+completed iteration. All evidence remains scoped to its action context.
+
+Leaves use zero nonterminal values unless `--model /absolute/path/to/model.nn`
+is supplied. `--value-scale` scales only the model's nonterminal output by a
+finite number in `[0,1]` (default 1). Zero skips neural feature extraction.
+Terminal wins, losses and stalemates always retain exact values. `amaf_stats`
+protocol information reports sharing activity for diagnostics. The default
+settings are configuration defaults, not a strength recommendation.
+
+`--neural-usage leaf` backs up learned nonterminal values through ordinary UCT
+and AMAF statistics. `--neural-usage amaf-prior` instead backs up zero for
+nonterminal ordinary UCT rewards while using the learned value only for
+action-local shared estimates. This keeps the network's influence within the
+decaying AMAF term. Exact terminal rewards update both sets of statistics in
+either mode. With sharing disabled, `amaf-prior` therefore retains zero leaf
+evaluation regardless of model predictions.
+
+`--cache-evaluations` reuses a completed evaluation when the same ceiling node
+is revisited. It is optional and applies only to `amaf-pw`, whose zero and
+neural leaf policies are deterministic. The cache belongs to the current
+search tree, preserves terminal outcomes, and is discarded before the next
+search. Interrupted evaluations are never cached. `amaf_stats` includes cache
+hit and miss counts; backpropagation still runs once per completed iteration.
 
 The two flat-UCB engines evaluate each legal root action with repeated rollouts
 and choose with the adversarial UCB rule, without expanding a search tree.

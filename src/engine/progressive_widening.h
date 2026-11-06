@@ -16,8 +16,8 @@
 inline constexpr double default_progressive_widening_constant = 2.0;
 inline constexpr double default_progressive_widening_alpha = 0.5;
 
-template<HCOrdering Order>
-struct progressive_widening_node_data
+template<HCOrdering Order, class SelectionData = std::monostate>
+struct progressive_widening_node_data : SelectionData
 {
     bool all_children_included = false;
     bool fully_expanded = false;
@@ -31,12 +31,13 @@ struct progressive_widening_node_data
 };
 
 template<HCOrdering Order = random_HC_ordering,
-         class ChildSelection = uct_child_selection>
+         class ChildSelection = uct_child_selection,
+         class SelectionData = std::monostate>
 class progressive_widening_tree_policy
 {
 public:
-    using node_data = progressive_widening_node_data<Order>;
-    using node_t = tree_node_t<progressive_widening_tree_policy<Order, ChildSelection>>;
+    using node_data = progressive_widening_node_data<Order, SelectionData>;
+    using node_t = tree_node_t<progressive_widening_tree_policy<Order, ChildSelection, SelectionData>>;
 
 private:
     std::optional<std::mt19937> rng;
@@ -153,7 +154,7 @@ public:
         double widening_constant_ = default_progressive_widening_constant,
         double widening_alpha_ = default_progressive_widening_alpha,
         coordinate_score_function score = nullptr,
-        ChildSelection select_child = {})
+        ChildSelection select_child = ChildSelection{})
         : policy_id(uct_detail::next_policy_id()),
           widening_constant(widening_constant_),
           widening_alpha(widening_alpha_),

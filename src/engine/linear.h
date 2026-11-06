@@ -8,6 +8,7 @@
 #include <optional>
 #include <random>
 #include <stop_token>
+#include <string_view>
 #include <utility>
 
 #include "mcts_engines.h"
@@ -38,8 +39,19 @@ public:
         = timeline_offset + timeline_feature_count;
     static constexpr std::size_t log_universe_volume_offset = move_space_offset;
     static constexpr std::size_t log_non_new_volume_offset = move_space_offset + 1;
-    static constexpr std::size_t features_count
+    static constexpr std::size_t royal_safety_offset
         = move_space_offset + move_space_feature_count;
+    enum royal_safety_indices {
+        ACTIVE_RING_PRESSURE,
+        INACTIVE_RING_PRESSURE,
+        ACTIVE_ESCAPE_SCARCITY,
+        INACTIVE_ESCAPE_SCARCITY,
+        LATENT_ROYAL_THREAT,
+        HISTORICAL_VULNERABILITY,
+        ROYAL_SAFETY_COUNT
+    };
+    static constexpr std::size_t features_count
+        = royal_safety_offset + ROYAL_SAFETY_COUNT;
     static constexpr std::size_t timeline_advantage_offset = timeline_offset + 9;
 
     using feature_vector_t = std::array<float, features_count>;
@@ -55,8 +67,14 @@ public:
 
     static weight_vector_t default_weights();
     static weight_vector_t trained_weights();
+    static weight_vector_t safety_weights();
+    static weight_vector_t select_features(weight_vector_t weights,
+                                          std::string_view subset);
     static feature_vector_t extract_features(const state &position);
+    static feature_vector_t extract_features(
+        const state &position, const move_space_data &move_space);
 
+    float raw_score(const state &position) const;
     float evaluate(const state &position) const;
     const weight_vector_t &get_weights() const { return weights; }
 
@@ -132,8 +150,56 @@ public:
         ) {}
 };
 
+// No rollout: establish terminal outcomes exactly as zero_default_policy does,
+// then evaluate only positions for which a legal action has been witnessed.
+class linear_leaf_policy
+{
+    linear_cutoff_evaluation evaluation;
+
+public:
+    using result_type = reward_t<rollout_details>;
+    explicit linear_leaf_policy(linear_cutoff_evaluation::weight_vector_t weights)
+        : evaluation(std::move(weights)) {}
+
+    template<class Observer>
+    std::optional<result_type> evaluate(state position, std::stop_token stop,
+                                      Observer &)
+    {
+        auto outcome = evaluate_zero_position(position, stop);
+        if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
+            return outcome;
+        return evaluation.cutoff_reward(std::move(position), 0, stop, nullptr);
+    }
+};
+
+using linear_pw_mcts_engine = basic_mcts_engine<
+    progressive_widening_tree_policy<scored_HC_ordering>,
+    linear_leaf_policy,
+    sum_backpropagation,
+    most_visited_selection,
+    mcts_observer>;
+
+class linear_pw_engine final : public linear_pw_mcts_engine
+{
+public:
+    linear_pw_engine(std::unique_ptr<io_handler> io,
+        std::optional<std::uint32_t> seed,
+        double widening_constant, double widening_alpha,
+        linear_cutoff_evaluation::weight_vector_t weights)
+        : linear_pw_mcts_engine(
+            linear_leaf_policy{std::move(weights)},
+            progressive_widening_tree_policy<scored_HC_ordering>{
+                seed, widening_constant, widening_alpha,
+                [](const HC_info &info, std::stop_token stop) {
+                    return move_evaluator(info, capture_check_weights,
+                        capture_ordering::mvvlva_exposure).build_score_table(stop);
+                }},
+            {}, {}, {}, std::move(io)) {}
+};
+
 static_assert(CutoffEvaluation<linear_cutoff_evaluation, rollout_details>);
 static_assert(DefaultPolicy<linear_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<weighted_linear_default_policy, mcts_observer>);
+static_assert(DefaultPolicy<linear_leaf_policy, mcts_observer>);
 
 #endif /* LINEAR_H */

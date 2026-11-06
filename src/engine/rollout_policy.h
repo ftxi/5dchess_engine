@@ -67,8 +67,9 @@ using rollout_default_policy = default_policy_t<rollout_details,
 using weighted_rollout_default_policy = default_policy_t<rollout_details,
     weighted_action_selection, rollout_cutoff_evaluation>;
 
+struct move_space_data;
 std::optional<reward_t<rollout_details>> evaluate_zero_position(
-    state s, std::stop_token stop);
+    state s, std::stop_token stop, move_space_data *move_space = nullptr);
 
 // No simulated actions, but terminal positions retain their actual outcome.
 struct zero_default_policy

@@ -14,11 +14,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import platform
 import random
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -47,6 +49,34 @@ def engine_binary(build):
 
 def save(path, value):
     Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def snapshot_engine_assets(engine, output):
+    """Freeze external inference data and rewrite the command to the snapshot."""
+    tokens = shlex.split(engine)
+    assets = []
+    if "--model" in tokens:
+        if tokens.count("--model") != 1 or tokens.index("--model") + 1 >= len(tokens):
+            raise ValueError("one --model path is required")
+        index = tokens.index("--model") + 1
+        source = Path(tokens[index])
+        if not source.is_absolute() or not source.is_file():
+            raise ValueError("canonical --model must name an absolute regular file")
+        expected = digest(source)
+        target = output / "model.nn"
+        shutil.copyfile(source, target)
+        if digest(target) != expected or digest(source) != expected:
+            raise ValueError("model changed while taking its snapshot")
+        target.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+        tokens[index] = str(target.resolve())
+        assets.append({"source": str(source), "file": target.name, "sha256": expected})
+    return shlex.join(tokens), assets
+
+
+def verify_engine_assets(directory, assets):
+    for asset in assets:
+        if digest(directory / asset["file"]) != asset["sha256"]:
+            raise ValueError("frozen model changed")
 
 
 def git(*args):
@@ -385,7 +415,9 @@ def freeze(args):
     args.reference.mkdir(parents=True, exist_ok=False)
     binary = args.reference / engine_binary(args.build).name
     shutil.copy2(engine_binary(args.build), binary)
-    record.update({"binary_sha256": digest(binary), "engine": args.engine,
+    frozen_engine, assets = snapshot_engine_assets(args.engine, args.reference)
+    record.update({"binary_sha256": digest(binary), "engine": frozen_engine,
+        "original_engine": args.engine, "assets": assets,
         "binary_name": binary.name,
         "suite_sha256": digest(args.suite / "manifest.json")})
     save(args.reference / "reference.json", record)
@@ -421,6 +453,7 @@ def run(args):
     ref_binary = args.reference / reference.get("binary_name", "5dchess")
     if digest(ref_binary) != reference["binary_sha256"]:
         raise ValueError("frozen reference binary changed")
+    verify_engine_assets(args.reference, reference.get("assets", []))
     if reference["suite_sha256"] != digest(args.suite / "manifest.json"):
         raise ValueError("reference belongs to a different suite version")
     build = build_record(args.build)
@@ -433,6 +466,7 @@ def run(args):
     # Snapshot the executable so rebuilding during a run cannot change games.
     candidate = args.output / ("candidate" + engine_binary(args.build).suffix)
     shutil.copy2(engine_binary(args.build), candidate)
+    candidate_engine, assets = snapshot_engine_assets(args.engine, args.output)
     openings = args.output / "openings"
     openings.mkdir()
     rules_dir = args.output / "rules"
@@ -447,10 +481,11 @@ def run(args):
         shutil.copy2(args.suite / r["file"], openings / f"{r['id']}.5dpgn")
     controller_output = args.output / "controller"
     command = [sys.executable, str(ROOT / "scripts/ratio_matchmaker.py"),
-        "--target", shlex.join([str(candidate), *shlex.split(args.engine)]),
+        "--target", shlex.join([str(candidate), *shlex.split(candidate_engine)]),
         "--baseline", shlex.join([str(ref_binary), *shlex.split(reference["engine"])]),
-        "--ratios", args.ratios, "--max-pairs", str(len(rows)), "--jobs", "1",
+        "--ratios", args.ratios, "--max-pairs", str(len(rows)), "--jobs", str(args.jobs),
         "--baseline-movetime", str(args.movetime), "--max-target-movetime", str(args.target_cap),
+        "--cap-factor", str(args.cap_factor),
         "--timeout", "2000", "--max-actions", str(args.max_actions),
         "--module-dir", str(rules_dir),
         "--output-dir", str(controller_output)]
@@ -459,6 +494,7 @@ def run(args):
     provenance = {"schema_version": 1, "created_utc": datetime.now(timezone.utc).isoformat(),
         "suite_sha256": digest(args.suite / "manifest.json"), "subset": args.subset,
         "skip_first": args.skip_first, "candidate_engine": args.engine,
+        "frozen_candidate_engine": candidate_engine, "candidate_assets": assets,
         "positions": rows, "reference": reference, "candidate": build,
         "candidate_sha256": digest(candidate), "command": command,
         "controller_sha256": digest(ROOT / "scripts/ratio_matchmaker.py"),
@@ -481,6 +517,8 @@ def run(args):
             except KeyboardInterrupt:
                 process.wait(timeout=10)
     finally:
+        verify_engine_assets(args.output, assets)
+        verify_engine_assets(args.reference, reference.get("assets", []))
         result = summarize(controller_output, rows)
         save(args.output / "summary.json", result)
         provenance["controller_exit_code"] = code
@@ -520,7 +558,11 @@ def main():
                 help="extend a nested subset without replaying its earlier positions")
             p.add_argument("--ratios", default="1", type=ratio_match.parse_float_list)
             p.add_argument("--movetime", type=int, default=200)
+            p.add_argument("--jobs", "-j", type=int, default=1,
+                help="number of concurrent ratio-match workers")
             p.add_argument("--target-cap", type=int, default=2000)
+            p.add_argument("--cap-factor", type=float, default=2,
+                help="target time-cap multiplier; iteration budgets are unchanged")
             p.add_argument("--max-actions", type=int, default=160)
             p.add_argument("--output", required=True, type=Path)
         if name == "_collect":
@@ -563,8 +605,10 @@ def main():
         elif args.action == "freeze":
             freeze(args)
         elif args.action == "run":
-            if min(args.movetime, args.target_cap, args.max_actions) <= 0:
+            if min(args.movetime, args.target_cap, args.max_actions, args.jobs) <= 0:
                 raise ValueError("budgets must be positive")
+            if not math.isfinite(args.cap_factor) or args.cap_factor <= 0:
+                raise ValueError("cap factor must be positive and finite")
             args.ratios = ",".join(map(str, args.ratios))
             return run(args)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:

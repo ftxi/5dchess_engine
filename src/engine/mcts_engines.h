@@ -9,6 +9,7 @@
 #include "backpropagation.h"
 #include "selection_policy.h"
 #include "rollout_policy.h"
+#include "pn_mcts.h"
 
 inline constexpr int default_mcts_rollout_max_actions = 200;
 
@@ -185,6 +186,32 @@ public:
             {}, {}, {}, std::move(io)) {}
 };
 
+using pn_mvvlva_exposure_mcts_engine = basic_mcts_engine<
+    pn_mcts_tree_policy<scored_HC_ordering>,
+    zero_default_policy,
+    pn_backpropagation,
+    most_visited_selection,
+    mcts_observer
+>;
+
+class mvvlva_exposure_pn_engine final : public pn_mvvlva_exposure_mcts_engine
+{
+public:
+    mvvlva_exposure_pn_engine(std::unique_ptr<io_handler> io,
+        std::optional<std::uint32_t> seed = std::nullopt,
+        double widening_constant = default_progressive_widening_constant,
+        double widening_alpha = default_progressive_widening_alpha,
+        double pn_constant = default_pn_mcts_constant)
+        : pn_mvvlva_exposure_mcts_engine(
+            {}, pn_mcts_tree_policy<scored_HC_ordering>{
+                seed, widening_constant, widening_alpha,
+                [](const HC_info &info, std::stop_token stop) {
+                    return move_evaluator(info, capture_check_weights,
+                        capture_ordering::mvvlva_exposure).build_score_table(stop);
+                }, pn_child_selection{pn_constant}},
+            {}, {}, {}, std::move(io)) {}
+};
+
 class mcts_weighted_engine final : public weighted_rollout_mcts_engine
 {
 public:
@@ -208,6 +235,7 @@ static_assert(TreePolicy<uct_tree_policy<scored_HC_ordering>, mcts_observer>);
 static_assert(TreePolicy<progressive_widening_tree_policy<>, mcts_observer>);
 static_assert(TreePolicy<progressive_widening_tree_policy<natural_HC_ordering>, mcts_observer>);
 static_assert(TreePolicy<progressive_widening_tree_policy<scored_HC_ordering>, mcts_observer>);
+static_assert(TreePolicy<pn_mcts_tree_policy<scored_HC_ordering>, mcts_observer>);
 static_assert(DefaultPolicy<rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<weighted_rollout_default_policy, mcts_observer>);
 static_assert(DefaultPolicy<zero_default_policy, mcts_observer>);

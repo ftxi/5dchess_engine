@@ -145,13 +145,20 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             break;
         }
         assert(ceiling_node->is_ceiling());
-        state evaluation_position = [&] {
-            search_trace_phase phase("state_at_ceiling", &ceiling_node->get_hc_info().get_state());
-            return detail::state_at_ceiling(*ceiling_node);
-        }();
         auto result = [&] {
-            search_trace_phase phase("evaluation", &evaluation_position);
-            return default_policy.evaluate(std::move(evaluation_position), stop_token, observer);
+            if constexpr(requires {
+                default_policy.evaluate_ceiling(*ceiling_node, stop_token, observer);
+            })
+                return default_policy.evaluate_ceiling(*ceiling_node, stop_token, observer);
+            else
+            {
+                state evaluation_position = [&] {
+                    search_trace_phase phase("state_at_ceiling", &ceiling_node->get_hc_info().get_state());
+                    return detail::state_at_ceiling(*ceiling_node);
+                }();
+                search_trace_phase phase("evaluation", &evaluation_position);
+                return default_policy.evaluate(std::move(evaluation_position), stop_token, observer);
+            }
         }();
         if(!result.has_value())
         {

@@ -181,7 +181,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
             $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-frtti>
             $<$<CXX_COMPILER_ID:MSVC>:/GR>
         )
-        target_link_libraries(engine PRIVATE 5dchess_client)
+        target_link_libraries(engine PRIVATE 5dchess_client 5dchess_engine)
         target_compile_definitions(engine PRIVATE 
             PROJECT_VERSION_STRING="${PROJECT_VERSION}"
         )

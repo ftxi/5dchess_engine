@@ -670,7 +670,7 @@ state standard_position()
 
 void test_feature_layout()
 {
-    static_assert(linear_cutoff_evaluation::features_count == 64);
+    static_assert(linear_cutoff_evaluation::features_count == 70);
     const auto features = linear_cutoff_evaluation::extract_features(standard_position());
 
     assert(features[linear_cutoff_evaluation::bias_offset] == 1.0f);
@@ -738,8 +738,8 @@ void test_builtin_weight_profiles()
     const auto hand_written = linear_cutoff_evaluation::default_weights();
     const auto trained = linear_cutoff_evaluation::trained_weights();
 
-    assert(hand_written.size() == 64);
-    assert(trained.size() == 64);
+    assert(hand_written.size() == 70);
+    assert(trained.size() == 70);
     assert(hand_written != trained);
     assert(hand_written[linear_cutoff_evaluation::mandatory_material_diff_offset] == 0.05f);
     assert(hand_written[linear_cutoff_evaluation::timeline_advantage_offset] == 0.25f);

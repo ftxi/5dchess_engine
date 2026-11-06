@@ -73,6 +73,13 @@ search, a 2 s target safety cap, and a 160-action game cap. Target turns also
 need a reference metering search, so game runtime includes that extra work.
 These are explicit starting budgets, not guarantees of the final game length
 or engine response time. The controller has a further 2 s response watchdog.
+Use `--jobs 5` to run five concurrent game workers. CPU assignment follows the
+[common matchmaker options](matchmaker-options.md); platforms without affinity
+support run those workers under OS scheduling.
+`--cap-factor` changes the target safety-cap multiplier (default 2) without
+changing its iteration budget; `--target-cap` remains the absolute millisecond
+limit. Larger values can reduce iteration shortfalls in unusually slow target
+searches while keeping the reference at the requested movetime.
 
 ## Run a candidate
 
@@ -116,6 +123,19 @@ records the suite hash, position IDs, commands, seeds, build settings, binding
 hash, and candidate/reference executable hashes. Suite and source content
 hashes are verified before launching games.
 
+For `neural-pw`, supply an absolute `--model` path inside the `--engine`
+command. The runner copies it to a read-only `model.nn` in the run directory,
+records its SHA-256, and rewrites the engine command to that snapshot. Model
+hashes are checked when copying and again after the controller exits. Freezing
+a neural reference also preserves its model. Rebuilding or replacing the
+original model therefore does not change an ongoing run.
+
+Ratio 1 matches a target budget to a separate baseline-meter search on the
+target's position. It does not guarantee equal actual target/opponent
+iterations: their positions, search paths and time caps can differ. Calibrate
+with a higher ratio when needed, then inspect both target/meter and actual
+target/opponent iteration counts before interpreting the strength screen.
+
 The summary separates outcomes by cost group and side to move. It also
 counts protocol/legality failures, target searches which did not receive
 their full iteration budget, and action-limit draws. Those draws are an
@@ -141,6 +161,40 @@ achieves throughput fraction `q`, the approximate speedup needed is `m/q`
 when that exceeds one. Then optimize promising candidates and confirm at
 equal wall time using the existing autoplay tools. Iteration counts alone
 do not establish equal-time strength.
+
+## Strict fixed-iteration and fixed-time comparisons
+
+Use `scripts/fixed_match.py` to give both engines the same explicit iteration
+budget, without a baseline meter or engine movetime cutoff:
+
+```sh
+python scripts/fixed_match.py --engine 'amaf-pw --amaf-strength 0.5' \
+  --reference /absolute/path/to/frozen-reference --subset pool \
+  --iterations 5000 --jobs 5 --max-actions 160 \
+  --output /absolute/path/to/new-run
+```
+
+The engine protocol expresses ten MCTS iterations per `depth` unit, so this
+sends `go depth 500`. The external watchdog detects hung searches; it does
+not turn an interrupted search into a completed fixed-iteration result.
+Every nonterminal response must report exactly the requested iteration count.
+A terminal root may return early only after independent rules adjudication.
+Any protocol, legality, no-move or iteration-budget failure invalidates the
+whole colour-reversed pair. Summaries retain raw outcomes and the committed
+failure-free prefix separately.
+
+For an equal-time comparison, replace `--iterations 5000` with
+`--movetime 200`. Both roles then receive the same movetime. Record actual
+iterations and failures separately; equal requested time does not guarantee
+equal response duration or iteration counts.
+
+The runner preserves binaries, rules bindings, openings and optional model
+files and verifies their hashes. `--binary` and `--rules-dir` can select
+previously frozen candidate artifacts. Each position receives an explicit,
+recorded seed shared by both roles and colour reversals. `--skip-first` and
+`--limit` reserve position blocks for tuning and confirmation. Select and
+freeze parameters before inspecting the confirmation block. Descriptive
+paired intervals do not correct for parameter selection or repeated looks.
 
 ## Suite maintenance
 

@@ -5,6 +5,7 @@
 #include <ostream>
 #include "game.h"
 #include "core/hash.h"
+#include "engine/neural.h"
 
 namespace py = pybind11;
 
@@ -216,6 +217,9 @@ PYBIND11_MODULE(engine, m) {
         .def("get_current_hash", [](const game &g) {
             return hash_state(g.get_current_state());
         })
+        .def("get_evaluation_features", [](const game &g) {
+            return linear_cutoff_evaluation::extract_features(g.get_current_state());
+        }, "Raw 70-feature mover-relative evaluator input, including historical boards.")
         .def("get_current_present", &game::get_current_present)
         .def("get_current_boards", &game::get_current_boards)
         .def("get_current_timeline_status", &game::get_current_timeline_status)
@@ -257,6 +261,10 @@ PYBIND11_MODULE(engine, m) {
             py::arg("options"),
             py::arg("complete_game_tree") = true,
             py::arg("standard_metadata_only") = false);
+
+    py::class_<neural_model>(m, "neural_model")
+        .def_static("load", [](const std::string &path) { return neural_model::load(path); })
+        .def("evaluate_features", &neural_model::evaluate_features);
 
     m.attr("SHOW_NOTHING") = static_cast<uint16_t>(pgn_options::SHOW_NOTHING);
     m.attr("SHOW_RELATIVE") = static_cast<uint16_t>(pgn_options::SHOW_RELATIVE);

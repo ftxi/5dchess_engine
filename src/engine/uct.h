@@ -77,7 +77,11 @@ Node *first_ordered_child(Node *node, const Order &order,
             candidates.insert(child->get_i());
     const index_t axis = children.front()->get_n();
     for(index_t coordinate : order(axis, candidates))
+    {
+        if constexpr(requires { order.observe_child_choice(axis, candidates, coordinate); })
+            order.observe_child_choice(axis, candidates, coordinate);
         return node->get_child(coordinate);
+    }
     return nullptr;
 }
 
@@ -86,7 +90,9 @@ std::optional<index_t> ordered_search(
     Node *node, const Order &order, std::stop_token stop)
 {
     if(stop.stop_requested()) return std::nullopt;
-    return node->search(order).first();
+    if constexpr(requires { order.for_search(); })
+        return node->search(order.for_search()).first();
+    else return node->search(order).first();
 }
 } /* namespace uct_detail */
 

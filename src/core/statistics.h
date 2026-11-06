@@ -82,5 +82,7 @@ struct move_space_data
 };
 
 move_space_data count_move_space(const state &s);
+class HC_info;
+move_space_data count_move_space(const HC_info &info);
 
 #endif /* STATISTICS_H */
