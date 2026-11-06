@@ -109,6 +109,12 @@ generator<moveseq> mixed_search(
 }
 } /* anonymous namespace */
 
+std::optional<moveseq> first_position_action(
+    const HC_info &info, search_space space, std::stop_token stop)
+{
+    return mixed_search(info, std::move(space), natural_HC_ordering{}, stop).first();
+}
+
 std::optional<moveseq> random_action_selection::operator()(
     const state &s, std::stop_token stop, std::mt19937 *rng) const
 {

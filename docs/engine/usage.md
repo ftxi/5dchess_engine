@@ -94,6 +94,35 @@ layers of 32 and 16 ReLU units and a final
 The model predicts the side-to-move value; the search converts it to its
 White-relative reward convention. The network never changes move ordering.
 
+Deterministic completed-leaf evaluations are cached for the duration of one
+search. Repeated visits retain ordinary visit/backpropagation updates. A
+solid-pruned legal witness also supplies the volume features without rebuilding
+an unpruned HC; if pruning supplies no witness, the complete action space is
+searched before deciding whether the position is terminal. Use
+`--no-evaluation-cache` to disable the cache for comparisons.
+
+The optional `--neural-usage prior` mode keeps ordinary nonterminal backups at
+zero and uses the neural value only as a decaying bias in UCT child selection.
+Each completed nonterminal leaf contributes once to that bias. The child mean
+is centred against its parent's mean in White's reward perspective, so a
+constant White-relative offset across sampled leaves creates no preference.
+Terminal wins, losses and stalemates retain their exact backup
+values. Semimove ordering and progressive widening are unchanged.
+
+```sh
+./build-canonical/5dchess neural-pw --model /absolute/path/to/model.nn \
+  --neural-usage prior --neural-strength 0.3 --neural-horizon 16 \
+  --neural-decay inverse --pw-constant 2 --pw-alpha 0.5
+```
+
+`--neural-decay` accepts `inverse`, `sqrt` or `exponential`. With child visit
+count `n`, horizon `h` and strength `a`, the bias weight is respectively
+`a/(1+n/h)`, `a/sqrt(1+n/h)` or `a*exp(-n/h)`. Strength is in `[0,1]` and
+horizon is nonnegative; zero disables the bias. The default remains `leaf`
+usage. `--value-scale` scales nonterminal neural values in either mode, with
+zero recovering zero nonterminal evaluation at fixed iterations. These controls
+configure evaluation guidance, not rollout or terminal rewards.
+
 ```sh
 ./build-canonical/5dchess neural-pw --model /absolute/path/to/model.nn \
   --pw-constant 2 --pw-alpha 0.5
@@ -101,12 +130,27 @@ White-relative reward convention. The network never changes move ordering.
 
 The model is required and loaded before the protocol handshake. Native
 inference needs no additional library. Version 1 is a whitespace-separated
-text file beginning with `5DNEURAL 1`, feature schema `linear70-v1-mover`,
+text file beginning with `5DNEURAL 1`, feature schema `solid70-v2-mover`,
 and dimensions `70 32 16 1`. It contains 70 training means, 70 inverse
 standard deviations, then row-major weights and biases for each layer
 (2,817 parameters). Constant training columns use inverse scale zero.
 Numbers must be finite; incorrect versions, dimensions, truncated files,
 negative scales and trailing content are rejected.
+
+The `solid70-v2-mover` schema retains the material, timeline and royal-safety
+inputs described in [evaluation features](linear-features.md). Its input 62 is
+the log candidate volume of existing playable-timeline axes; input 63 is the log
+candidate volume of possible new-timeline axes. Both are computed directly from
+an HC with solid-check and optional-move pruning enabled, including null
+coordinates that survive pruning. Optional physical moves and optional-to-optional
+nonbranching arrivals are omitted. These are candidate factors, not legal-action
+counts. Each factor uses the natural logarithm `log(max(1, volume))`, so an empty factor, a unit factor,
+or an absent group of axes gives zero. Exhaustive terminal detection still uses
+the complete rules action space.
+
+Legacy `linear70-v1-mover` models are also accepted and retain their original
+unpruned total/playable volume inputs. A schema tag selects feature extraction;
+changing the tag on an old checkpoint does not convert the model.
 
 To prepare and train a model with the Python rules binding, NumPy and PyTorch
 installed in the Python used for the build:
@@ -118,6 +162,27 @@ python scripts/neural_train.py --build build-canonical \
   --dataset /absolute/path/to/new-dataset --output /absolute/path/to/new-training
 ```
 
+To regenerate features without changing an existing dataset's source-family
+splits or retained position selection, use `refresh` before training:
+
+```sh
+python scripts/neural_dataset.py refresh --build build-canonical \
+  --existing /absolute/path/to/old-dataset --output /absolute/path/to/new-dataset
+```
+
+Refresh revalidates source files and position identities. Failed games are
+recorded in `refresh-exclusions.json`; it does not add replacement positions.
+
+For training experiments, `--family-balanced` gives each source-game family
+equal total loss weight and fits normalization with the same family weights.
+`--weight-decay` sets AdamW weight decay (default `1e-4`). `--feature-set`
+accepts `all` (default), `differences` (24 material differences, timeline
+advantage and six safety differences), or `relative-volume` (those inputs plus
+both volume features). Ablations keep the 70-input format and zero the masked
+normalization scales; distinct piece channels are not merged. Use `--defer-test`
+to omit test-partition evaluation during model development. In family-balanced
+mode, checkpoints are selected using family-weighted validation BCE.
+
 The exporter validates each game in an isolated process, records exclusions,
 groups related games before splitting, excludes canonical-suite source
 families, and deduplicates sampled states. It samples completed played
@@ -127,8 +192,9 @@ training data, selects across three seeds using validation loss, evaluates
 the selected checkpoint on the test split once, and checks native output
 agreement. `model.nn`, its normalization, hashes, learning curves and
 metrics are saved in the training output directory. The binding exposes raw
-features through `game.get_evaluation_features()` and native model inference
-through `neural_model.load(path).evaluate_features(features)`.
+solid-schema features through `game.get_neural_features()`. The legacy linear
+inputs remain available through `game.get_evaluation_features()`, and native model
+inference through `neural_model.load(path).evaluate_features(features)`.
 
 `amaf-pw` adds action-local AMAF credit sharing to the MVV-LVA exposure/PW
 search, without rollouts. Semimoves under different partial-action prefixes

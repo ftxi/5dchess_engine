@@ -68,6 +68,9 @@ using weighted_rollout_default_policy = default_policy_t<rollout_details,
     weighted_action_selection, rollout_cutoff_evaluation>;
 
 struct move_space_data;
+// Cancellable legality witness using a caller-owned, already constructed HC.
+std::optional<moveseq> first_position_action(
+    const HC_info &info, search_space space, std::stop_token stop);
 std::optional<reward_t<rollout_details>> evaluate_zero_position(
     state s, std::stop_token stop, move_space_data *move_space = nullptr);
 

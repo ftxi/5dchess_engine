@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -36,17 +37,43 @@ def mover_label(result, black):
     return -white if black else white
 
 
-def normalization(x):
+def normalization(x, sample_weight=None):
     if x.ndim != 2 or x.shape[1] != 70 or not np.isfinite(x).all():
         raise ValueError('normalization requires finite 70-column training data')
-    mean = x.astype(np.float64).mean(axis=0).astype(np.float32)
-    std = x.astype(np.float64).std(axis=0)
+    values = x.astype(np.float64)
+    if sample_weight is None:
+        mean = values.mean(axis=0).astype(np.float32)
+        std = values.std(axis=0)
+    else:
+        weights = np.asarray(sample_weight, dtype=np.float64)
+        if weights.shape != (len(x),) or not np.isfinite(weights).all() or (weights <= 0).any():
+            raise ValueError('normalization requires positive finite row weights')
+        center = np.average(values, weights=weights, axis=0)
+        mean = center.astype(np.float32)
+        std = np.sqrt(np.average((values-center)**2, weights=weights, axis=0))
     constant = (x.max(axis=0) == x.min(axis=0))
     inverse = np.zeros(70, dtype=np.float32)
     inverse[~constant] = (1 / std[~constant]).astype(np.float32)
     if not np.isfinite(mean).all() or not np.isfinite(inverse).all():
         raise ValueError('nonfinite normalization statistics')
     return mean, inverse, constant
+
+
+def family_weights(rows):
+    counts = Counter(row['family'] for row in rows)
+    return np.asarray([len(rows)/(len(counts)*counts[row['family']]) for row in rows],
+        dtype=np.float32)
+
+
+def feature_columns(name):
+    if name == 'all':
+        return list(range(70))
+    relative = list(range(9,17))+list(range(25,33))+list(range(41,49))+[58]+list(range(64,70))
+    if name == 'differences':
+        return relative
+    if name == 'relative-volume':
+        return sorted(relative+[62,63])
+    raise ValueError('unknown neural feature set')
 
 
 def normalize(x, mean, inverse):
@@ -73,11 +100,11 @@ def export_model(path, model, mean, inverse):
 
 
 @torch.no_grad()
-def metrics(model, x, y):
+def metrics(model, x, y, sample_weight=None):
     z = model(x)
     probability = torch.sigmoid(2*z)
     value = torch.tanh(z)
-    return {'bce': float(nn.functional.binary_cross_entropy_with_logits(2*z, y)),
+    result = {'bce': float(nn.functional.binary_cross_entropy_with_logits(2*z, y)),
         'brier': float(((probability-y)**2).mean()),
         'value_mse': float(((value-(2*y-1))**2).mean()),
         'decisive_accuracy': float(((probability[y!=.5]>=.5)==(y[y!=.5]>.5)).float().mean()),
@@ -85,6 +112,10 @@ def metrics(model, x, y):
         'saturation_abs_ge_0.99': float((value.abs()>=.99).float().mean()),
         'value_mean': float(value.mean()), 'value_std': float(value.std(unbiased=False)),
         'value_quantiles': np.quantile(value.numpy(), [0,.05,.25,.5,.75,.95,1]).tolist()}
+    if sample_weight is not None:
+        result['family_weighted_bce'] = float((nn.functional.binary_cross_entropy_with_logits(
+            2*z, y, reduction='none')*sample_weight).mean())
+    return result
 
 
 def constant_metrics(p, y):
@@ -119,19 +150,26 @@ def train(args):
     if not all(data.values()):
         raise ValueError('empty supervised partition')
     raw = {s: np.asarray([r['features'] for r in rs],dtype=np.float32) for s,rs in data.items()}
-    mean, inverse, constant = normalization(raw['train'])
+    weights = {s: torch.from_numpy(family_weights(rows)) for s, rows in data.items()} if args.family_balanced else {}
+    mean, inverse, constant = normalization(raw['train'],
+        weights['train'].numpy() if args.family_balanced else None)
+    retained = set(feature_columns(args.feature_set))
+    masked = [i for i in range(70) if i not in retained]
+    inverse[masked] = 0
     # The test partition stays untouched by fitting and checkpoint selection.
     x = {s: normalize(raw[s],mean,inverse) for s in ('train','validation')}
     y = {s: torch.tensor([(r['y_mover']+1)/2 for r in rs], dtype=torch.float32) for s,rs in data.items()}
-    constant_p = float(y['train'].mean())
+    constant_p = float((y['train']*weights['train']).mean()) if args.family_balanced else float(y['train'].mean())
     save(args.output/'normalization.json', {'mean':mean.tolist(),'inverse_scale':inverse.tolist(),
         'constant_columns':np.flatnonzero(constant).tolist(),
-        'policy':'training population mean/std; constant columns normalize to zero'})
+        'masked_columns':masked, 'feature_set':args.feature_set,
+        'family_balanced':args.family_balanced,
+        'policy':'training population mean/std; family-weighted when enabled; constant and masked columns normalize to zero'})
     candidates, curves = [], []
     for seed in args.seeds:
         torch.manual_seed(seed)
         model = Network()
-        optimizer = torch.optim.AdamW(model.parameters(),lr=1e-3,weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(model.parameters(),lr=1e-3,weight_decay=args.weight_decay)
         generator = torch.Generator().manual_seed(seed)
         best, stale, best_state, best_epoch = float('inf'), 0, None, 0
         for epoch in range(1,args.epochs+1):
@@ -139,16 +177,20 @@ def train(args):
             for indices in torch.randperm(len(x['train']),generator=generator).split(256):
                 optimizer.zero_grad(set_to_none=True)
                 z = model(x['train'][indices])
-                loss = nn.functional.binary_cross_entropy_with_logits(2*z,y['train'][indices])
+                loss = nn.functional.binary_cross_entropy_with_logits(2*z,y['train'][indices],
+                    reduction='none')
+                if args.family_balanced:
+                    loss = loss*weights['train'][indices]
+                loss = loss.mean()
                 if not torch.isfinite(loss):
                     raise ValueError('nonfinite loss')
                 loss.backward()
                 optimizer.step()
             model.eval()
-            record = {'seed':seed,'epoch':epoch,'train':metrics(model,x['train'],y['train']),
-                'validation':metrics(model,x['validation'],y['validation'])}
+            record = {'seed':seed,'epoch':epoch,'train':metrics(model,x['train'],y['train'],weights.get('train')),
+                'validation':metrics(model,x['validation'],y['validation'],weights.get('validation'))}
             curves.append(record)
-            current = record['validation']['bce']
+            current = record['validation']['family_weighted_bce' if args.family_balanced else 'bce']
             print(f'seed={seed} epoch={epoch} train={record["train"]["bce"]:.6f} val={current:.6f}',flush=True)
             if current < best:
                 best, stale, best_epoch = current, 0, epoch
@@ -167,9 +209,11 @@ def train(args):
     model.eval()
     export_model(args.output/'model.nn',model,mean,inverse)
     # One post-selection test evaluation; no per-seed test scores are produced.
-    x['test'] = normalize(raw['test'],mean,inverse)
-    results = {s: metrics(model,x[s],y[s]) for s in data}
-    controls = {s: constant_metrics(constant_p,y[s]) for s in data}
+    evaluated = ('train','validation') if args.defer_test else ('train','validation','test')
+    if not args.defer_test:
+        x['test'] = normalize(raw['test'],mean,inverse)
+    results = {s: metrics(model,x[s],y[s],weights.get(s)) for s in evaluated}
+    controls = {s: constant_metrics(constant_p,y[s]) for s in evaluated}
     import autoplay
     native = autoplay.load_rules(args.build).neural_model.load(str((args.output/'model.nn').resolve()))
     examples = []
@@ -185,15 +229,19 @@ def train(args):
     if max_error > 1e-5:
         raise ValueError(f'native parity error {max_error}')
     save(args.output/'learning-curves.json',curves)
-    report = {'architecture':[70,32,16,1],'activations':['ReLU','ReLU','tanh'],
+    report = {'feature_schema':SCHEMA,
+        'architecture':[70,32,16,1],'activations':['ReLU','ReLU','tanh'],
         'parameters':sum(p.numel() for p in model.parameters()),
-        'optimizer':{'name':'AdamW','learning_rate':1e-3,'weight_decay':1e-4,'batch_size':256},
+        'optimizer':{'name':'AdamW','learning_rate':1e-3,'weight_decay':args.weight_decay,'batch_size':256},
+        'family_balanced':args.family_balanced,'feature_set':args.feature_set,
+        'masked_columns':masked,
+        'selection_metric':'family_weighted_bce' if args.family_balanced else 'bce',
         'max_epochs':args.epochs,'patience':5,'seeds':args.seeds,
         'loss':'BCEWithLogits(2*z, (y_mover+1)/2)',
         'checkpoints':[{k:v for k,v in c.items() if k!='state'} for c in candidates],
         'selected':{k:v for k,v in selected.items() if k!='state'},
         'metrics':results,'training_mean_constant':controls,
-        'test_policy':'one evaluation of validation-selected checkpoint after all seed selection',
+        'test_policy':'deferred; not evaluated' if args.defer_test else 'one evaluation of validation-selected checkpoint after all seed selection',
         'native_parity_max_absolute_error':max_error,'native_parity_examples':len(examples),
         'normalization_sha256':digest(args.output/'normalization.json'),
         'model_sha256':digest(args.output/'model.nn'),
@@ -212,9 +260,15 @@ def main():
     parser.add_argument('--build',type=Path,default=Path(__file__).resolve().parents[1]/'build-canonical')
     parser.add_argument('--seeds',type=int,nargs='+',default=[17,42,2026])
     parser.add_argument('--epochs',type=int,default=40)
+    parser.add_argument('--weight-decay',type=float,default=1e-4)
+    parser.add_argument('--family-balanced',action='store_true',help='equal total loss and normalization weight per source-game family')
+    parser.add_argument('--feature-set',choices=('all','differences','relative-volume'),default='all')
+    parser.add_argument('--defer-test',action='store_true',help='do not evaluate the test partition during model development')
     args = parser.parse_args()
     if not 1 <= args.epochs <= 40 or len(set(args.seeds)) != len(args.seeds):
         parser.error('use 1–40 epochs and distinct initialization seeds')
+    if not np.isfinite(args.weight_decay) or args.weight_decay < 0:
+        parser.error('weight decay must be finite and nonnegative')
     for key in ('dataset','output','build'):
         setattr(args,key,getattr(args,key).resolve())
     train(args)

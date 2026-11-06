@@ -34,6 +34,7 @@ struct command_line_options
     double progressive_widening_alpha = default_progressive_widening_alpha;
     double pn_constant = default_pn_mcts_constant;
     amaf_options amaf;
+    neural_guidance_options neural;
     float value_scale = 1.0f;
     bool cache_evaluations = false;
 };
@@ -120,9 +121,13 @@ void print_usage(std::ostream &out)
         << "  --amaf-application <name>       selection, admission, children, both\n"
         << "                                  (default selection)\n"
         << "  --amaf-evidence <name>          visits (default) or unique-leaves\n"
-        << "  --value-scale <n>               amaf-pw nonterminal neural scale in [0,1]\n"
-        << "  --neural-usage <name>           amaf-pw: leaf or amaf-prior (default leaf)\n"
+        << "  --value-scale <n>               nonterminal neural scale in [0,1]\n"
+        << "  --neural-usage <name>           neural-pw: leaf or prior; amaf-pw: leaf or amaf-prior\n"
         << "  --cache-evaluations            amaf-pw: reuse immutable node evaluations\n"
+        << "  --neural-strength <n>           neural-pw prior strength in [0,1]\n"
+        << "  --neural-horizon <n>            neural-pw prior decay visit scale\n"
+        << "  --neural-decay <name>           neural-pw: inverse, sqrt, exponential\n"
+        << "  --no-evaluation-cache          neural-pw: disable deterministic leaf cache\n"
         << "  --pn-constant <n>               nonnegative PN rank bias for"
            " mvvlva-exposure-pn (default 1)\n"
         << "  -h, --help                      display this help text and exit\n";
@@ -169,6 +174,7 @@ command_line_options parse_options(
     bool amaf_evidence_seen = false;
     bool value_scale_seen = false;
     bool neural_usage_seen = false;
+    bool neural_strength_seen = false, neural_horizon_seen = false, neural_decay_seen = false;
     for(int i = 2; i < argc; ++i)
     {
         const std::string option = argv[i];
@@ -224,6 +230,38 @@ command_line_options parse_options(
                 throw std::invalid_argument("PN constant must be nonnegative and finite");
             pn_constant_seen = true;
         }
+        else if(option == "--no-evaluation-cache")
+        {
+            if(engine_name != "neural-pw" || !options.neural.cache_evaluations)
+                throw std::invalid_argument("invalid neural cache option");
+            options.neural.cache_evaluations = false;
+        }
+        else if(option == "--neural-strength" || option == "--neural-horizon")
+        {
+            bool &seen = option == "--neural-strength" ? neural_strength_seen : neural_horizon_seen;
+            if(engine_name != "neural-pw" || seen || ++i >= argc)
+                throw std::invalid_argument("invalid neural guidance option");
+            std::size_t consumed = 0;
+            const std::string value = argv[i];
+            const double number = std::stod(value, &consumed);
+            if(consumed != value.size() || !(number >= 0) || !std::isfinite(number)
+                || (option == "--neural-strength" && number > 1))
+                throw std::invalid_argument("invalid neural strength or horizon");
+            if(option == "--neural-strength") options.neural.strength = number;
+            else options.neural.horizon = number;
+            seen = true;
+        }
+        else if(option == "--neural-decay")
+        {
+            if(engine_name != "neural-pw" || neural_decay_seen || ++i >= argc)
+                throw std::invalid_argument("invalid neural decay option");
+            const std::string value = argv[i];
+            if(value == "inverse") options.neural.decay = neural_decay::inverse;
+            else if(value == "sqrt") options.neural.decay = neural_decay::square_root;
+            else if(value == "exponential") options.neural.decay = neural_decay::exponential;
+            else throw std::invalid_argument("unknown neural decay");
+            neural_decay_seen = true;
+        }
         else if(option == "--cache-evaluations")
         {
             if(engine_name != "amaf-pw" || options.cache_evaluations)
@@ -235,7 +273,8 @@ command_line_options parse_options(
         {
             bool &seen = option == "--amaf-strength" ? amaf_strength_seen
                 : option == "--amaf-horizon" ? amaf_horizon_seen : value_scale_seen;
-            if(engine_name != "amaf-pw" || seen || ++i >= argc)
+            if((engine_name != "amaf-pw" && !(engine_name == "neural-pw" && option == "--value-scale"))
+                || seen || ++i >= argc)
                 throw std::invalid_argument("invalid AMAF numeric option");
             std::size_t consumed = 0;
             const std::string value = argv[i];
@@ -245,7 +284,11 @@ command_line_options parse_options(
                 throw std::invalid_argument("invalid AMAF strength, horizon or value scale");
             if(option == "--amaf-strength") options.amaf.strength = number;
             else if(option == "--amaf-horizon") options.amaf.horizon = number;
-            else options.value_scale = static_cast<float>(number);
+            else
+            {
+                options.value_scale = static_cast<float>(number);
+                options.neural.value_scale = static_cast<float>(number);
+            }
             seen = true;
         }
         else if(option == "--amaf-evidence")
@@ -281,12 +324,14 @@ command_line_options parse_options(
         }
         else if(option == "--neural-usage")
         {
-            if(engine_name != "amaf-pw" || neural_usage_seen || ++i >= argc)
+            if((engine_name != "amaf-pw" && engine_name != "neural-pw")
+                || neural_usage_seen || ++i >= argc)
                 throw std::invalid_argument("invalid neural usage option");
             const std::string value = argv[i];
-            if(value != "leaf" && value != "amaf-prior")
+            if(value != "leaf" && value != (engine_name == "neural-pw" ? "prior" : "amaf-prior"))
                 throw std::invalid_argument("unknown neural usage");
             options.amaf.neural_prior_only = value == "amaf-prior";
+            options.neural.prior_only = value == "prior";
             neural_usage_seen = true;
         }
         else if(option == "--amaf-decay")
@@ -424,7 +469,7 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
         selected_engine = std::make_unique<neural_pw_engine>(
             std::move(io), options.seed, options.progressive_widening_constant,
             options.progressive_widening_alpha,
-            std::make_shared<const neural_model>(neural_model::load(options.model_path)));
+            std::make_shared<const neural_model>(neural_model::load(options.model_path)), options.neural);
     }
     else if(engine_name == "linear-pw" || engine_name == "linear-safety-pw"
             || engine_name == "linear-trained-pw")

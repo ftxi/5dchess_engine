@@ -13,10 +13,12 @@ neural_model neural_model::load(const std::filesystem::path &path)
     std::string magic, schema;
     int version = 0, inputs = 0, hidden1 = 0, hidden2 = 0, outputs = 0;
     if(!(input >> magic >> version >> schema >> inputs >> hidden1 >> hidden2 >> outputs)
-        || magic != "5DNEURAL" || version != 1 || schema != "linear70-v1-mover"
+        || magic != "5DNEURAL" || version != 1
+        || (schema != "linear70-v1-mover" && schema != solid_schema)
         || inputs != 70 || hidden1 != 32 || hidden2 != 16 || outputs != 1)
         throw std::invalid_argument("invalid neural model header or dimensions");
     neural_model model;
+    model.uses_solid_features = schema == solid_schema;
     auto read = [&](auto &values) {
         for(auto &value : values)
             if(!(input >> value) || !std::isfinite(value))
@@ -36,6 +38,80 @@ neural_model neural_model::load(const std::filesystem::path &path)
     std::string extra;
     if(input >> extra) throw std::invalid_argument("trailing neural model data");
     return model;
+}
+
+neural_model::features_t neural_model::extract_solid_features(const state &position)
+{
+    auto [info, space] = HC_info::build_HC(position,
+        {.remove_check = true, .prune_optional_moves = true});
+    (void)space;
+    return extract_solid_features(position, info);
+}
+
+neural_model::features_t neural_model::extract_solid_features(
+    const state &position, const HC_info &info)
+{
+    // Preserve the non-volume features and the legacy linear schema.
+    auto features = linear_cutoff_evaluation::extract_features(position, {});
+    auto log_volume = [&](index_t begin, index_t end) {
+        double sum = 0;
+        for(index_t axis = begin; axis < end; ++axis)
+        {
+            const auto size = info.get_universe()[axis].size();
+            // log(max(1, volume)): empty and unit candidate factors map to zero.
+            // In particular, an empty pruned axis must never produce -infinity.
+            if(size == 0) return 0.0f;
+            sum += std::log(static_cast<double>(size));
+        }
+        return static_cast<float>(sum);
+    };
+    features[log_playable_volume_offset] = log_volume(0, info.first_branch_axis());
+    features[log_new_volume_offset] = log_volume(info.first_branch_axis(), info.dimension());
+    return features;
+}
+
+neural_model::features_t neural_model::extract_features(
+    const state &position, const move_space_data &legacy_space) const
+{
+    if(uses_solid_features) return extract_solid_features(position);
+    return linear_cutoff_evaluation::extract_features(position, legacy_space);
+}
+
+std::optional<reward_t<rollout_details>> neural_model::evaluate_position(
+    state position, std::stop_token stop) const
+{
+    if(stop.stop_requested()) return std::nullopt;
+    std::optional<reward_t<rollout_details>> outcome;
+    features_t features;
+    if(uses_solid_features)
+    {
+        auto [info, space] = HC_info::build_HC(position,
+            {.remove_check = true, .prune_optional_moves = true});
+        if(stop.stop_requested()) return std::nullopt;
+        const auto witness = first_position_action(info, std::move(space), stop);
+        if(stop.stop_requested()) return std::nullopt;
+        if(witness)
+            outcome = rollout_cutoff_evaluation{}.cutoff_reward(position, 0, stop, nullptr);
+        else
+            // Optional pruning is heuristic: only the complete space can prove
+            // that no action exists. It may instead supply a fallback witness.
+            outcome = evaluate_zero_position(position, stop);
+        if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
+            return outcome;
+        features = extract_solid_features(position, info);
+    }
+    else
+    {
+        move_space_data space{};
+        outcome = evaluate_zero_position(position, stop, &space);
+        if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
+            return outcome;
+        features = extract_features(position, space);
+    }
+    if(stop.stop_requested()) return std::nullopt;
+    const float mover = evaluate_features(features);
+    outcome->score = position.get_present().c() ? -mover : mover;
+    return outcome;
 }
 
 float neural_model::evaluate_features(const features_t &features) const

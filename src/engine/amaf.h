@@ -448,17 +448,14 @@ public:
     template<class Observer>
     std::optional<result_type> evaluate(state position, std::stop_token stop, Observer &)
     {
-        move_space_data move_space{};
-        auto outcome = evaluate_zero_position(position, stop,
-            model && value_scale != 0.0f ? &move_space : nullptr);
+        auto outcome = model && value_scale != 0.0f
+            ? model->evaluate_position(std::move(position), stop)
+            : evaluate_zero_position(std::move(position), stop);
         if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
             return outcome;
         if(model && value_scale != 0.0f)
         {
-            if(stop.stop_requested()) return std::nullopt;
-            const float mover = value_scale * model->evaluate_features(
-                linear_cutoff_evaluation::extract_features(position, move_space));
-            outcome->score = position.get_present().c() ? -mover : mover;
+            outcome->score *= value_scale;
         }
         return outcome;
     }

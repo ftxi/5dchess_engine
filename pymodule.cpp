@@ -223,6 +223,9 @@ PYBIND11_MODULE(engine, m) {
         .def("get_evaluation_features", [](const game &g) {
             return linear_cutoff_evaluation::extract_features(g.get_current_state());
         }, "Raw 70-feature mover-relative evaluator input, including historical boards.")
+        .def("get_neural_features", [](const game &g) {
+            return neural_model::extract_solid_features(g.get_current_state());
+        }, "solid70-v2-mover: 70 features with separate solid-pruned playable/new log volumes.")
         .def("get_current_present", &game::get_current_present)
         .def("get_current_boards", &game::get_current_boards)
         .def("get_current_timeline_status", &game::get_current_timeline_status)

@@ -36,7 +36,9 @@ SEARCH_FIELDS = ('pair', 'position_id', 'game', 'action', 'role', 'color', 'seed
     'amaf_ordering_rebuilds', 'amaf_ordering_changed_axes',
     'amaf_evaluation_cache_hits', 'amaf_evaluation_cache_misses',
     'amaf_child_choices', 'amaf_changed_child_choices',
-    'amaf_unique_evidence_updates', 'amaf_repeated_evidence_skips')
+    'amaf_unique_evidence_updates', 'amaf_repeated_evidence_skips',
+    'neural_cache_hits', 'neural_cache_misses', 'neural_prior_choices',
+    'neural_changed_choices', 'neural_unique_updates', 'neural_repeated_skips')
 GAME_FIELDS = ('pair', 'position_id', 'game', 'target_color', 'seed', 'outcome',
     'actions', 'reason', 'failure', 'pgn_path')
 
@@ -78,6 +80,9 @@ class FixedEngineProcess(autoplay.EngineProcess):
         if direction == '<' and line.startswith('info amaf_stats '):
             self.last_amaf_stats = dict(token.split('=', 1)
                 for token in line.split()[2:] if '=' in token)
+        if direction == '<' and line.startswith('info neural_stats '):
+            self.last_neural_stats = dict(token.split('=', 1)
+                for token in line.split()[2:] if '=' in token)
 
     async def choose_budget(self, position, history, iterations, movetime, watchdog):
         self.phase = 'synchronizing_position'
@@ -89,6 +94,7 @@ class FixedEngineProcess(autoplay.EngineProcess):
         await self.wait_for('readyok', self.timeout_seconds)
         self.last_engine_stats = {}
         self.last_amaf_stats = {}
+        self.last_neural_stats = {}
         self.last_engine_score = ''
         self.last_engine_scores = ''
         self.last_go_seconds = None
@@ -249,6 +255,10 @@ class Experiment:
                 search['score_average'] = player.last_engine_score
                 for key, value in player.last_amaf_stats.items():
                     field = 'amaf_'+key
+                    if field in SEARCH_FIELDS:
+                        search[field] = value
+                for key, value in player.last_neural_stats.items():
+                    field = 'neural_'+key
                     if field in SEARCH_FIELDS:
                         search[field] = value
                 try:
