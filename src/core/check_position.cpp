@@ -360,6 +360,36 @@ std::optional<full_move> check_position::first_check(
     return result;
 }
 
+std::optional<full_move> check_position::first_check(
+    bool attacker, board_overlay result,
+    std::optional<board_overlay> departure, bool include_physical)
+{
+    const std::array<board_overlay, 2> updates{result, departure.value_or(result)};
+    const std::size_t count = departure ? 2 : 1;
+    std::array<line_view, 2> saved;
+    for(std::size_t i = 0; i < count; ++i)
+    {
+        const auto &update = updates[i];
+        assert(update.value);
+        assert(update.l >= first_line && update.l - first_line < static_cast<int>(lines.size()));
+        assert(i == 0 || update.l != updates[0].l);
+        saved[i] = lines[update.l - first_line];
+        add_board(update.l, turn{update.t, update.c}, *update.value);
+    }
+    struct restore
+    {
+        check_position &view;
+        std::span<const board_overlay> updates;
+        const std::array<line_view, 2> &saved;
+        ~restore()
+        {
+            for(std::size_t i = 0; i < updates.size(); ++i)
+                view.lines[updates[i].l - view.first_line] = saved[i];
+        }
+    } guard{*this, std::span(updates).first(count), saved};
+    return std::as_const(*this).first_check(attacker, include_physical);
+}
+
 std::vector<full_move> check_position::checks(
     bool attacker,
     bool include_physical

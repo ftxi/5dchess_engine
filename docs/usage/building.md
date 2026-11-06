@@ -71,8 +71,9 @@ cmake -S . -B build-no-rtti -DENGINE=ON -DTOOLS=ON -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-no-rtti --config Release --parallel
 ```
 
-For MSVC, use `-DCMAKE_CXX_FLAGS=/GR-` instead. Keep `PYMODULE` disabled for these
-builds because pybind11 requires RTTI. Option debug messages use the readable
+For MSVC, use `-DCMAKE_CXX_FLAGS=/GR-` instead. With `PYMODULE=ON`, the Python
+binding enables RTTI for pybind11 while the native libraries keep it disabled.
+Option debug messages use the readable
 type names `monostate`, `bool`, `int`, `double`, and `string`.
 
 ## IDE setup

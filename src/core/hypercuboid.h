@@ -119,6 +119,17 @@
 
 enum class hc_policy { iterative, stable, balanced, deferred };
 
+// Search-specific construction; rules callers retain the complete action space.
+struct HC_build_options
+{
+    // Pre-remove unavoidable royal checks and unsupported departures.
+    // This preserves the set of legal actions.
+    bool remove_check = false;
+    // Omit optional physical moves and optional-to-optional nonbranching arrivals.
+    // This heuristic may reduce the number of legal actions generated.
+    bool prune_optional_moves = false;
+};
+
 class HC_info
 {
     struct physical_entry
@@ -196,6 +207,7 @@ public:
     const HC &get_universe() const && = delete;
     index_t dimension() const noexcept { return static_cast<index_t>(axis_coords.size()); }
     index_t first_branch_axis() const noexcept { return new_axis; }
+    bool has_optional_timelines() const noexcept { return new_axis > mandatory_lines.size(); }
     // Includes prospective branching lines; absent timelines have no axis.
     std::optional<index_t> line_to_axis(int line) const noexcept {
         if(line < l0_offset) return std::nullopt;
@@ -270,7 +282,12 @@ public:
     std::optional<slice> test_present(const point &p, const HC &hc) const;
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;
-    static std::pair<HC_info, search_space> build_HC(const state &s);
+private:
+    void prune_checks();
+
+public:
+    static std::pair<HC_info, search_space> build_HC(
+        const state &s, HC_build_options options = {});
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>
     generator<moveseq> search(search_space ss, Ordering order = {}) const &;
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>

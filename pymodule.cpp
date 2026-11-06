@@ -37,6 +37,16 @@ metadata_t metadata_from_dict(const py::dict &headers)
 
 PYBIND11_MODULE(engine, m) {
     m.doc() = "5d chess engine"; // optional module docstring
+    // Core exception vtables have no RTTI in native testing builds. Translate
+    // them before pybind11 attempts dynamic casts for nested exceptions.
+    py::register_local_exception_translator([](std::exception_ptr error) {
+        if(!error) return;
+        try {
+            std::rethrow_exception(error);
+        } catch(const std::invalid_argument &e) {
+            PyErr_SetString(PyExc_ValueError, e.what());
+        }
+    });
     py::enum_<piece_t>(m, "Piece")
         .value("NO_PIECE", NO_PIECE)
         .value("WALL_PIECE", WALL_PIECE)

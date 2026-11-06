@@ -33,6 +33,13 @@ bool is_weighted_engine(std::string_view name)
         || name == "flat-ucb-weighted";
 }
 
+bool is_mvvlva_engine(std::string_view name)
+{
+    return name == "mvvlva" || name == "mvvlva-exposure"
+        || name == "mvvlva-pruned" || name == "mvvlva-solid-only"
+        || name == "mvvlva-solid";
+}
+
 bool supports_rollout_limit(std::string_view name)
 {
     return name == "mcts" || name == "linear" || name == "linear-trained"
@@ -48,6 +55,11 @@ void print_usage(std::ostream &out)
         << "  zero               MCTS with no rollout and zero cutoff evaluation\n"
         << "  zero-capture       zero with capture-biased tree expansion\n"
         << "  zero-capture-check-pw  capture/check ordering with progressive widening\n"
+        << "  mvvlva             MVV-LVA ordering with progressive widening\n"
+        << "  mvvlva-exposure    MVV-LVA with local exposure and promotion scoring\n"
+        << "  mvvlva-pruned      exposure with optional timeline move pruning\n"
+        << "  mvvlva-solid-only  exposure with solid-check pre-pruning\n"
+        << "  mvvlva-solid       exposure with both HC pruning changes\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
         << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
@@ -60,7 +72,7 @@ void print_usage(std::ostream &out)
         << default_mcts_rollout_max_actions << ")\n"
         << "  -wt, --weight-temperature <n>   weighted rollout temperature (default "
         << default_rollout_temperature << ")\n"
-        << "  --pw-constant <n>               widening constant for capture/check PW"
+        << "  --pw-constant <n>               widening constant for PW engines"
            " (default 2)\n"
         << "  --pw-alpha <n>                  widening exponent in (0, 1] for"
            " *-pw engines (default 0.5)\n"
@@ -142,7 +154,7 @@ command_line_options parse_options(
         }
         else if(option == "--pw-constant")
         {
-            if(engine_name != "zero-capture-check-pw" || pw_constant_seen
+            if((engine_name != "zero-capture-check-pw" && !is_mvvlva_engine(engine_name)) || pw_constant_seen
                || ++i >= argc)
             {
                 throw std::invalid_argument("invalid widening constant option");
@@ -153,7 +165,7 @@ command_line_options parse_options(
         }
         else if(option == "--pw-alpha")
         {
-            if(engine_name != "zero-capture-check-pw" || pw_alpha_seen
+            if((engine_name != "zero-capture-check-pw" && !is_mvvlva_engine(engine_name)) || pw_alpha_seen
                || ++i >= argc)
             {
                 throw std::invalid_argument("invalid widening alpha option");
@@ -190,7 +202,7 @@ int main(int argc, const char *argv[])
     const std::string engine_name = argv[1];
     if(engine_name != "mcts" && engine_name != "mcts-weighted"
        && engine_name != "zero" && engine_name != "zero-capture"
-       && engine_name != "zero-capture-check-pw"
+       && engine_name != "zero-capture-check-pw" && !is_mvvlva_engine(engine_name)
        && engine_name != "linear"
        && engine_name != "linear-trained" && engine_name != "linear-weighted"
        && engine_name != "flat-ucb" && engine_name != "flat-ucb-weighted"
@@ -241,6 +253,20 @@ int main(int argc, const char *argv[])
         selected_engine = std::make_unique<zero_capture_check_pw_engine>(
             std::make_unique<stdio_handler>(), options.seed,
             options.progressive_widening_constant, options.progressive_widening_alpha);
+    }
+    else if(is_mvvlva_engine(engine_name))
+    {
+        if(engine_name == "mvvlva")
+            selected_engine = std::make_unique<mvvlva_engine>(
+                std::make_unique<stdio_handler>(), options.seed,
+                options.progressive_widening_constant, options.progressive_widening_alpha);
+        else
+            selected_engine = std::make_unique<mvvlva_exposure_engine>(
+                std::make_unique<stdio_handler>(), options.seed,
+                options.progressive_widening_constant, options.progressive_widening_alpha,
+                HC_build_options{
+                    .remove_check = engine_name == "mvvlva-solid-only" || engine_name == "mvvlva-solid",
+                    .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"});
     }
     else if(engine_name == "linear" || engine_name == "linear-trained"
             || engine_name == "linear-weighted")

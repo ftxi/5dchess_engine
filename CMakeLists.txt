@@ -175,6 +175,11 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
         
         # Create the Python module
         pybind11_add_module(engine pymodule.cpp)
+        # pybind11 requires RTTI only in the binding translation unit.
+        target_compile_options(engine PRIVATE
+            $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-frtti>
+            $<$<CXX_COMPILER_ID:MSVC>:/GR>
+        )
         target_link_libraries(engine PRIVATE 5dchess_client)
         target_compile_definitions(engine PRIVATE 
             PROJECT_VERSION_STRING="${PROJECT_VERSION}"

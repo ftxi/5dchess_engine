@@ -1,7 +1,8 @@
 # Engine usage
 
-There are eleven engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
-`zero-capture-check-pw`, `linear`, `linear-trained`, `linear-weighted`,
+Available engines include `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
+`zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-pruned`,
+`mvvlva-solid-only`, `mvvlva-solid`, `linear`, `linear-trained`, `linear-weighted`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
 
@@ -46,6 +47,64 @@ The rollout action limit can be changed through 5DUCI with
 `setoption name rollout-max-actions value 40`. A rollout that reaches the limit
 is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
 position instead. Setting the limit to zero disables rollout entirely.
+
+## MVV-LVA experiments
+
+`mvvlva` uses numerical victim values with preference for lower-valued attackers,
+check ordering, zero rollout evaluation, and progressive widening. `mvvlva-exposure`
+also penalizes locally attacked, undefended captures and rewards promotion gain.
+These geometric exposure scores do not establish whether a recapture is legal.
+
+The material values used by MVV, exposure, and promotion gain are:
+
+| Piece | Value |
+|---|---:|
+| Queen | 1440 |
+| Princess | 900 |
+| Bishop / knight | 350 |
+| Rook | 300 |
+| Common king | 200 |
+| Brawn | 150 |
+| Pawn | 100 |
+| Unicorn | 60 |
+| Dragon | 30 |
+
+For a nonroyal victim, the capture score is
+`480 + alpha * victim_value + beta * (maximum_attacker_rank - attacker_rank)`,
+where `alpha` is `1/16` and
+`beta = alpha * minimum_material_value_gap / maximum_attacker_rank`.
+With the current values, `beta` is `3/16`.
+Attacker ranks are generated at compile time from distinct material values;
+equal values share a rank. Both royals receive the highest attacker rank and
+are excluded from victim scoring. The derived LVA step remains a tie-breaker
+when the values change.
+Checking adds 300. Exposure subtracts up to 128, and promotion gain adds up to
+48. These bounds preserve the priority of checking captures over other
+captures, and captures over checking quiet promotions. Other weighted
+engines retain their grouped capture features.
+
+`mvvlva-solid` adds two HC construction changes to `mvvlva-exposure`:
+
+- Omit physical moves on optional timelines and arrivals onto existing optional
+  timelines whose source timeline is also optional. Arrivals from mandatory
+  timelines and moves creating new branches remain available.
+- Pre-prune coordinates that unavoidably expose a friendly royal. Both options
+  use the regular HC builder and its partitions by branch count.
+
+Optional-timeline pruning may reduce the number of legal actions generated.
+Check pre-pruning preserves the legal-action set.
+
+If the optional-timeline restriction leaves no legal action, search falls back
+to unrestricted move generation for that position. Rules and terminal
+adjudication continue to use the complete legal-action space.
+
+For comparisons, `mvvlva-pruned` enables only optional-timeline pruning, and
+`mvvlva-solid-only` enables only check pre-pruning. All five engines accept
+`--seed`, `--pw-constant` (default 2), and `--pw-alpha` (default 0.5).
+
+```sh
+./build/5dchess mvvlva-solid --seed 42 --pw-constant 2 --pw-alpha 0.5
+```
 
 ## Search limits and stopping
 

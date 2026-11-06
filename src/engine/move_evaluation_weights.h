@@ -4,6 +4,29 @@
 #include <array>
 #include <cstddef>
 
+#include "piece.h"
+
+// Individual 5D material values for MVV, exposure, and promotion gain.
+// Royal kings have no finite material value; legality handles their safety.
+constexpr float capture_piece_value(piece_t piece)
+{
+    switch(to_white(piece_name(piece)))
+    {
+        case QUEEN_W:
+        case ROYAL_QUEEN_W: return 1440.0f;
+        case PRINCESS_W: return 900.0f;
+        case UNICORN_W: return 60.0f;
+        case DRAGON_W: return 30.0f;
+        case BISHOP_W:
+        case KNIGHT_W: return 350.0f;
+        case ROOK_W: return 300.0f;
+        case COMMON_KING_W: return 200.0f;
+        case BRAWN_W: return 150.0f;
+        case PAWN_W: return 100.0f;
+        default: return 0.0f;
+    }
+}
+
 struct move_evaluation_weights
 {
     // Keep feature indices stable for copying and training.
@@ -36,19 +59,20 @@ inline constexpr move_evaluation_weights default_move_evaluation_weights = [] {
 
     constexpr float capture_reward_multiplier = 1.1f;
     weights.values[move_evaluation_weights::QUEEN_CAPTURE]
-        = 1440.0f * capture_reward_multiplier;
+        = capture_piece_value(QUEEN_W) * capture_reward_multiplier;
     weights.values[move_evaluation_weights::PRINCESS_CAPTURE]
-        = 800.0f * capture_reward_multiplier;
+        = capture_piece_value(PRINCESS_W) * capture_reward_multiplier;
+    // Keep this legacy grouped profile stable; MVV-LVA uses individual values.
     weights.values[move_evaluation_weights::DRAGON_UNICORN_CAPTURE]
         = 450.0f * capture_reward_multiplier;
     weights.values[move_evaluation_weights::BISHOP_KNIGHT_CAPTURE]
-        = 350.0f * capture_reward_multiplier;
+        = capture_piece_value(BISHOP_W) * capture_reward_multiplier;
     weights.values[move_evaluation_weights::ROOK_COMMON_KING_CAPTURE]
-        = 300.0f * capture_reward_multiplier;
+        = capture_piece_value(ROOK_W) * capture_reward_multiplier;
     weights.values[move_evaluation_weights::BRAWN_CAPTURE]
-        = 120.0f * capture_reward_multiplier;
+        = capture_piece_value(BRAWN_W) * capture_reward_multiplier;
     weights.values[move_evaluation_weights::PAWN_CAPTURE]
-        = 100.0f * capture_reward_multiplier;
+        = capture_piece_value(PAWN_W) * capture_reward_multiplier;
 
     weights.values[move_evaluation_weights::CHECK] = 1200.0f;
     weights.values[move_evaluation_weights::SUPERPHYSICAL] = -700.0f;
