@@ -421,7 +421,7 @@ int run()
     const std::string knight_output = knight.show_pgn();
     assert(knight_output.contains("[Promotions \"N\"]"));
     assert(knight_output.contains("h8=N"));
-    knight.metadata["promotions"] = "Q";
+    knight.set_header("promotions", "Q");
     assert(knight.show_pgn().contains("[Promotions \"N\"]"));
 
     assert(rejects(promotion_game("", 'N')));
@@ -451,11 +451,11 @@ int run()
 
     game default_game = game::from_pgn(promotion_game("", 'Q'));
     assert(default_game.get_promotion_options() == promotion_options::QUEEN);
-    assert(!default_game.metadata.contains("promotions"));
+    assert(default_game.get_header("promotions") == "Q");
     assert(!default_game.show_pgn().contains("[Promotions"));
 
     game explicit_default_game = game::from_pgn(promotion_game("Q", 'Q'));
-    assert(explicit_default_game.metadata.contains("promotions"));
+    assert(explicit_default_game.get_header("Promotions") == "Q");
     assert(explicit_default_game.show_pgn().contains("[Promotions \"Q\"]"));
 
     const std::string before_promotion = R"(

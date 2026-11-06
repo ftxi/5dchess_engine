@@ -3,8 +3,9 @@
 For reproducible engine experiments, use the fixed human-position suite and
 the [canonical testing workflow](testing.md).
 
-There are nineteen engines: `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
+Available engines include `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
 `zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-exposure-pn`,
+`mvvlva-pruned`, `mvvlva-solid-only`, `mvvlva-solid`,
 `linear`, `linear-trained`, `linear-weighted`,
 `linear-pw`, `linear-safety-pw`, `linear-trained-pw`, `neural-pw`, `amaf-pw`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
@@ -30,13 +31,11 @@ widening; its widening constant and exponent can be changed with
 progressive widening as `zero-capture-check-pw`, including both widening
 options (defaults: constant 2, exponent 0.5). It refines capture ordering with
 MVV-LVA: prefer the most valuable victim, then the least valuable attacker.
-Ranks follow the existing 5D capture-value groups, from low to high:
-pawn, brawn, rook/common king, bishop/knight, unicorn/dragon, princess, queen.
-Royal queens have queen victim rank; royal attackers rank above queens.
-Captures score `480 + 16 * (victim_rank - 1) + (8 - attacker_rank)`, with ranks
-starting at one. This retains the existing capture/check priority groups.
-Quiet moves have no attacker penalty. This engine adds no attack/defence or
-exchange evaluation and does not use rollouts.
+It uses numerical material values and a bounded attacker-rank tie-breaker,
+as described under [MVV-LVA experiments](#mvv-lva-experiments). All MVV-LVA
+engines use this scoring; the former grouped victim-rank formula is removed.
+This is a move-ordering heuristic rather than a static exchange evaluation
+and does not use rollouts.
 
 `mvvlva-exposure` adds defence-aware local exposure and promotion gain to
 `mvvlva`. For captures whose arriving piece is physically attacked and has
@@ -85,9 +84,12 @@ while replacing its nonterminal zero evaluation. `linear-safety-pw` enables six
 additional king-safety features; the other two retain zero coefficients for
 those features. These engines do not accept rollout options.
 
-`neural-pw` uses the same MVV-LVA exposure move ordering and progressive
-widening, with no rollouts. It evaluates only nonterminal positions through
-a 70-input network with hidden layers of 32 and 16 ReLU units and a final
+`neural-pw` uses `mvvlva-solid` move ordering and HC construction: numerical
+MVV-LVA with exposure and promotion scoring, solid-check pre-pruning, and
+optional-timeline move pruning. It uses progressive widening with no rollouts.
+Optional-timeline pruning can reduce the legal action set, as described below.
+It evaluates only nonterminal positions through a 70-input network with hidden
+layers of 32 and 16 ReLU units and a final
 `tanh` value. Terminal wins, losses and stalemates retain their exact values.
 The model predicts the side-to-move value; the search converts it to its
 White-relative reward convention. The network never changes move ordering.
@@ -218,6 +220,64 @@ The rollout action limit can be changed through 5DUCI with
 `setoption name rollout-max-actions value 40`. A rollout that reaches the limit
 is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
 position instead. Setting the limit to zero disables rollout entirely.
+
+## MVV-LVA experiments
+
+`mvvlva` uses numerical victim values with preference for lower-valued attackers,
+check ordering, zero rollout evaluation, and progressive widening. `mvvlva-exposure`
+also penalizes locally attacked, undefended captures and rewards promotion gain.
+These geometric exposure scores do not establish whether a recapture is legal.
+
+The material values used by MVV, exposure, and promotion gain are:
+
+| Piece | Value |
+|---|---:|
+| Queen | 1440 |
+| Princess | 900 |
+| Bishop / knight | 350 |
+| Rook | 300 |
+| Common king | 200 |
+| Brawn | 150 |
+| Pawn | 100 |
+| Unicorn | 60 |
+| Dragon | 30 |
+
+For a nonroyal victim, the capture score is
+`480 + alpha * victim_value + beta * (maximum_attacker_rank - attacker_rank)`,
+where `alpha` is `1/16` and
+`beta = alpha * minimum_material_value_gap / maximum_attacker_rank`.
+With the current values, `beta` is `3/16`.
+Attacker ranks are generated at compile time from distinct material values;
+equal values share a rank. Both royals receive the highest attacker rank and
+are excluded from victim scoring. The derived LVA step remains a tie-breaker
+when the values change.
+Checking adds 300. Exposure subtracts up to 128, and promotion gain adds up to
+48. These bounds preserve the priority of checking captures over other
+captures, and captures over checking quiet promotions. Other weighted
+engines retain their grouped capture features.
+
+`mvvlva-solid` adds two HC construction changes to `mvvlva-exposure`:
+
+- Omit physical moves on optional timelines and arrivals onto existing optional
+  timelines whose source timeline is also optional. Arrivals from mandatory
+  timelines and moves creating new branches remain available.
+- Pre-prune coordinates that unavoidably expose a friendly royal. Both options
+  use the regular HC builder and its partitions by branch count.
+
+Optional-timeline pruning may reduce the number of legal actions generated.
+Check pre-pruning preserves the legal-action set.
+
+If the optional-timeline restriction leaves no legal action, search falls back
+to unrestricted move generation for that position. Rules and terminal
+adjudication continue to use the complete legal-action space.
+
+For comparisons, `mvvlva-pruned` enables only optional-timeline pruning, and
+`mvvlva-solid-only` enables only check pre-pruning. All five engines accept
+`--seed`, `--pw-constant` (default 2), and `--pw-alpha` (default 0.5).
+
+```sh
+./build/5dchess mvvlva-solid --seed 42 --pw-constant 2 --pw-alpha 0.5
+```
 
 ## Search limits and stopping
 

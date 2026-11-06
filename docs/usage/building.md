@@ -71,8 +71,9 @@ cmake -S . -B build-no-rtti -DENGINE=ON -DTOOLS=ON -DCMAKE_BUILD_TYPE=Release \
 cmake --build build-no-rtti --config Release --parallel
 ```
 
-For MSVC, use `-DCMAKE_CXX_FLAGS=/GR-` instead. Keep `PYMODULE` disabled for these
-builds because pybind11 requires RTTI. Option debug messages use the readable
+For MSVC, use `-DCMAKE_CXX_FLAGS=/GR-` instead. With `PYMODULE=ON`, the Python
+binding enables RTTI for pybind11 while the native libraries keep it disabled.
+Option debug messages use the readable
 type names `monostate`, `bool`, `int`, `double`, and `string`.
 
 ## IDE setup
@@ -135,6 +136,19 @@ turns that leave a friendly royal exposed. To inspect such history explicitly,
 pass `allow_submit_with_checks=True` to both methods. This still requires a
 completed turn and marks accepted exposed actions as illegal history. Loading
 such games separately requires `game.from_pgn(pgn, allow_illegal_history=True)`.
+
+Use `game.get_header("event")` to read a header, `game.set_header("Event", value)`
+to edit it, and `game.header_keys()` to list the available names. Lookups and edits
+match keys case-insensitively. Export uses canonical spelling for known headers,
+including `Puzzle`, and preserves the original spelling of custom headers.
+Standard-only export includes `Puzzle` and omits custom headers.
+
+`Size`, `Timeline`, and `Promotions` report the loaded rules and ignore edits.
+`Timeline` uses `Odd` or `Even`. Reading `Variant` falls back to `Board` when
+`Variant` is empty or absent. Loading and export prefer `Board` when both are
+present. In Python, `game.metadata` returns a snapshot dictionary. Assign a
+dictionary to update the supplied editable headers, or use `set_header` to edit
+one header. Headers omitted from the dictionary keep their values.
 
 ## WebAssembly
 

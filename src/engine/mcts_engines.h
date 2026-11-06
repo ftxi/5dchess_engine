@@ -158,14 +158,15 @@ public:
     mvvlva_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
-        double widening_alpha = default_progressive_widening_alpha)
+        double widening_alpha = default_progressive_widening_alpha,
+        HC_build_options options = {})
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
                 [](const HC_info &info, std::stop_token stop) {
                     return move_evaluator(info, capture_check_weights,
                         capture_ordering::mvvlva).build_score_table(stop);
-                }},
+                }, {}, options},
             {}, {}, {}, std::move(io)) {}
 };
 
@@ -175,14 +176,15 @@ public:
     mvvlva_exposure_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
-        double widening_alpha = default_progressive_widening_alpha)
+        double widening_alpha = default_progressive_widening_alpha,
+        HC_build_options options = {})
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
                 [](const HC_info &info, std::stop_token stop) {
                     return move_evaluator(info, capture_check_weights,
                         capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }},
+                }, {}, options},
             {}, {}, {}, std::move(io)) {}
 };
 

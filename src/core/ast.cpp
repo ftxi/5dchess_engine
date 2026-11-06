@@ -1,7 +1,19 @@
 #include "ast.h"
 #include "utils.h"
+#include <algorithm>
+#include <locale>
 
 namespace pgnparser_ast {
+
+std::strong_ordering header_key_less::compare(std::string_view lhs, std::string_view rhs) noexcept
+{
+    const auto &locale = std::locale::classic();
+    return std::lexicographical_compare_three_way(lhs.begin(), lhs.end(), rhs.begin(), rhs.end(),
+        [&locale](char a, char b) {
+            return static_cast<unsigned char>(std::tolower(a, locale))
+                <=> static_cast<unsigned char>(std::tolower(b, locale));
+        });
+}
 
 gametree::~gametree() noexcept
 {

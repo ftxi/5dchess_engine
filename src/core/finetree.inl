@@ -8,10 +8,10 @@ template<typename T>
 inline fine_node<T>::fine_node(
     fine_node *parent,
     state s,
-    T info_value)
+    T info_value, HC_build_options options)
 : parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}, next_cell_index{0}, info{std::move(info_value)}
 {
-    ignite_impl(s);
+    ignite_impl(s, options);
 }
 
 template<typename T>
@@ -28,10 +28,10 @@ template<typename T>
     requires std::default_initializable<T>
 inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(
     state s,
-    T info)
+    T info, HC_build_options options)
 {
     return std::unique_ptr<fine_node<T>>(
-        new fine_node(nullptr, std::move(s), std::move(info)));
+        new fine_node(nullptr, std::move(s), std::move(info), options));
 }
 
 template<typename T>
@@ -390,18 +390,28 @@ inline void fine_node<T>::ignite() &
         assert(applied);
     }
     s.submit<true>();
-    ignite_impl(s);
+    ignite_impl(s, context->build_options);
 }
 
 template<typename T>
     requires std::default_initializable<T>
-inline void fine_node<T>::ignite_impl(const state &s)
+inline void fine_node<T>::ignite_impl(const state &s, HC_build_options options)
 {
-    auto [hc_info, ss] = HC_info::build_HC(s);
+    auto [hc_info, ss] = HC_info::build_HC(s, options);
+    // Restrict search, never the rules' definition of a terminal position.
+    // Probe before constructing score tables, since fallback changes coordinate IDs.
+    if(options.prune_optional_moves && hc_info.has_optional_timelines()
+       && !hc_info.template search<natural_HC_ordering, hc_policy::stable>(ss).first())
+    {
+        auto fallback_options = options;
+        fallback_options.prune_optional_moves = false;
+        std::tie(hc_info, ss) = HC_info::build_HC(s, fallback_options);
+    }
     HC universe = hc_info.get_universe();
     auto new_context = std::unique_ptr<nodal_pocession>(
         new nodal_pocession{
             .hc_info = std::move(hc_info),
+            .build_options = options,
             .node_pool = {},
             .cell_pool = {},
             .verified_terminal = false

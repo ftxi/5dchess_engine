@@ -44,6 +44,12 @@ bool is_weighted_engine(std::string_view name)
         || name == "flat-ucb-weighted";
 }
 
+bool is_hc_pruned_mvvlva_engine(std::string_view name)
+{
+    return name == "mvvlva-pruned" || name == "mvvlva-solid-only"
+        || name == "mvvlva-solid";
+}
+
 bool supports_rollout_limit(std::string_view name)
 {
     return name == "mcts" || name == "linear" || name == "linear-trained"
@@ -52,7 +58,8 @@ bool supports_rollout_limit(std::string_view name)
 
 bool supports_progressive_widening(std::string_view name)
 {
-    return name == "zero-capture-check-pw" || name == "mvvlva"
+    return is_hc_pruned_mvvlva_engine(name)
+        || name == "zero-capture-check-pw" || name == "mvvlva"
         || name == "mvvlva-exposure" || name == "linear-pw"
         || name == "linear-safety-pw" || name == "linear-trained-pw"
         || name == "neural-pw" || name == "mvvlva-exposure-pn"
@@ -76,6 +83,9 @@ void print_usage(std::ostream &out)
         << "  zero-capture-check-pw  capture/check ordering with progressive widening\n"
         << "  mvvlva             MVV-LVA/check ordering with progressive widening\n"
         << "  mvvlva-exposure    MVV-LVA with local capture-exposure penalties\n"
+        << "  mvvlva-pruned      exposure with optional timeline move pruning\n"
+        << "  mvvlva-solid-only  exposure with solid-check pre-pruning\n"
+        << "  mvvlva-solid       exposure with both HC pruning changes\n"
         << "  mvvlva-exposure-pn MVV-LVA exposure/PW with PN-MCTS tree selection\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
@@ -83,7 +93,7 @@ void print_usage(std::ostream &out)
         << "  linear-pw          MVV-LVA exposure/PW with 64-feature leaf evaluation\n"
         << "  linear-safety-pw   linear-pw with six additional royal-safety features\n"
         << "  linear-trained-pw  linear-pw with the frozen experimental weights\n"
-        << "  neural-pw          MVV-LVA exposure/PW with a two-hidden-layer model\n"
+        << "  neural-pw          MVV-LVA solid/PW with a two-hidden-layer model\n"
         << "  amaf-pw            action-local AMAF/PW, optional neural leaf model\n"
         << "  flat-ucb           flat upper-confidence-bound search with random rollouts\n"
         << "  flat-ucb-weighted  flat UCB search with weighted rollouts\n"
@@ -382,11 +392,14 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
             std::move(io), options.seed,
             options.progressive_widening_constant, options.progressive_widening_alpha);
     }
-    else if(engine_name == "mvvlva-exposure")
+    else if(engine_name == "mvvlva-exposure" || is_hc_pruned_mvvlva_engine(engine_name))
     {
         selected_engine = std::make_unique<mvvlva_exposure_engine>(
             std::move(io), options.seed,
-            options.progressive_widening_constant, options.progressive_widening_alpha);
+            options.progressive_widening_constant, options.progressive_widening_alpha,
+            HC_build_options{
+                .remove_check = engine_name == "mvvlva-solid-only" || engine_name == "mvvlva-solid",
+                .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"});
     }
     else if(engine_name == "mvvlva-exposure-pn")
     {

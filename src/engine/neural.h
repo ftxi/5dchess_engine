@@ -65,7 +65,8 @@ public:
                 [](const HC_info &info, std::stop_token stop) {
                     return move_evaluator(info, capture_check_weights,
                         capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }}, {}, {}, {}, std::move(io)) {}
+                }, {}, HC_build_options{.remove_check = true, .prune_optional_moves = true}},
+            {}, {}, {}, std::move(io)) {}
 };
 
 static_assert(neural_model::input_count == linear_cutoff_evaluation::features_count);

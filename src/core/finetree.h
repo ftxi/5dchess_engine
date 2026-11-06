@@ -80,7 +80,7 @@ class fine_node
     nodal_pocession *get_context() & noexcept;
 
     // -- internal tree-building helpers -- //
-    void ignite_impl(const state &s);
+    void ignite_impl(const state &s, HC_build_options options);
     fine_cell<T> *add_cell(fine_cell<T> &&cell);
     fine_cell<T> *add_unexplored_cell(fine_cell<T> *parent, HC space);
     fine_node<T> *add_child(index_t n, index_t i);
@@ -103,13 +103,13 @@ public:
     fine_node &operator=(fine_node &&other) = delete;
 
     // -- constructors (prefer not to use directly) -- //
-    fine_node(fine_node *parent, state s, T info = T{});
+    fine_node(fine_node *parent, state s, T info = T{}, HC_build_options options = {});
     fine_node(fine_node *parent, index_t n, index_t i);
     fine_node(fine_node *parent, index_t n, index_t i, T info);
     static std::unique_ptr<fine_node<T>> make_temproary(fine_node *parent, index_t n, index_t i, T info = T{});
 
     // -- factory -- //
-    static std::unique_ptr<fine_node<T>> make_root(state s, T info = T{});
+    static std::unique_ptr<fine_node<T>> make_root(state s, T info = T{}, HC_build_options options = {});
 
     // -- queries -- //
     bool is_nodal() const noexcept { return pocessed_context != nullptr; }
@@ -156,6 +156,7 @@ template<typename T>
 struct fine_node<T>::nodal_pocession
 {
     HC_info hc_info;
+    HC_build_options build_options;
     std::deque<fine_node<T>> node_pool;
     std::deque<fine_cell<T>> cell_pool;
     bool verified_terminal; /* value is

@@ -110,6 +110,14 @@ public:
     /* include_physical=false excludes captures on the same board. */
     std::optional<full_move> first_check(bool attacker, bool include_physical = true) const;
 
+    // Temporarily add actual next-turn result boards, without repeating them
+    // onto another turn. Scan all endpoints and restore the view afterward.
+    // Overlays must extend existing lines by one turn or start reserved lines;
+    // target timelines must not already have an added board in this view.
+    std::optional<full_move> first_check(bool attacker, board_overlay result,
+        std::optional<board_overlay> departure = std::nullopt,
+        bool include_physical = true);
+
     std::vector<full_move> checks(bool attacker, bool include_physical = true) const;
 };
 

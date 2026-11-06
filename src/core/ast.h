@@ -10,6 +10,7 @@
 #include <string_view>
 #include <map>
 #include <cstddef>
+#include <compare>
 #include <utility>
 #include "turn.h"
 
@@ -104,20 +105,31 @@ struct board_source {
     source_range declaration;
     source_range fen;
 };
+struct header_key_less {
+    using is_transparent = void;
+    static std::strong_ordering compare(std::string_view lhs, std::string_view rhs) noexcept;
+    bool operator()(std::string_view lhs, std::string_view rhs) const noexcept
+    {
+        return compare(lhs, rhs) < 0;
+    }
+};
+
+using header_map = std::map<std::string, std::string, header_key_less>;
+
 struct header_source {
     source_range declaration;
     source_range value;
 };
 struct game {
-    std::map<std::string, std::string> headers;
+    header_map headers;
     std::vector<std::tuple<std::string, token_t, int, int, bool>> boards;
     gametree gt;
     std::vector<std::string> comments;
     std::shared_ptr<const std::string> source_text = nullptr;
     // Parallel to boards when parsed from text; absent for programmatic ASTs.
     std::vector<board_source> board_sources = {};
-    // Lowercase keys, matching headers; absent for programmatic ASTs.
-    std::map<std::string, header_source> header_sources = {};
+    // Case-insensitive keys matching headers; absent for programmatic ASTs.
+    std::map<std::string, header_source, header_key_less> header_sources = {};
     friend std::ostream &operator<<(std::ostream &os, const game &g);
 };
 

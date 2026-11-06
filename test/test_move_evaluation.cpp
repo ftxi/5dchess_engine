@@ -50,11 +50,11 @@ void test_weight_layout_and_profiles()
     assert(weights[move_evaluation_weights::NORMAL_KING_MOVE] == -1200.0f);
     assert(weights[move_evaluation_weights::KING_BRANCH] == -8000.0f);
     assert(weights[move_evaluation_weights::QUEEN_CAPTURE] == 1584.0f);
-    assert(weights[move_evaluation_weights::PRINCESS_CAPTURE] == 880.0f);
+    assert(weights[move_evaluation_weights::PRINCESS_CAPTURE] == 990.0f);
     assert(weights[move_evaluation_weights::DRAGON_UNICORN_CAPTURE] == 495.0f);
     assert(weights[move_evaluation_weights::BISHOP_KNIGHT_CAPTURE] == 385.0f);
     assert(weights[move_evaluation_weights::ROOK_COMMON_KING_CAPTURE] == 330.0f);
-    assert(weights[move_evaluation_weights::BRAWN_CAPTURE] == 132.0f);
+    assert(weights[move_evaluation_weights::BRAWN_CAPTURE] == 165.0f);
     assert(weights[move_evaluation_weights::PAWN_CAPTURE] == 110.0f);
     assert(weights[move_evaluation_weights::CHECK] == 1200.0f);
     assert(weights[move_evaluation_weights::SUPERPHYSICAL] == -700.0f);
@@ -92,7 +92,7 @@ void test_capture_groups()
 {
     using indices = move_evaluation_weights;
     const std::pair<char, int> cases[] = {
-        {'q', indices::QUEEN_CAPTURE}, {'y', indices::QUEEN_CAPTURE},
+        {'q', indices::QUEEN_CAPTURE},
         {'s', indices::PRINCESS_CAPTURE},
         {'d', indices::DRAGON_UNICORN_CAPTURE},
         {'u', indices::DRAGON_UNICORN_CAPTURE},
@@ -161,8 +161,8 @@ void test_mvvlva_capture_ordering()
             .score(0, coordinate);
     };
 
-    // The cheapest attacker wins ties, but never outweighs the victim rank.
-    const char victims[] = {'p', 'w', 'r', 'b', 'u', 's', 'q'};
+    // The cheapest attacker wins ties, but never outweighs a higher victim value.
+    const char victims[] = {'d', 'u', 'p', 'w', 'c', 'r', 'b', 's', 'q'};
     float previous_best = 0.0f;
     for(char victim : victims)
     {
@@ -173,10 +173,10 @@ void test_mvvlva_capture_ordering()
         assert(rook >= 480.0f && rook < 780.0f);
         previous_best = rook;
     }
-    assert(score('R', 'r') == score('R', 'c'));
+    assert(score('R', 'r') > score('R', 'c'));
     assert(score('R', 'b') == score('R', 'n'));
-    assert(score('R', 'u') == score('R', 'd'));
-    assert(score('R', 'q') == score('R', 'y'));
+    assert(score('R', 'u') > score('R', 'd'));
+    assert(score('R', 'y') == 0.0f);
     assert(score('R', 'p') == score('r', 'P', true));
     assert(score('R', 'p') == score('R', 'p', false, true));
 
@@ -271,7 +271,7 @@ void test_local_capture_exposure()
     multiverse brawn_promotion(timeline_layout::odd, {
         {0, 1, false, "1r5k/W7/1r6/8/8/8/8/7K"},
     });
-    verify(state(brawn_promotion, promotion_options::KNIGHT), "(0T1)a7b8", 5.0f, 23.0f);
+    verify(state(brawn_promotion, promotion_options::KNIGHT), "(0T1)a7b8", 5.0f, 20.0f);
 
     multiverse jumps(timeline_layout::odd, {
         {-1, 1, false, "7k/8/8/8/1r6/8/8/1p5K"},

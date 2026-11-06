@@ -6,7 +6,7 @@
 
 #include "piece.h"
 
-// Shared 5D material values for capture rewards and immediate exposure.
+// Individual 5D material values for MVV, exposure, and promotion gain.
 // Royal kings have no finite material value; legality handles their safety.
 constexpr float capture_piece_value(piece_t piece)
 {
@@ -14,14 +14,14 @@ constexpr float capture_piece_value(piece_t piece)
     {
         case QUEEN_W:
         case ROYAL_QUEEN_W: return 1440.0f;
-        case PRINCESS_W: return 800.0f;
-        case DRAGON_W:
-        case UNICORN_W: return 450.0f;
+        case PRINCESS_W: return 900.0f;
+        case UNICORN_W: return 60.0f;
+        case DRAGON_W: return 30.0f;
         case BISHOP_W:
         case KNIGHT_W: return 350.0f;
-        case ROOK_W:
-        case COMMON_KING_W: return 300.0f;
-        case BRAWN_W: return 120.0f;
+        case ROOK_W: return 300.0f;
+        case COMMON_KING_W: return 200.0f;
+        case BRAWN_W: return 150.0f;
         case PAWN_W: return 100.0f;
         default: return 0.0f;
     }
@@ -62,8 +62,9 @@ inline constexpr move_evaluation_weights default_move_evaluation_weights = [] {
         = capture_piece_value(QUEEN_W) * capture_reward_multiplier;
     weights.values[move_evaluation_weights::PRINCESS_CAPTURE]
         = capture_piece_value(PRINCESS_W) * capture_reward_multiplier;
+    // Keep this legacy grouped profile stable; MVV-LVA uses individual values.
     weights.values[move_evaluation_weights::DRAGON_UNICORN_CAPTURE]
-        = capture_piece_value(DRAGON_W) * capture_reward_multiplier;
+        = 450.0f * capture_reward_multiplier;
     weights.values[move_evaluation_weights::BISHOP_KNIGHT_CAPTURE]
         = capture_piece_value(BISHOP_W) * capture_reward_multiplier;
     weights.values[move_evaluation_weights::ROOK_COMMON_KING_CAPTURE]

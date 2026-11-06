@@ -46,6 +46,7 @@ private:
     double widening_alpha;
     coordinate_score_function score_function;
     ChildSelection child_selection;
+    HC_build_options build_options;
 
     template<class F>
     auto with_order(node_t *node, std::stop_token stop, F &&use)
@@ -154,12 +155,13 @@ public:
         double widening_constant_ = default_progressive_widening_constant,
         double widening_alpha_ = default_progressive_widening_alpha,
         coordinate_score_function score = nullptr,
-        ChildSelection select_child = ChildSelection{})
+        ChildSelection select_child = ChildSelection{},
+        HC_build_options options = {})
         : policy_id(uct_detail::next_policy_id()),
           widening_constant(widening_constant_),
           widening_alpha(widening_alpha_),
           score_function(score),
-          child_selection(std::move(select_child))
+          child_selection(std::move(select_child)), build_options(options)
     {
         if(!(widening_constant > 0.0) || !std::isfinite(widening_constant))
             throw std::invalid_argument("invalid progressive widening constant");
@@ -168,6 +170,8 @@ public:
             throw std::invalid_argument("invalid progressive widening alpha");
         if(seed) rng.emplace(*seed);
     }
+
+    HC_build_options get_hc_build_options() const { return build_options; }
 
     // A caller with a precomputed context-specific order may provide it here.
     static void set_ordering(node_t *action_root, Order order)

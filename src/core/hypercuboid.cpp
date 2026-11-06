@@ -107,7 +107,7 @@ std::tuple<std::vector<vec4>, int> get_move_path(const check_position &s, full_m
     }
 }
 
-std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
+std::pair<HC_info, search_space> HC_info::build_HC(const state &s, HC_build_options options)
 {
     dprint("HC_info::build_HC()");
     HC_info info(s);
@@ -210,7 +210,7 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
                 }
                 add_arrival(m);
             }
-            else
+            else if(!options.prune_optional_moves || source_axis < info.mandatory_lines.size())
             {
                 moves_by_axis[source_axis].stays.push_back(m);
             }
@@ -350,8 +350,11 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
             {
                 // only store (possible) non-branching jump arrives
                 auto [last_t, last_c] = s.get_timeline_end(m.to.l()).get();
-                if(m.to.t() == last_t &&player == last_c)
+                if(m.to.t() == last_t && player == last_c)
                 {
+                    if(options.prune_optional_moves && axis >= info.mandatory_lines.size()
+                       && info.line_to_axis_unsafe(m.from.l()) >= info.mandatory_lines.size())
+                        continue;
                     assert(m.from.tl()!=m.to.tl());
                     // store the arriving board after move is made
                     vec4 p = m.from, q = m.to;
@@ -493,30 +496,117 @@ std::pair<HC_info, search_space> HC_info::build_HC(const state &s)
     }
 #endif
     
+    if(options.remove_check) info.prune_checks();
+
     // split the search space by number of branches
     HC hc_n_lines = info.universe;
-    integer_set singleton = {0}, non_null;
-    if(info.new_axis < dimension)
-    {
-        for(index_t i = 1; i < static_cast<index_t>(info.axis_coords[info.new_axis].size()); i++)
-        {
-            non_null.insert(i);
-        }
-        // non_null = {1,2,...,number of branching moves}
-        for(index_t n = info.new_axis; n < dimension; n++)
-        {
-            hc_n_lines[n] = singleton;
-        }
-    }
+    for(index_t n = info.new_axis; n < dimension; n++)
+        hc_n_lines[n] &= integer_set{null_coordinate};
     search_space ss{{hc_n_lines}};
     for(index_t n = info.new_axis; n < dimension; n++)
     {
-        hc_n_lines[n] = non_null;
-        ss.push_front(hc_n_lines); // prefer lesser branching moves
+        // Use each axis's pruned universe: check removal can differ by axis.
+        hc_n_lines[n] = info.universe[n];
+        hc_n_lines[n].erase(null_coordinate);
+        ss.push_front(hc_n_lines); // prefer fewer branching moves
     }
     return {std::move(info), std::move(ss)};
 }
 
+
+void HC_info::prune_checks()
+{
+    const bool player = s.get_present().c();
+    check_position checks(s, l0_offset,
+        l0_offset + static_cast<int>(line_axes.size()) - 1);
+    // In this view every existing board is immutable history. Missing future
+    // boards are left absent, so a discovered attack cannot rely on assumptions
+    // about another axis's move. A base-only attack excludes every completion.
+    if(checks.first_check(!player, false))
+    {
+        if(dimension() > 0) universe[0].clear();
+        return;
+    }
+    std::vector<int> axis_lines(dimension());
+    for(std::size_t offset = 0; offset < line_axes.size(); ++offset)
+        if(line_axes[offset] != no_axis)
+            axis_lines[line_axes[offset]] = l0_offset + static_cast<int>(offset);
+
+    enum class check_result { unknown, clear, checking };
+    struct departure_support
+    {
+        check_result check = check_result::unknown;
+        bool has_arrival = false;
+    };
+    std::vector<std::vector<departure_support>> departures(new_axis);
+    for(index_t n = 0; n < new_axis; ++n)
+    {
+        // Arrival-heavy axes can have far more entries than departures. Only
+        // allocate through the last departure ID, retaining direct indexing.
+        std::size_t extent = 0;
+        for(index_t i : departing_entries[n]) extent = i + 1;
+        departures[n].resize(extent);
+    }
+    const auto overlay = [&](index_t axis, const entry &loc) {
+        const auto [old_t, old_l] = extract_tl(loc);
+        (void)old_l;
+        const turn at = turn{old_t, player}.next_turn();
+        return check_position::board_overlay{
+            axis_lines[axis], at.t(), at.c(), &extract_board(loc)};
+    };
+    for(index_t n = 0; n < dimension(); ++n)
+    {
+        integer_set rejected;
+        for(index_t i : universe[n])
+        {
+            if(i == null_coordinate) continue;
+            const entry &loc = axis_coords[n][i];
+            if(std::holds_alternative<departing_entry>(loc)) continue;
+            const auto result = overlay(n, loc);
+            if(const auto *arrival = std::get_if<arriving_entry>(&loc))
+            {
+                const index_t from = line_to_axis_unsafe(arrival->m.from.l());
+                auto &support = departures[from][arrival->idx];
+                if(support.check == check_result::checking)
+                {
+                    // Adding an arrival cannot repair an attack already
+                    // established using the departure and immutable history.
+                    rejected.insert(i);
+                    continue;
+                }
+                const auto departure = overlay(from, axis_coords[from][arrival->idx]);
+                // This arrival forces both boards. A surviving pair also proves
+                // that its departure alone cannot create an unavoidable check.
+                if(!checks.first_check(!player, result, departure, false))
+                {
+                    support.check = check_result::clear;
+                    support.has_arrival = true;
+                    continue;
+                }
+                rejected.insert(i);
+                if(support.check == check_result::unknown)
+                    support.check = checks.first_check(!player, departure, std::nullopt, false)
+                        ? check_result::checking : check_result::clear;
+            }
+            else if(checks.first_check(!player, result, std::nullopt, false))
+                rejected.insert(i);
+        }
+        universe[n].minus(rejected);
+        nonjump_entries[n].minus(rejected);
+        arriving_entries[n].minus(rejected);
+    }
+    // A departure cannot occur without an arrival. Support includes arrivals on
+    // every axis, including copies on prospective branching lines. Entry tables
+    // stay untouched because arrivals refer to their original coordinate IDs.
+    for(index_t n = 0; n < new_axis; ++n)
+    {
+        integer_set unsupported;
+        for(index_t i : departing_entries[n])
+            if(!departures[n][i].has_arrival) unsupported.insert(i);
+        universe[n].minus(unsupported);
+        departing_entries[n].minus(unsupported);
+    }
+}
 
 std::unique_ptr<HC_info::local_space>
 HC_info::build_local_space(const HC &hc, const point &seed) const
@@ -647,7 +737,7 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC &hc
         if(in == null_coordinate)
         {
             break;
-            // assumed: search space is always separated by number of branches
+            // Search space is partitioned by the number of branches.
         }
         assert(std::holds_alternative<arriving_entry>(loc));
         const arriving_entry arr = std::get<arriving_entry>(loc);

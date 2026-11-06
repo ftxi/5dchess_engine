@@ -72,9 +72,12 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     }
 
     if constexpr(requires { observer.reset(); }) observer.reset();
+    HC_build_options build_options;
+    if constexpr(requires { tree_policy.get_hc_build_options(); })
+        build_options = tree_policy.get_hc_build_options();
     {
         search_trace_phase phase("make_root", &*get_current_state());
-        root = node_t::make_root(*get_current_state());
+        root = node_t::make_root(*get_current_state(), {}, build_options);
     }
     std::size_t iteration_count = 0;
     while(true)

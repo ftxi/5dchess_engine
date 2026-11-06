@@ -1,32 +1,72 @@
 #include "move_evaluation.h"
 
 #include <algorithm>
+#include <array>
 
 #include "hypercuboid.h"
 #include "search_trace.h"
 
 namespace
 {
-// Ordinal ranks follow the existing 5D capture values. Royals used as
-// attackers rank last; king victims remain check/legality concerns.
-int capture_rank(piece_t piece)
+// Only LVA needs ranks. Derive distinct material tiers at compile time;
+// royals are the most expensive attackers and never participate as victims.
+struct lva_rank_table
 {
-    switch(to_white(piece_name(piece)))
-    {
-        case PAWN_W: return 1;
-        case BRAWN_W: return 2;
-        case ROOK_W:
-        case COMMON_KING_W: return 3;
-        case BISHOP_W:
-        case KNIGHT_W: return 4;
-        case UNICORN_W:
-        case DRAGON_W: return 5;
-        case PRINCESS_W: return 6;
-        case QUEEN_W: return 7;
-        case KING_W:
-        case ROYAL_QUEEN_W: return 8;
-        default: return 0;
-    }
+    std::array<int, 128> ranks{};
+    int royal_rank;
+    float minimum_value, maximum_value, minimum_gap;
+};
+
+consteval lva_rank_table make_lva_ranks()
+{
+    constexpr std::array pieces{
+        QUEEN_W, PRINCESS_W, BISHOP_W, KNIGHT_W, ROOK_W,
+        COMMON_KING_W, BRAWN_W, PAWN_W, UNICORN_W, DRAGON_W};
+    std::array<float, pieces.size()> values{};
+    for(std::size_t i = 0; i < pieces.size(); ++i)
+        values[i] = capture_piece_value(pieces[i]);
+    std::sort(values.begin(), values.end());
+    const auto end = std::unique(values.begin(), values.end());
+    const int tier_count = static_cast<int>(end - values.begin());
+    float minimum_gap = *(end - 1) - values.front();
+    for(auto it = values.begin() + 1; it != end; ++it)
+        minimum_gap = std::min(minimum_gap, *it - *(it - 1));
+
+    lva_rank_table result{
+        {}, tier_count + 1, values.front(), *(end - 1), minimum_gap};
+    for(piece_t piece : pieces)
+        result.ranks[piece] = 1 + static_cast<int>(
+            std::lower_bound(values.begin(), end, capture_piece_value(piece)) - values.begin());
+    result.ranks[KING_W] = result.royal_rank;
+    result.ranks[ROYAL_QUEEN_W] = result.royal_rank;
+    return result;
+}
+
+inline constexpr auto lva_ranks = make_lva_ranks();
+inline constexpr float mvvlva_capture_base = 480.0f;
+inline constexpr float mvvlva_material_scale = 1.0f / 16.0f;
+// The entire LVA bonus is strictly below the smallest scaled victim-value gap.
+inline constexpr float mvvlva_lva_scale
+    = mvvlva_material_scale * lva_ranks.minimum_gap / lva_ranks.royal_rank;
+inline constexpr float maximum_exposure_penalty = 128.0f;
+inline constexpr float maximum_promotion_bonus = 48.0f;
+inline constexpr float exposure_material_scale = 1.0f / 10.0f;
+inline constexpr float minimum_capture_score
+    = mvvlva_capture_base + mvvlva_material_scale * lva_ranks.minimum_value;
+inline constexpr float maximum_capture_score
+    = mvvlva_capture_base + mvvlva_material_scale * lva_ranks.maximum_value
+        + mvvlva_lva_scale * (lva_ranks.royal_rank - 1);
+inline constexpr float check_bonus = capture_check_weights.values[move_evaluation_weights::CHECK];
+static_assert(lva_ranks.minimum_value > 0.0f && lva_ranks.minimum_gap > 0.0f);
+// Preserve checking captures > other captures > checking quiet promotions.
+static_assert(minimum_capture_score - maximum_exposure_penalty
+    > check_bonus + maximum_promotion_bonus);
+static_assert(minimum_capture_score - maximum_exposure_penalty + check_bonus
+    > maximum_capture_score + maximum_promotion_bonus);
+
+constexpr int lva_rank(piece_t piece)
+{
+    return lva_ranks.ranks[to_white(piece_name(piece))];
 }
 } /* anonymous namespace */
 
@@ -79,13 +119,14 @@ float move_evaluator::score(index_t axis, index_t coordinate)
     {
         const piece_t victim = to_white(piece_name(
             move.captured_piece(info.get_state())));
-        // Keep zccpw's capture/check priority groups: captures score 480..583,
-        // checks add 300. A victim rank always outweighs attacker preference.
-        const int victim_rank = victim == ROYAL_QUEEN_W ? 7 : capture_rank(victim);
-        if(victim_rank > 0 && victim != KING_W)
+        const float victim_value = capture_piece_value(victim);
+        if(victim_value > 0.0f && victim != KING_W && victim != ROYAL_QUEEN_W)
         {
-            float capture_score = 480.0f + 16 * (victim_rank - 1)
-                + (8 - capture_rank(move.moved_piece(info.get_state())));
+            // Numerical MVV with a bounded ordinal LVA tie-breaker. The base
+            // keeps capture/check priority groups separate from quiet moves.
+            float capture_score = mvvlva_capture_base + mvvlva_material_scale * victim_value
+                + mvvlva_lva_scale * (lva_ranks.royal_rank
+                    - lva_rank(move.moved_piece(info.get_state())));
             if(captures == capture_ordering::mvvlva_exposure)
             {
                 // The cached result contains the arriving (possibly promoted)
@@ -103,7 +144,8 @@ float move_evaluator::score(index_t axis, index_t coordinate)
                     // A geometric defender suppresses this conservative penalty;
                     // it does not establish a legal or available recapture.
                     if((attackers & hostile) && !(attackers & friendly))
-                        capture_score -= std::min(128.0f, loss / 10.0f);
+                        capture_score -= std::min(maximum_exposure_penalty,
+                            loss * exposure_material_scale);
                 }
             }
             result += capture_score;
@@ -114,7 +156,6 @@ float move_evaluator::score(index_t axis, index_t coordinate)
         switch(to_white(piece_name(move.captured_piece(info.get_state()))))
         {
             case QUEEN_W:
-            case ROYAL_QUEEN_W:
                 result += w[QUEEN_CAPTURE];
                 break;
             case PRINCESS_W:
@@ -152,9 +193,8 @@ float move_evaluator::score(index_t axis, index_t coordinate)
         {
             const float gain = std::max(0.0f,
                 capture_piece_value(arriving) - capture_piece_value(moved));
-            // A separate bound keeps checking quiet promotions below captures
-            // (<= 348 versus >= 352), and checking captures above all non-checks.
-            result += std::min(48.0f, gain / 10.0f);
+            // The separate bound preserves the capture/check priority groups.
+            result += std::min(maximum_promotion_bonus, gain * exposure_material_scale);
         }
     }
 

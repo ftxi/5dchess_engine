@@ -25,7 +25,9 @@ class move_evaluator
     capture_ordering captures;
 
 public:
-    // MVV-LVA replaces the capture-weight contribution; other weights still
+    // MVV-LVA uses scaled numerical victim values and a bounded attacker-rank
+    // tie-breaker derived from those values at compile time. Royals are only
+    // attackers. This replaces the capture-weight contribution; other weights
     // apply normally, including the same check feature and coefficient.
     // The exposure variant penalizes locally attacked, undefended captures and
     // rewards promotion gain, with bounded contributions to keep priority groups.
