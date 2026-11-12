@@ -447,8 +447,13 @@ public:
      + test_present: then the point actually pushes the Present foward, but may still contain checks
      + find_checks: then the point is all good for a valid action
      */
-    std::optional<slice> find_problem(const point &p, const HC &hc) const;
-    std::optional<slice> jump_order_consistent(const point &p, const HC &hc) const;
+    // When requested, additional_problems receives exclusions for the same
+    // jump conflict on other branch axes. They need not contain p. The primary
+    // returned problem still contains p; all exclusions use coordinates in hc.
+    std::optional<slice> find_problem(
+        const point &p, const HC &hc, std::vector<slice> *additional_problems = nullptr) const;
+    std::optional<slice> jump_order_consistent(
+        const point &p, const HC &hc, std::vector<slice> *additional_problems = nullptr) const;
     std::optional<slice> test_present(const point &p, const HC &hc) const;
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;

@@ -70,6 +70,10 @@ choices. Its enumeration order can differ from the `tree` policy's
 physical-first and local group order. Fine retains prefix nodes while Tree
 streams completed actions.
 
+After a jump-order conflict, the hypercuboid policies also exclude equivalent
+invalid placements on other branch axes. This can change traversal order without
+removing legal actions.
+
 For `print`, `stats`, `count`, `all`, `checkmate`, and `diff`, `--at 0` and
 `--at 0b` select the initial
 position. A value such as `--at 16b` selects the state immediately after

@@ -351,6 +351,7 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
     workspace ws;
     ws.reuse_between_points = (Policy == hc_policy::deferred || Policy == hc_policy::tree);
     std::vector<slice> negative;
+    std::vector<slice> additional_problems;
     std::size_t num_problems = 0;
     constexpr std::size_t adaptive_problem_limit = 100;
     const auto codimension = [&](const slice &problem) {
@@ -384,8 +385,8 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
         if(!pt) continue;
         auto problem = [&] {
             if constexpr(Policy == hc_policy::stable || Policy == hc_policy::deferred || Policy == hc_policy::tree)
-                return find_problem(*pt, universe);
-            else return find_problem(*pt, hc);
+                return find_problem(*pt, universe, &additional_problems);
+            else return find_problem(*pt, hc, &additional_problems);
         }();
         if(!problem)
         {
@@ -402,33 +403,40 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
         }
         if constexpr(Policy == hc_policy::iterative)
         {
-            active.concat(std::move(hc).remove_slice(*problem));
+            auto pieces = std::move(hc).remove_slice(*problem);
+            for(const auto &related : additional_problems) pieces.remove_slice_globally(related);
+            active.concat(std::move(pieces));
         }
         else
         {
             active.push_back(std::move(hc));
-            if constexpr(Policy == hc_policy::balanced)
-            {
-                ++num_problems;
-                active.remove_slice_backwards(*problem, true, 10);
-            }
-            else if constexpr(Policy == hc_policy::stable)
-                active.remove_slice_globally(*problem);
-            else
-            {
-                if(codimension(*problem) <= 1)
+            if constexpr(Policy == hc_policy::balanced) ++num_problems;
+            const auto remove_problem = [&](slice problem, bool primary) {
+                if constexpr(Policy == hc_policy::balanced)
+                    active.remove_slice_backwards(problem, primary, 10);
+                else if constexpr(Policy == hc_policy::stable)
+                    active.remove_slice_globally(problem);
+                else
                 {
-                    active.remove_slice_globally(*problem);
-                    continue;
+                    if(codimension(problem) <= 1) active.remove_slice_globally(problem);
+                    else
+                    {
+                        negative.push_back(std::move(problem));
+                        if(negative.size() > active.size())
+                        {
+                            const auto cheapest = std::min_element(negative.begin(), negative.end(),
+                                [&](const slice &a, const slice &b) { return codimension(a) < codimension(b); });
+                            active.remove_slice_globally(*cheapest);
+                            negative.erase(cheapest);
+                        }
+                    }
                 }
-                negative.push_back(std::move(*problem));
-                if(negative.size() > active.size())
-                {
-                    const auto cheapest = std::min_element(negative.begin(), negative.end(),
-                        [&](const slice &a, const slice &b) { return codimension(a) < codimension(b); });
-                    active.remove_slice_globally(*cheapest);
-                    negative.erase(cheapest);
-                }
+            };
+            remove_problem(std::move(*problem), true);
+            for(auto &related : additional_problems)
+            {
+                if(active.empty()) break;
+                remove_problem(std::move(related), false);
             }
         }
     }
@@ -456,8 +464,10 @@ std::optional<point> HC_info::find_witness(witness_space<Policy> &space,
             result += !universe[axis].is_subset_of(values);
         return result;
     };
+    std::vector<slice> additional_problems;
     for(;;)
     {
+        additional_problems.clear();
         std::optional<point> witness;
         std::optional<slice> problem;
         const auto visit = [&](const HC &bounds) {
@@ -470,7 +480,7 @@ std::optional<point> HC_info::find_witness(witness_space<Policy> &space,
                 [&](const slice &negative) { return negative.contains(*candidate); }))
                 candidate = take_point(region, order, &space.scratch, space.negative);
             if(!candidate) return false;
-            problem = find_problem(*candidate, universe);
+            problem = find_problem(*candidate, universe, &additional_problems);
             if(!problem) witness = std::move(candidate);
             return true;
         };
@@ -483,19 +493,23 @@ std::optional<point> HC_info::find_witness(witness_space<Policy> &space,
                 if(hc.intersects(query) && visit(hc)) break;
         }
         if(witness || !problem) return witness;
-        if(codimension(*problem) <= 1)
-            space.positive.remove_slice_globally(*problem);
-        else
-        {
-            space.negative.push_back(std::move(*problem));
-            if(space.negative.size() > space.positive.size())
+        const auto publish = [&](slice exclusion) {
+            if(codimension(exclusion) <= 1)
+                space.positive.remove_slice_globally(exclusion);
+            else
             {
-                const auto cheapest = std::min_element(space.negative.begin(), space.negative.end(),
-                    [&](const slice &a, const slice &b) { return codimension(a) < codimension(b); });
-                space.positive.remove_slice_globally(*cheapest);
-                space.negative.erase(cheapest);
+                space.negative.push_back(std::move(exclusion));
+                if(space.negative.size() > space.positive.size())
+                {
+                    const auto cheapest = std::min_element(space.negative.begin(), space.negative.end(),
+                        [&](const slice &a, const slice &b) { return codimension(a) < codimension(b); });
+                    space.positive.remove_slice_globally(*cheapest);
+                    space.negative.erase(cheapest);
+                }
             }
-        }
+        };
+        publish(std::move(*problem));
+        for(auto &related : additional_problems) publish(std::move(related));
     }
 }
 
@@ -748,8 +762,10 @@ std::optional<point> HC_info::find_witness(
     }
     HC selection = restriction;
     if(!constrain_domain(selection, &space.propagation)) return std::nullopt;
+    std::vector<slice> additional_problems;
     for(;;)
     {
+        additional_problems.clear();
         std::optional<point> result;
         std::optional<slice> problem;
         const auto visit = [&](const HC &bounds, std::span<const slice *const> negative) {
@@ -794,7 +810,8 @@ std::optional<point> HC_info::find_witness(
                 }
             }
             if(!candidate) return false;
-            problem = from_local ? find_checks(*candidate, universe) : find_problem(*candidate, universe);
+            problem = from_local ? find_checks(*candidate, universe)
+                                 : find_problem(*candidate, universe, &additional_problems);
             if(!problem)
             {
                 if(space.reuse_local && !from_local)
@@ -826,14 +843,18 @@ std::optional<point> HC_info::find_witness(
         if(query) space.cells.visit(query->choices, restriction, visit, space.scratch.matching_calls);
         else space.cells.visit(restriction, visit, space.scratch.matching_calls);
         if(result || !problem) return result;
-        std::size_t codimension = 0;
-        for(const auto &[axis, values] : problem->get_fixed_axes())
-            codimension += !universe[axis].is_subset_of(values);
-        if(codimension <= 1) space.cells.remove_slice_globally(*problem);
-        else
-        {
-            space.cells.add_negative(std::move(*problem));
-            space.cells.balance(universe);
-        }
+        const auto publish = [&](slice exclusion) {
+            std::size_t codimension = 0;
+            for(const auto &[axis, values] : exclusion.get_fixed_axes())
+                codimension += !universe[axis].is_subset_of(values);
+            if(codimension <= 1) space.cells.remove_slice_globally(exclusion);
+            else
+            {
+                space.cells.add_negative(std::move(exclusion));
+                space.cells.balance(universe);
+            }
+        };
+        publish(std::move(*problem));
+        for(auto &related : additional_problems) publish(std::move(related));
     }
 }
