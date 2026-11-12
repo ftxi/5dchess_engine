@@ -57,6 +57,10 @@ keeping the same source and destination timeline-turns and the same timeline
 pairing. Departures change together with their arrivals.
 The complete legal-action set is unchanged, but enumeration order can differ.
 
+After a jump-order conflict, the hypercuboid policies also exclude equivalent
+invalid placements on other branch axes. This can change traversal order without
+removing legal actions.
+
 For `print`, `stats`, `count`, `all`, `checkmate`, and `diff`, `--at 0` and
 `--at 0b` select the initial
 position. A value such as `--at 16b` selects the state immediately after

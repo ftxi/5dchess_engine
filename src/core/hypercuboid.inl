@@ -377,6 +377,7 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
     workspace ws;
     ws.reuse_between_points = Policy == hc_policy::deferred;
     std::vector<slice> negative;
+    std::vector<slice> additional_problems;
     std::size_t num_problems = 0;
     constexpr std::size_t adaptive_problem_limit = 100;
     const auto codimension = [&](const slice &problem) {
@@ -404,8 +405,8 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
         if(!pt) continue;
         auto problem = [&] {
             if constexpr(Policy == hc_policy::stable || Policy == hc_policy::deferred)
-                return find_problem(*pt, universe);
-            else return find_problem(*pt, hc);
+                return find_problem(*pt, universe, &additional_problems);
+            else return find_problem(*pt, hc, &additional_problems);
         }();
         if(!problem)
         {
@@ -422,33 +423,40 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
         }
         if constexpr(Policy == hc_policy::iterative)
         {
-            ss.concat(std::move(hc).remove_slice(*problem));
+            auto pieces = std::move(hc).remove_slice(*problem);
+            for(const auto &related : additional_problems) pieces.remove_slice_globally(related);
+            ss.concat(std::move(pieces));
         }
         else
         {
             ss.push_back(std::move(hc));
-            if constexpr(Policy == hc_policy::balanced)
-            {
-                ++num_problems;
-                ss.remove_slice_backwards(*problem, true, 10);
-            }
-            else if constexpr(Policy == hc_policy::stable)
-                ss.remove_slice_globally(*problem);
-            else
-            {
-                if(codimension(*problem) <= 1)
+            if constexpr(Policy == hc_policy::balanced) ++num_problems;
+            const auto remove_problem = [&](slice problem, bool primary) {
+                if constexpr(Policy == hc_policy::balanced)
+                    ss.remove_slice_backwards(problem, primary, 10);
+                else if constexpr(Policy == hc_policy::stable)
+                    ss.remove_slice_globally(problem);
+                else
                 {
-                    ss.remove_slice_globally(*problem);
-                    continue;
+                    if(codimension(problem) <= 1) ss.remove_slice_globally(problem);
+                    else
+                    {
+                        negative.push_back(std::move(problem));
+                        if(negative.size() > ss.size())
+                        {
+                            const auto cheapest = std::min_element(negative.begin(), negative.end(),
+                                [&](const slice &a, const slice &b) { return codimension(a) < codimension(b); });
+                            ss.remove_slice_globally(*cheapest);
+                            negative.erase(cheapest);
+                        }
+                    }
                 }
-                negative.push_back(std::move(*problem));
-                if(negative.size() > ss.size())
-                {
-                    const auto cheapest = std::min_element(negative.begin(), negative.end(),
-                        [&](const slice &a, const slice &b) { return codimension(a) < codimension(b); });
-                    ss.remove_slice_globally(*cheapest);
-                    negative.erase(cheapest);
-                }
+            };
+            remove_problem(std::move(*problem), true);
+            for(auto &related : additional_problems)
+            {
+                if(ss.empty()) break;
+                remove_problem(std::move(related), false);
             }
         }
     }

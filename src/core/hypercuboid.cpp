@@ -619,9 +619,10 @@ bool HC_info::prune_retained_slices(HC &hc, std::span<const slice> negative)
 }
 
 
-std::optional<slice> HC_info::find_problem(const point &p, const HC &hc) const
+std::optional<slice> HC_info::find_problem(
+    const point &p, const HC &hc, std::vector<slice> *additional_problems) const
 {
-    std::optional<slice> problem = jump_order_consistent(p, hc).or_else([this, &hc, &p]() {
+    std::optional<slice> problem = jump_order_consistent(p, hc, additional_problems).or_else([this, &hc, &p]() {
         return test_present(p, hc).or_else([this, &hc, &p]() {
             return find_checks(p, hc);
         });
@@ -629,9 +630,11 @@ std::optional<slice> HC_info::find_problem(const point &p, const HC &hc) const
     return problem;
 }
 
-std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC &hc) const
+std::optional<slice> HC_info::jump_order_consistent(
+    const point &p, const HC &hc, std::vector<slice> *additional_problems) const
 {
     dprint("jump_order_consistent()");
+    if(additional_problems) additional_problems->clear();
     /* throughout the search, maintain the jump_map of (l, t) => new_l
     so p[new_l] is a arriving move from (l0, t0) that jumps to (l, t) which create a branch
     remember t, l are stored as the higher part of a vec4
@@ -673,6 +676,21 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC &hc
                 });
                 std::map<index_t, integer_set> fixed_axes {{n, s}, {m, integer_set{im}}};
                 slice problem(fixed_axes);
+                if(additional_problems)
+                    for(index_t branch = new_axis; branch < dimension(); ++branch)
+                    {
+                        if(branch == n) continue;
+                        integer_set targets;
+                        arriving_entries[branch].for_each_intersection(hc[branch], [&](index_t i) {
+                            if(std::get<arriving_entry>(axis_coords[branch][i]).m.to.tl() == to.tl())
+                                targets.insert(i);
+                        });
+                        if(targets.empty()) continue;
+                        slice related;
+                        related.fix_axis(m, integer_set{null_coordinate});
+                        related.fix_axis(branch, std::move(targets));
+                        additional_problems->push_back(std::move(related));
+                    }
                 dprint("case one; point:", range_to_string(p));
                 dprint("problem", problem.to_string());
                 assert(problem.contains(p));
@@ -706,6 +724,32 @@ std::optional<slice> HC_info::jump_order_consistent(const point &p, const HC &hc
             });
             std::map<index_t, integer_set> fixed_axes {{n, s1}, {axis_branch, s2}};
             slice problem(fixed_axes);
+            if(additional_problems)
+            {
+                // The dependency concerns the source/destination board, not
+                // just the two branch slots in the selected matching.
+                const auto branches = dimension() - new_axis;
+                std::vector<integer_set> sources(branches), targets(branches);
+                for(index_t branch = new_axis; branch < dimension(); ++branch)
+                    arriving_entries[branch].for_each_intersection(hc[branch], [&](index_t i) {
+                        const auto &move = std::get<arriving_entry>(axis_coords[branch][i]).m;
+                        if(move.from.tl() == critical_tl) sources[branch - new_axis].insert(i);
+                        if(move.to.tl() == critical_tl) targets[branch - new_axis].insert(i);
+                    });
+                for(index_t earlier = new_axis; earlier < dimension(); ++earlier)
+                {
+                    if(targets[earlier - new_axis].empty()) continue;
+                    for(index_t later = earlier + 1; later < dimension(); ++later)
+                    {
+                        if(sources[later - new_axis].empty()
+                           || (earlier == axis_branch && later == n)) continue;
+                        slice related;
+                        related.fix_axis(earlier, targets[earlier - new_axis]);
+                        related.fix_axis(later, sources[later - new_axis]);
+                        additional_problems->push_back(std::move(related));
+                    }
+                }
+            }
             dprint("case two; point:", range_to_string(p));
             dprint("problem", problem.to_string());
             assert(problem.contains(p));
