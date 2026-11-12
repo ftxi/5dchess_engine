@@ -37,7 +37,7 @@ bool is_mvvlva_engine(std::string_view name)
 {
     return name == "mvvlva" || name == "mvvlva-exposure"
         || name == "mvvlva-pruned" || name == "mvvlva-solid-only"
-        || name == "mvvlva-solid";
+        || name == "mvvlva-solid" || name == "solid";
 }
 
 bool supports_rollout_limit(std::string_view name)
@@ -59,7 +59,8 @@ void print_usage(std::ostream &out)
         << "  mvvlva-exposure    MVV-LVA with local exposure and promotion scoring\n"
         << "  mvvlva-pruned      exposure with optional timeline move pruning\n"
         << "  mvvlva-solid-only  exposure with solid-check pre-pruning\n"
-        << "  mvvlva-solid       exposure with both HC pruning changes\n"
+        << "  mvvlva-solid       legacy optional-move pruning experiment\n"
+        << "  solid              exposure with low-priority optional moves and check pre-pruning\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
         << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
@@ -265,8 +266,10 @@ int main(int argc, const char *argv[])
                 std::make_unique<stdio_handler>(), options.seed,
                 options.progressive_widening_constant, options.progressive_widening_alpha,
                 HC_build_options{
-                    .remove_check = engine_name == "mvvlva-solid-only" || engine_name == "mvvlva-solid",
-                    .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"});
+                    .remove_check = engine_name == "mvvlva-solid-only"
+                        || engine_name == "mvvlva-solid" || engine_name == "solid",
+                    .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"},
+                engine_name == "solid" ? capture_ordering::solid : capture_ordering::mvvlva_exposure);
     }
     else if(engine_name == "linear" || engine_name == "linear-trained"
             || engine_name == "linear-weighted")

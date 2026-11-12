@@ -9,6 +9,7 @@
 #include "pgnparser.h"
 #include <cstddef>
 #include <iostream>
+#include <set>
 
 namespace move_evaluation_tests
 {
@@ -414,6 +415,51 @@ void test_latent_threat_weight_dependencies()
 }
 }
 
+void test_solid_ordering()
+{
+    const auto s = state::from_pgn<true>(
+        "[Size \"4x4\"]\n[Board \"custom\"]\n"
+        "[3k/4/4/KN2:0:1:w]\n[3k/4/4/KN2:1:2:w]\n"
+        "[3k/4/4/KN2:2:2:w]\n");
+    auto [info, space] = HC_info::build_HC(s, {.remove_check = true});
+    move_evaluator baseline(info, capture_check_weights, capture_ordering::mvvlva_exposure);
+    move_evaluator solid(info, capture_check_weights, capture_ordering::solid);
+    bool physical = false, arrival = false, branch = false;
+    for(index_t axis = 0; axis < info.dimension(); ++axis)
+        for(index_t coordinate : info.get_universe()[axis])
+        {
+            const auto boards = info.get_move_boards(axis, coordinate);
+            float penalty = 0;
+            if(boards)
+            {
+                const auto &m = boards->move;
+                if(m.from.l() != 0 && m.from.tl() == m.to.tl())
+                {
+                    penalty = 1024;
+                    physical = true;
+                }
+                else if(m.from.l() != 0 && m.to.l() != 0
+                        && axis < info.first_branch_axis())
+                {
+                    penalty = 1024;
+                    arrival = true;
+                }
+                if(axis >= info.first_branch_axis()) branch = true;
+            }
+            assert(std::abs(solid.score(axis, coordinate)
+                - (baseline.score(axis, coordinate) - penalty)) < 0.001f);
+        }
+    assert(physical && arrival && branch);
+    auto table = solid.build_score_table();
+    assert(table);
+    std::mt19937 rng(42);
+    scored_HC_ordering order(info.get_universe(), *table, rng);
+    std::set<moveseq> expected, actual;
+    for(auto moves : info.search(space)) expected.insert(moves);
+    for(auto moves : info.search(space, order)) actual.insert(moves);
+    assert(!expected.empty() && actual == expected);
+}
+
 int run()
 {
     test_weight_layout_and_profiles();
@@ -421,6 +467,7 @@ int run()
     test_capture_groups();
     test_check_and_combined_scoring();
     test_mvvlva_capture_ordering();
+    test_solid_ordering();
     test_local_capture_exposure();
     test_king_branch_scoring();
     test_score_table_and_cancellation();

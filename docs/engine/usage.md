@@ -2,7 +2,7 @@
 
 Available engines include `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
 `zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-pruned`,
-`mvvlva-solid-only`, `mvvlva-solid`, `linear`, `linear-trained`, `linear-weighted`,
+`mvvlva-solid-only`, `mvvlva-solid`, `solid`, `linear`, `linear-trained`, `linear-weighted`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
 
@@ -83,7 +83,19 @@ Checking adds 300. Exposure subtracts up to 128, and promotion gain adds up to
 captures, and captures over checking quiet promotions. Other weighted
 engines retain their grouped capture features.
 
-`mvvlva-solid` adds two HC construction changes to `mvvlva-exposure`:
+`solid` retains the complete legal-action space and pre-removes unavoidable
+royal checks. It uses MVV-LVA exposure ordering with a 1024-point penalty for
+physical moves on initially optional timelines and nonbranching jumps between
+two initially optional timelines. The arrival receives the jump penalty once.
+Branch arrivals retain their normal scores. The penalty affects expansion order,
+while search rewards and UCT selection use the usual outcomes. Progressive
+widening can delay low-priority moves at finite search budgets.
+
+```sh
+./build/5dchess solid --seed 42 --pw-constant 2 --pw-alpha 0.5
+```
+
+`mvvlva-solid` is the legacy pruning experiment. It adds two HC construction changes to `mvvlva-exposure`:
 
 - Omit physical moves on optional timelines and arrivals onto existing optional
   timelines whose source timeline is also optional. Arrivals from mandatory
@@ -99,7 +111,7 @@ to unrestricted move generation for that position. Rules and terminal
 adjudication continue to use the complete legal-action space.
 
 For comparisons, `mvvlva-pruned` enables only optional-timeline pruning, and
-`mvvlva-solid-only` enables only check pre-pruning. All five engines accept
+`mvvlva-solid-only` enables only check pre-pruning. These engines accept
 `--seed`, `--pw-constant` (default 2), and `--pw-alpha` (default 0.5).
 
 ```sh

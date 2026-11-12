@@ -176,14 +176,20 @@ public:
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
         double widening_alpha = default_progressive_widening_alpha,
-        HC_build_options options = {})
+        HC_build_options options = {},
+        capture_ordering captures = capture_ordering::mvvlva_exposure)
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
-                [](const HC_info &info, std::stop_token stop) {
-                    return move_evaluator(info, capture_check_weights,
-                        capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }, {}, options},
+                captures == capture_ordering::solid
+                    ? +[](const HC_info &info, std::stop_token stop) {
+                        return move_evaluator(info, capture_check_weights,
+                            capture_ordering::solid).build_score_table(stop);
+                    }
+                    : +[](const HC_info &info, std::stop_token stop) {
+                        return move_evaluator(info, capture_check_weights,
+                            capture_ordering::mvvlva_exposure).build_score_table(stop);
+                    }, {}, options},
             {}, {}, {}, std::move(io)) {}
 };
 

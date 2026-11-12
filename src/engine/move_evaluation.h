@@ -12,7 +12,7 @@ class HC_info;
 
 using move_score_table = std::vector<std::vector<float>>;
 
-enum class capture_ordering { weighted, mvvlva, mvvlva_exposure };
+enum class capture_ordering { weighted, mvvlva, mvvlva_exposure, solid };
 
 // Scores physical and arriving HC coordinates; departing and null coordinates
 // score zero. The HC must outlive the evaluator and remain unchanged during use.
@@ -23,6 +23,7 @@ class move_evaluator
     semimove_feature features;
     bool evaluate_captures;
     capture_ordering captures;
+    std::vector<int> optional_lines;
 
 public:
     // MVV-LVA uses scaled numerical victim values and a bounded attacker-rank
@@ -34,6 +35,7 @@ public:
     move_evaluator(const HC_info &info, move_evaluation_weights weights,
                    capture_ordering captures = capture_ordering::weighted);
 
+    // Solid retains optional moves with a finite expansion-order penalty.
     // Reuses lazily initialized check metadata across coordinates.
     float score(index_t axis, index_t coordinate);
 
