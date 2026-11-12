@@ -19,12 +19,17 @@ The engine is built as `build/5dchess`, and the general command-line utility is 
 -  `replay-log <log> [seed]`: replay and time a protocol failure log
 
 Search policies are `deferred` (default), `balanced`, `naive`, `stable`,
-`iterative`, and `fine`. The `fine` policy creates a
+`iterative`, `tree`, and `fine`. The `fine` policy creates a
 fine tree rooted at the selected position.
 For `checkmate` and `perftest`, it searches for one witness action; `count` and
 `all` traverse complete action branches up to the requested limit. Printed
 actions use the same PGN format as the other policies. The explored tree is
 retained during the search, so enumeration can require more memory.
+
+The experimental `tree` policy streams complete actions using Deferred's
+search rules with a tree of candidate regions. Use `--policy tree` in
+`hc-profile` or the Python profiling driver to compare it with `fine`.
+Deferred remains the default.
 
 The `deferred` policy retains invalid slices as negative constraints. It first
 tries matching in the stored HC and prunes unsupported arrivals there. If the
@@ -34,8 +39,9 @@ matching.
 
 Deferred also reuses the last successful matching across HCs and failed
 attempts, validating its edges against each new graph before repairing any
-uncovered requirements. This can change action enumeration order. Other HC
-policies start each point selection with an empty matching.
+uncovered requirements. This can change action enumeration order. The `tree`
+policy uses the same matching reuse; other HC policies start each point
+selection with an empty matching.
 
 Slices of global codimension at most one are removed immediately. When retained
 slices outnumber stored HCs, one slice of smallest global codimension is removed
@@ -48,7 +54,7 @@ omitting template arguments also selects Deferred, with ordering deduced from
 the supplied object or natural ordering when omitted. Other HC policies use
 `hc_policy::iterative`, `hc_policy::stable`, or `hc_policy::balanced`.
 
-For `balanced`, `stable`, `deferred`, and `iterative`, search starts with physical
+For `balanced`, `stable`, `deferred`, `tree`, and `iterative`, search starts with physical
 moves on every mandatory timeline, leaving other timelines untouched. It then
 continues with the remaining choices. Continued enumeration groups similar
 actions before returning to other jump choices. Physical moves
@@ -56,6 +62,13 @@ can vary within a group; jumps can vary their piece and arrival square while
 keeping the same source and destination timeline-turns and the same timeline
 pairing. Departures change together with their arrivals.
 The complete legal-action set is unchanged, but enumeration order can differ.
+
+The `fine` policy builds a tree of semimove prefixes. At each prefix it admits
+coordinates in the supplied HC ordering after verifying a legal completion.
+Prefixes share candidate-search information while retaining their own unexpanded
+choices. Its enumeration order can differ from the `tree` policy's
+physical-first and local group order. Fine retains prefix nodes while Tree
+streams completed actions.
 
 For `print`, `stats`, `count`, `all`, `checkmate`, and `diff`, `--at 0` and
 `--at 0b` select the initial
@@ -123,7 +136,7 @@ The original fixtures under `test/pgn/count/` have expected action counts of
 30,134 and 55,332. The final `NP.5dpgn` position has eight actions. The custom
 `four-timeline-knights.5dpgn` fixture adds a position with several variable axes
 and 35,204 actions, so enumeration comparisons cover more than the original two cases.
-Policies are `balanced`, `stable`, `deferred`, `iterative`, `fine`, and `naive`.
+Policies are `balanced`, `stable`, `deferred`, `tree`, `iterative`, `fine`, and `naive`.
 
 Games are parsed once. Warmups and measured rounds run in the same process;
 warmup samples are discarded. Each timer covers finding a legal action or

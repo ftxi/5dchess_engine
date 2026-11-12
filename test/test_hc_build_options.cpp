@@ -199,8 +199,12 @@ void optional_move_pruning()
         for(HC_build_options options : {
             HC_build_options{.prune_optional_moves = true},
             HC_build_options{.remove_check = true, .prune_optional_moves = true}})
+        for(auto builder : {fine_builder::regular, fine_builder::solid})
         {
-            auto root = fine_node<>::make_root(position, {}, options);
+            fine_search_options search_options;
+            search_options.builder = builder;
+            search_options.build_options = options;
+            auto root = fine_node<>::make_root(position, {}, search_options);
             std::set<moveseq> tree_actions;
             const auto visit = [&](const auto &self, fine_node<> *node) -> void {
                 if(node->is_ceiling()) { tree_actions.insert(node->to_action()); return; }
@@ -229,9 +233,12 @@ void pruning_falls_back_when_a_reply_requires_optional_moves()
     const auto expected = reference_actions(position);
     assert(!expected.empty());
     for(bool remove_check : {false, true})
+    for(auto builder : {fine_builder::regular, fine_builder::solid})
     {
-        auto root = fine_node<>::make_root(position, {},
-            HC_build_options{.remove_check = remove_check, .prune_optional_moves = true});
+        fine_search_options options;
+        options.builder = builder;
+        options.build_options = {.remove_check = remove_check, .prune_optional_moves = true};
+        auto root = fine_node<>::make_root(position, {}, options);
         assert(!root->is_terminal());
         const auto *reply = finetree_nearby_ceiling(root.get());
         assert(reply && expected.contains(reply->to_action()));

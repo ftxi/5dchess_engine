@@ -50,7 +50,7 @@ void print_help()
     }
     std::cout
         << "\nRun '5dtools <command> --help' for detailed command usage.\n"
-        << "\nSearch policies: balanced, naive, stable, deferred, iterative, fine\n"
+        << "\nSearch policies: balanced, naive, stable, deferred, tree, iterative, fine\n"
         << "The print, stats, count, all, checkmate, diff, and perftest commands read 5DPGN from stdin.\n";
 }
 }

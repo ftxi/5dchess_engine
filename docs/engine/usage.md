@@ -91,6 +91,13 @@ Branch arrivals retain their normal scores. The penalty affects expansion order,
 while search rewards and UCT selection use the usual outcomes. Progressive
 widening can delay low-priority moves at finite search budgets.
 
+Fine-tree expansion searches the highest-scoring unexpanded semimove that has
+at least one legal continuation, then completes its branch using the same
+ordering. This preserves score priority among siblings at every semimove
+prefix, including when a higher-priority choice needs a new timeline. Shared
+search results and reusable legal continuations reduce repeated search work.
+This ordering does not imply a global ranking of complete-action scores.
+
 ```sh
 ./build/5dchess solid --seed 42 --pw-constant 2 --pw-alpha 0.5
 ```

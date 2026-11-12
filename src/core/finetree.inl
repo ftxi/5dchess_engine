@@ -7,9 +7,9 @@ template<typename T>
     requires std::default_initializable<T>
 inline fine_node<T>::fine_node(
     fine_node *parent,
-    state s,
-    T info_value, HC_build_options options)
-: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, cells{}, next_cell_index{0}, info{std::move(info_value)}
+    const state &s,
+    T info_value, fine_search_options options)
+: parent{parent}, pocessed_context{nullptr}, context{nullptr}, n{index_t(-7)}, i{index_t(-7)}, info{std::move(info_value)}
 {
     ignite_impl(s, options);
 }
@@ -17,21 +17,34 @@ inline fine_node<T>::fine_node(
 template<typename T>
     requires std::default_initializable<T>
 inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i, T info_value)
-: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, next_cell_index{0}, info{std::move(info_value)} {}
+: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, info{std::move(info_value)}
+{
+    if(n + 1 < context->hc_info.dimension())
+    {
+        const auto axis = n + 1;
+        const auto *parent_query = parent->query();
+        const auto *base = parent->completion ? parent->completion->base.get() : nullptr;
+        if(n >= context->hc_info.first_branch_axis() && i == 0) remaining = integer_set{0};
+        else if(parent_query && parent_query->active[n].contains(i))
+            remaining = parent_query->active[axis];
+        else if(base) remaining = base->domain[axis];
+        else remaining = context->hc_info.get_universe()[axis];
+    }
+}
 
 template<typename T>
     requires std::default_initializable<T>
 inline fine_node<T>::fine_node(fine_node *parent, index_t n, index_t i)
-: parent{parent}, pocessed_context{nullptr}, context{parent->get_context()}, n{n}, i{i}, cells{}, next_cell_index{0}, info{} {}
+: fine_node(parent, n, i, T{}) {}
 
 template<typename T>
     requires std::default_initializable<T>
 inline std::unique_ptr<fine_node<T>> fine_node<T>::make_root(
-    state s,
-    T info, HC_build_options options)
+    const state &s,
+    T info, fine_search_options options)
 {
     return std::unique_ptr<fine_node<T>>(
-        new fine_node(nullptr, std::move(s), std::move(info), options));
+        new fine_node(nullptr, s, std::move(info), options));
 }
 
 template<typename T>
@@ -41,32 +54,6 @@ inline std::unique_ptr<fine_node<T>> fine_node<T>::make_temproary(fine_node *par
     return std::unique_ptr<fine_node<T>>(new fine_node(parent, n, i, std::move(info)));
 }
 
-template<typename T>
-    requires std::default_initializable<T>
-inline fine_cell<T> *fine_node<T>::add_cell(fine_cell<T> &&cell)
-{
-    auto ctx = get_context();
-    ctx->cell_pool.push_back(std::move(cell));
-    fine_cell<T> *new_cell = &ctx->cell_pool.back();
-    cells.push_back(new_cell);
-    return new_cell;
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline fine_cell<T> *fine_node<T>::add_unexplored_cell(fine_cell<T> *parent, HC space)
-{
-    fine_cell<T> cell{
-        .parent = parent,
-        .node = this,
-        .space = space,
-        .subspace = {}
-    };
-    cell.subspace.push_back(std::move(space));
-    return add_cell(std::move(cell));
-}
-
-// TODO: insert elements while keep the increasing order of i
 template<typename T>
     requires std::default_initializable<T>
 inline fine_node<T> *fine_node<T>::add_child(index_t n, index_t i)
@@ -104,7 +91,7 @@ inline bool fine_node<T>::is_terminal(const Order &order) &
     }
     else if(pocessed_context->verified_terminal)
     {
-        // if it is already verified to be terminal, return true
+        // No legal action was found in the complete nodal restriction.
         return true;
     }
     if(!get_children().empty())
@@ -112,7 +99,7 @@ inline bool fine_node<T>::is_terminal(const Order &order) &
         // if the node already has children, it is not terminal
         return false;
     }
-    if(expand(order))
+    if(expand_next(order))
     {
         // if the node has a valid search result, it is not terminal
         return false;
@@ -196,192 +183,186 @@ template<typename T>
 template<HCOrdering Order>
 inline generator<index_t> fine_node<T>::search(Order order) &
 {
-    fine_node<T> *next_node = expand(order);
+    fine_node<T> *next_node = expand_next(order);
     while(next_node)
     {
         co_yield next_node->i;
-        next_node = expand(order);
+        next_node = expand_next(order);
     }
 }
 
 template<typename T>
     requires std::default_initializable<T>
 template<HCOrdering Order>
-inline fine_node<T> *fine_node<T>::expand(const Order &order)
+inline fine_node<T> *fine_node<T>::expand_one(const Order &order)
 {
-    auto ans = explore(order);
-    if(!ans)
+    auto *ctx = get_context();
+    auto *continuation = query();
+    const auto *inherited = completion ? completion->base.get() : nullptr;
+    const index_t axis = is_nodal() ? 0 : n + 1;
+    if(axis >= ctx->hc_info.dimension() || remaining.empty()) return nullptr;
+    const HC *propagated = nullptr;
+    const auto admit = [&](index_t coordinate, std::shared_ptr<const completion_record> witness) {
+        auto *child = add_child(axis, coordinate);
+        if(propagated && axis + 1 < ctx->hc_info.dimension()) child->remaining &= (*propagated)[axis + 1];
+        if(!child->is_ceiling())
+        {
+            child->completion = witness;
+            const auto next_axis = axis + 1;
+            // Existing axes fix all departures and existing arrivals. Their
+            // unmatched departures determine the number of branch arrivals;
+            // occupied branch axes form a prefix, so its null pattern is fixed.
+            if(next_axis >= ctx->hc_info.first_branch_axis())
+            {
+                if(witness->coordinates[next_axis] == 0) child->remaining = integer_set{0};
+                else child->remaining.erase(0);
+            }
+            else if(ctx->hc_info.is_departure(next_axis, witness->coordinates[next_axis]))
+                for(index_t prefix = 0; prefix <= axis; ++prefix)
+                    if(auto partner = ctx->hc_info.arrival_partner(prefix, witness->coordinates[prefix]);
+                       partner && partner->first == next_axis)
+                    { child->remaining = integer_set{partner->second}; break; }
+        }
+        remaining.erase(coordinate);
+        if(remaining.empty())
+        {
+            remaining = integer_set{};
+            if(pending) pending->global.reset();
+        }
+        completion = remaining.empty() ? nullptr : std::move(witness);
+        return child;
+    };
+    if(completion)
     {
+        index_t first;
+        {
+            auto values = order(axis, remaining);
+            if(values.begin() == values.end()) return nullptr;
+            first = *values.begin();
+        }
+        // A legal completion already certifies the first requested coordinate.
+        // In particular, forced/null suffixes need no HC construction or solver.
+        if(first == completion->coordinates[axis]) return admit(first, completion);
+        if(auto candidate = ctx->hc_info.try_local_completion(completion->coordinates, axis, first))
+            return admit(first, std::make_shared<const completion_record>(std::move(*candidate),
+                continuation ? pending->global : completion->base));
+        const auto *local_parent = !is_nodal() ? (parent->pending ? parent->pending->local.get() : nullptr) : nullptr;
+        if(auto candidate = ctx->hc_info.resume_local(ctx->search, pending_search().local,
+                local_parent, completion->coordinates, axis, first, order))
+            return admit(first, std::make_shared<const completion_record>(std::move(*candidate),
+                continuation ? pending->global : completion->base));
+    }
+    if(!continuation)
+    {
+        HC domain = inherited ? inherited->domain : ctx->hc_info.get_universe();
+        const auto depth = inherited ? inherited->prefix_length : 0;
+        for(auto *ancestor = this; !ancestor->is_nodal() && ancestor->n >= depth; ancestor = ancestor->parent)
+            domain[ancestor->n] = integer_set{ancestor->i};
+        domain[axis] &= remaining;
+        pending_search().global = std::make_shared<HC_info::completion_query>(
+            ctx->hc_info.restrict_completion(ctx->search, std::move(domain), axis, inherited));
+        continuation = query();
+    }
+    const bool changed = !continuation->active[axis].is_subset_of(remaining);
+    continuation->active[axis] &= remaining;
+    if(changed) continuation->active[axis] &= ctx->search.cells.supported(
+        continuation->choices, continuation->active, axis);
+    if(changed && !ctx->hc_info.constrain_domain(continuation->active, &ctx->search.incremental))
+    { remaining = integer_set{}; completion.reset(); if(pending) pending->global.reset(); return nullptr; }
+    remaining &= continuation->active[axis];
+    if(changed) continuation->choices = ctx->search.cells.restrict(continuation->active, &continuation->choices);
+    if(remaining.empty() || continuation->choices.empty())
+    {
+        remaining = integer_set{};
+        completion.reset();
+        if(pending) pending->global.reset();
         return nullptr;
     }
-    const auto &[pt, cell, hc] = *ans;
-    fine_node<T> *final_node = isolate(pt, cell, hc);
-    fine_node<T> *next_node = normalize(pt, final_node);
-    return next_node;
+    HC &restriction = ctx->restriction;
+    restriction = continuation->active;
+    propagated = &continuation->active;
+    if(!completion || !restriction.contains(completion->coordinates))
+    {
+        // A single unrestricted failure can close a terminal prefix. Do not
+        // repeat an expensive matching failure separately for every coordinate.
+        auto candidate = ctx->hc_info.find_witness(ctx->search, restriction, order, continuation);
+        if(!candidate)
+        { remaining = integer_set{}; completion.reset(); if(pending) pending->global.reset(); return nullptr; }
+        completion = std::make_shared<const completion_record>(std::move(*candidate), pending->global);
+    }
+    integer_set grouped_attempts;
+    while(!remaining.empty())
+    {
+        index_t coordinate;
+        {
+            // HCOrdering ranges borrow their mask; end that borrow before
+            // erasing admitted or impossible coordinates from remaining.
+            auto values = order(axis, remaining);
+            if(values.begin() == values.end()) return nullptr;
+            coordinate = *values.begin();
+        }
+        restriction[axis] = integer_set{coordinate};
+        auto witness = completion;
+        if(!witness || !restriction.contains(witness->coordinates))
+        {
+            auto candidate = ctx->hc_info.find_witness(ctx->search, restriction, order, continuation);
+            if(!candidate)
+            {
+                remaining.erase(coordinate);
+                restriction[axis] = remaining;
+                remaining &= ctx->search.cells.supported(continuation->choices, restriction, axis);
+                // When many earlier choices share a move kind that is absent
+                // from the retained witness, one complete grouped query can
+                // prove them all impossible. A successful group query is only
+                // a witness; it never skips an earlier ordered coordinate.
+                auto group = ctx->hc_info.same_move_kind(axis, coordinate, remaining);
+                if(group.size() >= 8 && !group.is_subset_of(grouped_attempts)
+                   && (!completion || !group.contains(completion->coordinates[axis])))
+                {
+                    grouped_attempts |= group;
+                    restriction[axis] = group;
+                    auto grouped = ctx->hc_info.find_witness(ctx->search, restriction, order, continuation);
+                    if(grouped) completion = std::make_shared<const completion_record>(std::move(*grouped), pending->global);
+                    else remaining.minus(group);
+                }
+                restriction[axis] = remaining;
+                continue;
+            }
+            witness = std::make_shared<const completion_record>(std::move(*candidate), pending->global);
+        }
+        return admit(coordinate, std::move(witness));
+    }
+    remaining = integer_set{};
+    completion.reset();
+    if(pending) pending->global.reset();
+    return nullptr;
 }
 
 template<typename T>
     requires std::default_initializable<T>
 template<HCOrdering Order>
-inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::explore(const Order &order)
+inline fine_node<T> *fine_node<T>::expand_next(const Order &order) &
 {
-    HC_info &hc_info = get_context()->hc_info;
-    std::size_t consecutive_empty_cells = 0;
-    while(!cells.empty()
-          && consecutive_empty_cells < cells.size())
+    auto *first = expand_one(order);
+    if(!first) return nullptr;
+    // Preserve MCTS's complete-witness-branch contract. Every suffix coordinate
+    // is selected by the same order; a matching witness never overrides it.
+    auto *current = first;
+    while(!current->is_ceiling())
     {
-        if(next_cell_index >= cells.size())
-        {
-            next_cell_index = 0;
-        }
-        fine_cell<T> *cell = cells[next_cell_index];
-        next_cell_index++;
-
-        if(cell->subspace.empty())
-        {
-            consecutive_empty_cells++;
-            continue;
-        }
-        consecutive_empty_cells = 0;
-
-        HC &hc = cell->subspace.back();
-        auto pt_opt = hc_info.take_point(hc, order);
-        if(!pt_opt)
-        {
-            cell->subspace.pop_back();
-            continue;
-        }
-
-        auto problem = hc_info.find_problem(*pt_opt, hc_info.get_universe());
-        if(problem)
-        {
-            remove_problem(*problem);
-            continue;
-        }
-
-        return std::optional<std::tuple<point, fine_cell<T> *, HC *>>{
-            std::in_place, std::move(*pt_opt), cell, &hc};
+        current = current->expand_one(order);
+        assert(current && "an admitted prefix must retain a legal completion");
     }
-    return std::nullopt;
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline void fine_node<T>::remove_from_cell(const slice &s, fine_cell<T> *cell)
-{
-    if(!cell->space.intersects(s)) return;
-    cell->subspace.remove_slice_globally(s);
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline void fine_node<T>::remove_from_node(const slice &s, fine_node<T> *node)
-{
-    for(fine_cell<T> *cell : node->cells) remove_from_cell(s, cell);
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline void fine_node<T>::remove_problem(const slice &s)
-{
-    nodal_pocession *problem_context = get_context();
-    // Propagate the whole conflict through every remaining HC on the current
-    // node/ancestor path. Stay within this position's context; do not visit
-    // descendants or off-path sibling subtrees.
-    for(fine_node<T> *node = this;
-        node && node->get_context() == problem_context;
-        node = node->parent)
-    {
-        remove_from_node(s, node);
-        if(node->is_nodal()) break;
-    }
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline fine_node<T> *fine_node<T>::isolate(const point &p, fine_cell<T> *target_cell, HC *target_hc)
-{
-    assert(target_cell->space.contains(p));
-    assert(target_hc->contains(p));
-    fine_node<T> *current_node = this;
-    fine_cell<T> *current_cell = target_cell;
-    index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
-    HC *current_hc = target_hc;
-    while(next_n < get_context()->hc_info.dimension())
-    {
-        index_t next_i = p[next_n];
-        fine_node<T> *next_node = current_node->add_child(next_n, next_i);
-        auto [with_i, without_i] = current_hc->split(next_n, next_i);
-        fine_cell<T> *next_cell = next_node->add_unexplored_cell(current_cell, std::move(with_i));
-        *current_hc = std::move(without_i);
-        current_cell->subspace.prune_empty(); /* optional */
-        // prepare for next iteration
-        current_node = next_node;
-        current_cell = next_cell;
-        current_hc = &current_cell->subspace.back();
-        next_n++;
-    }
-    return current_node;
-}
-
-template<typename T>
-    requires std::default_initializable<T>
-inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_node<T> *final_node)
-{
-    std::vector<fine_node<T> *> nodes(get_context()->hc_info.dimension()+1, nullptr);
-    fine_node<T> *current_node = final_node;
-    while(current_node != this)
-    {
-        nodes[current_node->n+1] = current_node;
-        current_node = current_node->parent;
-    }
-    index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
-    nodes[next_n] = this;
-    
-    auto try_isolate = [current_node=this, &p, &nodes](
-        fine_cell<T> *source_cell, HC *target_hc)
-    -> void {
-        fine_cell<T> *current_cell = source_cell;
-        HC *current_hc = target_hc;
-        index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
-        auto context = current_node->get_context();
-        while(next_n < context->hc_info.dimension())
-        {
-            index_t next_i = p[next_n];
-            if(!(*current_hc)[next_n].contains(p[next_n]))
-            {
-                // next axis does not contain the coordinate of p: done
-                return;
-            }
-            // nodes[k] is the prefix before choosing axis k. The region
-            // with that coordinate fixed belongs to its child, nodes[k+1].
-            assert(nodes[next_n+1] != nullptr);
-            auto [with_i, without_i] = current_hc->split(next_n, next_i);
-            fine_cell<T> *next_cell = nodes[next_n+1]->add_unexplored_cell(current_cell, std::move(with_i));
-            *current_hc = std::move(without_i);
-            current_cell = next_cell;
-            current_hc = &current_cell->subspace.back();
-            next_n++;
-        }
-    };
-
-    // Transfer matching prefixes from every cell owned by this node.
-    // Each transferred region retains its source cell as its parent.
-    for(fine_cell<T> *source_cell : cells)
-    {
-        for(HC &hc : source_cell->subspace)
-        {
-            try_isolate(source_cell, &hc);
-        }
-    }
-    index_t n1 = next_n + 1;
-    return nodes[n1];
+    return first;
 }
 
 template<typename T>
     requires std::default_initializable<T>
 inline void fine_node<T>::ignite() &
 {
+    if(is_nodal()) return;
+    assert(is_ceiling());
+    const auto options = context->options;
     state s = context->hc_info.get_state();
     moveseq mvs = to_action();
     for(full_move mv : mvs)
@@ -390,43 +371,55 @@ inline void fine_node<T>::ignite() &
         assert(applied);
     }
     s.submit<true>();
-    ignite_impl(s, context->build_options);
+    ignite_impl(s, options);
 }
 
 template<typename T>
     requires std::default_initializable<T>
-inline void fine_node<T>::ignite_impl(const state &s, HC_build_options options)
+inline void fine_node<T>::ignite_impl(const state &s, fine_search_options options)
 {
-    auto [hc_info, ss] = HC_info::build_HC(s, options);
-    // Restrict search, never the rules' definition of a terminal position.
-    // Probe before constructing score tables, since fallback changes coordinate IDs.
-    if(options.prune_optional_moves && hc_info.has_optional_timelines()
-       && !hc_info.template search<natural_HC_ordering, hc_policy::stable>(ss).first())
+    const auto build = [&](HC_build_options configuration) {
+        if(options.builder == fine_builder::solid)
+        {
+            auto [info, domain, negative] = HC_info::build_solid_HC(s, configuration);
+            return std::tuple{std::move(info), search_space{std::move(domain)}, std::move(negative)};
+        }
+        auto [info, initial] = HC_info::build_HC(s, configuration);
+        return std::tuple{std::move(info), std::move(initial), std::vector<slice>{}};
+    };
+    auto [info, initial, negative] = build(options.build_options);
+    // Probe before constructing score tables: fallback changes coordinate IDs.
+    if(options.build_options.prune_optional_moves && info.has_optional_timelines()
+       && !info.template search<natural_HC_ordering, hc_policy::stable>(initial).first())
     {
-        auto fallback_options = options;
-        fallback_options.prune_optional_moves = false;
-        std::tie(hc_info, ss) = HC_info::build_HC(s, fallback_options);
+        auto fallback = options.build_options;
+        fallback.prune_optional_moves = false;
+        std::tie(info, initial, negative) = build(fallback);
     }
-    HC universe = hc_info.get_universe();
-    auto new_context = std::unique_ptr<nodal_pocession>(
-        new nodal_pocession{
-            .hc_info = std::move(hc_info),
-            .build_options = options,
-            .node_pool = {},
-            .cell_pool = {},
-            .verified_terminal = false
-        });
-    new_context->cell_pool.push_back(fine_cell<T>{
-        .parent = nullptr,
-        .node = this,
-        .space = std::move(universe),
-        .subspace = std::move(ss)
-    });
-    pocessed_context = std::move(new_context);
-    // clear the old cells which are related to the old context
-    cells.clear();
-    next_cell_index = 0;
-    cells.push_back(&pocessed_context->cell_pool.back());
+    pocessed_context = std::make_unique<nodal_pocession>(
+        std::move(info), std::move(initial), options);
+    for(auto &problem : negative) pocessed_context->search.cells.add_negative(std::move(problem));
+    remaining = pocessed_context->hc_info.dimension() ? pocessed_context->hc_info.get_universe()[0] : integer_set{};
+    completion.reset();
+    pending.reset();
+}
+
+template<typename T>
+    requires std::default_initializable<T>
+inline const fine_search_options &fine_node<T>::get_search_options() const noexcept
+{
+    return (pocessed_context ? pocessed_context.get() : context)->options;
+}
+
+template<typename T>
+    requires std::default_initializable<T>
+inline typename fine_node<T>::statistics fine_node<T>::search_statistics() const
+{
+    const auto *ctx = pocessed_context ? pocessed_context.get() : context;
+    return {ctx->search.cells.inspect(), ctx->node_pool.size() + 1,
+        ctx->search.scratch.matching_work(), ctx->search.witness_calls,
+        ctx->search.local_hits, ctx->search.forest_searches,
+        ctx->search.local_resumes, ctx->search.local_resume_hits};
 }
 
 template<typename T>
@@ -469,18 +462,8 @@ inline std::string fine_node<T>::to_string() const
         {
             oss << "temporary n=" << node.n << ", i=" << node.i;
         }
-        oss << ", cells#=" << node.cells.size() << "}\n";
+        oss << ", remaining=" << node.remaining.to_string() << "}\n";
 
-        for(size_t cell_index = 0; cell_index < node.cells.size(); ++cell_index)
-        {
-            const auto &cell = node.cells[cell_index];
-            oss << indent << "  cell[" << cell_index << "]\n";
-            oss << indent << "    space:\n";
-            oss << cell->space.to_string(false);
-            oss << indent << "    subspace:\n";
-            oss << cell->subspace.to_string();
-        }
-        
         oss << indent << "  children#=" << node.children.size() << "\n";
         for(size_t child_index = 0; child_index < node.children.size(); ++child_index)
         {
