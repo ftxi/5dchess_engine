@@ -763,6 +763,8 @@ std::optional<point> HC_info::find_witness(
     HC selection = restriction;
     if(!constrain_domain(selection, &space.propagation)) return std::nullopt;
     std::vector<slice> additional_problems;
+    std::size_t temporary_regions = 0;
+    constexpr std::size_t matching_probe_threshold = 1024;
     for(;;)
     {
         additional_problems.clear();
@@ -805,6 +807,12 @@ std::optional<point> HC_info::find_witness(
                         if(auto chosen = select(part)) { candidate = std::move(chosen); break; }
                         continue;
                     }
+                    // Once this query has substantial subdivision work, test
+                    // matching before making more descendants of a region.
+                    // Failure rules out the entire region. Successful probes
+                    // also remove unsupported arrivals before the next cut.
+                    if(temporary_regions < matching_probe_threshold) ++temporary_regions;
+                    else if(!select(part)) continue;
                     auto pieces = std::move(part).remove_slice_carefully(*negative[next]);
                     for(auto &piece : pieces) pending.emplace_back(std::move(piece), next + 1);
                 }
