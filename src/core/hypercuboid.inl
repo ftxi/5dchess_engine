@@ -812,7 +812,15 @@ std::optional<point> HC_info::find_witness(
                     // Failure rules out the entire region. Successful probes
                     // also remove unsupported arrivals before the next cut.
                     if(temporary_regions < matching_probe_threshold) ++temporary_regions;
-                    else if(!select(part)) continue;
+                    else
+                    {
+                        // Probes establish feasibility. Keep the witness seed
+                        // for subsequent candidate selection across this probe.
+                        auto saved_seed = space.scratch.matching_seed;
+                        const bool matched = bool(select(part));
+                        space.scratch.matching_seed = std::move(saved_seed);
+                        if(!matched) continue;
+                    }
                     auto pieces = std::move(part).remove_slice_carefully(*negative[next]);
                     for(auto &piece : pieces) pending.emplace_back(std::move(piece), next + 1);
                 }
