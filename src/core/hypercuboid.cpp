@@ -746,6 +746,59 @@ std::optional<slice> HC_info::find_problem(
     return problem;
 }
 
+bool HC_info::has_forced_departure_cycle(const HC &domain) const
+{
+    std::vector<bool> forced(new_axis, false), remaining(new_axis, false);
+    for(index_t axis = 0; axis < new_axis; ++axis)
+        forced[axis] = remaining[axis] = !domain[axis].empty()
+            && domain[axis].is_subset_of(departing_entries[axis]);
+    if(std::none_of(forced.begin(), forced.end(), [](bool value) { return value; })) return false;
+
+    std::vector<std::vector<index_t>> dependencies(new_axis);
+    const bool color = s.get_present().c();
+    for(index_t axis = 0; axis < dimension(); ++axis)
+        arriving_entries[axis].for_each_intersection(domain[axis], [&](index_t coordinate) {
+            const auto &arrival = std::get<arriving_entry>(axis_coords[axis][coordinate]);
+            const index_t source = line_to_axis_unsafe(arrival.m.from.l());
+            if(!forced[source] || !domain[source].contains(arrival.idx)) return;
+            const index_t target = line_to_axis_unsafe(arrival.m.to.l());
+            if(axis >= new_axis && target != no_axis)
+            {
+                // A passed playable endpoint cannot supply an escape jump.
+                if(domain[target].size() == 1 && domain[target].contains(null_coordinate)
+                   && s.get_timeline_end(arrival.m.to.l()) == turn{arrival.m.to.t(), color}) return;
+                if(target != source && target < new_axis && forced[target])
+                {
+                    const auto &departure = std::get<departing_entry>(
+                        axis_coords[target][*domain[target].begin()]);
+                    if(arrival.m.to.tl() == departure.from.tl())
+                    {
+                        dependencies[source].push_back(target);
+                        return;
+                    }
+                }
+            }
+            // This option has no required predecessor in the forced set.
+            remaining[source] = false;
+        });
+
+    // Remove every departure with an escape, then those depending on it.
+    // Every surviving departure must follow another surviving departure.
+    bool changed;
+    do
+    {
+        changed = false;
+        for(index_t source = 0; source < new_axis; ++source)
+            if(remaining[source] && std::any_of(dependencies[source].begin(), dependencies[source].end(),
+                [&](index_t target) { return !remaining[target]; }))
+            {
+                remaining[source] = false;
+                changed = true;
+            }
+    } while(changed);
+    return std::any_of(remaining.begin(), remaining.end(), [](bool value) { return value; });
+}
+
 std::optional<slice> HC_info::jump_order_consistent(
     const point &p, const HC &hc, std::vector<slice> *additional_problems) const
 {

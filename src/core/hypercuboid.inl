@@ -765,6 +765,7 @@ std::optional<point> HC_info::find_witness(
     std::vector<slice> additional_problems;
     std::size_t temporary_regions = 0;
     constexpr std::size_t matching_probe_threshold = 1024;
+    bool dependency_checked = false;
     for(;;)
     {
         additional_problems.clear();
@@ -811,6 +812,13 @@ std::optional<point> HC_info::find_witness(
                     // matching before making more descendants of a region.
                     // Failure rules out the entire region. Successful probes
                     // also remove unsupported arrivals before the next cut.
+                    if(temporary_regions >= matching_probe_threshold && !dependency_checked)
+                    {
+                        dependency_checked = true;
+                        // A closed set of forced departures has no first jump.
+                        // This proves failure for the whole query restriction.
+                        if(has_forced_departure_cycle(selection)) return true;
+                    }
                     if(temporary_regions < matching_probe_threshold) ++temporary_regions;
                     else
                     {

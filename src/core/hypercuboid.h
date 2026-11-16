@@ -458,6 +458,7 @@ public:
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;
 private:
+    bool has_forced_departure_cycle(const HC &domain) const;
     static HC_info build_info(const state &s, HC_build_options options);
     void prune_checks();
 
