@@ -49,8 +49,14 @@ async function workerFixture() {
     };
     const self = { postMessage: message => messages.push(structuredClone(message)) };
     const engine = { get_version: () => 'test',
-        from_pgn(pgn, allowIllegal) {
-            loads.push({ pgn, allowIllegal });
+        from_pgn(pgn, { allowIllegalHistory: allowIllegal = false, initialPositionOnly: initialOnly = false } = {}) {
+            loads.push({ pgn, allowIllegal, initialOnly });
+            // The setup-only candidate has its own lifetime, separate from the
+            // active game and the fully prepared import candidate.
+            if (initialOnly) return pgn === 'invalid' ? { success: false } : {
+                success: true, game: { get_board_size: game.get_board_size,
+                    get_current_boards: game.get_current_boards, delete() {} }
+            };
             return pgn === 'invalid' || (pgn === 'illegal' && !allowIllegal)
                 ? { success: false, message: 'Invalid PGN or illegal history' } : { success: true, game };
         } };

@@ -8,6 +8,7 @@
 #include <variant>
 #include <array>
 #include <string_view>
+#include <stack>
 #include "check_position.h"
 #include "pgnparser.h"
 #include "pgn_loading.h"
@@ -36,74 +37,107 @@ game::game(std::unique_ptr<gnode<comments_t>> gt)
 
 game game::from_pgn(std::string input, game::load_options options)
 {
-    auto ag = pgnparser(input).parse_game();
+    auto ag = pgnparser(input).parse_game(options.initial_position_only);
     if(!ag.has_value())
         throw std::runtime_error("Bad input, parse failed");
     pgnparser_ast::gametree &gt_ast = ag->gt;
-    auto [initial, error] = pgn_loading::load_initial_position<false>(*ag);
+    auto [initial, error] = options.initial_position_only && options.allow_illegal_history
+        ? pgn_loading::load_initial_position<true>(*ag)
+        : pgn_loading::load_initial_position<false>(*ag);
     const bool illegal_setup = error.has_value();
     if(illegal_setup && !options.allow_illegal_history)
         throw *error;
-    const auto [size_x, size_y] = initial.get_board_size();
-    const bool is_even = initial.get_initial_lines_range() == timeline_layout::even.initial_range();
-    const auto promotions = initial.get_promotion_options();
     game g(gnode<comments_t>::create_root(std::move(initial), ag->comments, illegal_setup));
-    g.metadata = ag->headers;
-    g.metadata["timeline"] = is_even ? "even" : "odd";
-    g.metadata["size"] = std::to_string(size_x) + "x" + std::to_string(size_y);
-    if(g.metadata.contains("promotions"))
-    {
-        g.metadata["promotions"] = format_promotions(promotions);
-    }
-    // parse moves
-    std::function<gnode<comments_t> *(gnode<comments_t> *, const pgnparser_ast::gametree &)> dfs;
-    dfs = [&dfs, &ag, options](gnode<comments_t> *node, const pgnparser_ast::gametree &gt_ast) -> gnode<comments_t> * {
-        auto *last = node;
-        if(std::holds_alternative<pgnparser_ast::gametree::variations_t>(gt_ast.variations_or_outcome))
+    if(ag->headers.contains("Promotions"))
+        g.headers.emplace("Promotions", format_promotions(g.get_promotion_options()));
+    for(const auto &[key, value] : ag->headers)
+        g.set_header(key, value);
+    if(options.initial_position_only)
+        return g;
+    using node_t = gnode<comments_t>;
+    using ast_tree = pgnparser_ast::gametree;
+    auto make_child = [&ag, options](node_t *node, const pgnparser_ast::actions &act_ast) {
+        state s = node->get_state();
+        std::vector<ext_move> moves;
+        for(const auto &mv_ast: act_ast.moves)
         {
-            const auto &variations = std::get<pgnparser_ast::gametree::variations_t>(gt_ast.variations_or_outcome);
-            for(const auto &[act_ast, child_gt] : variations)
-            {
-                state s = node->get_state();
-                std::vector<ext_move> moves;
-                for(const auto &mv_ast: act_ast.moves)
-                {
-                    moves.push_back(s.apply_move_ast(mv_ast, ag->source_text));
-                }
-                if(!s.test_present())
-                {
-                    throw pgn_validation_error(
-                        pgn_validation_error::present_not_advanced{},
-                        pgn_validation_error::make_subject(act_ast, ag->source_text)
-                    );
-                }
-                s.submit<true>();
-                bool illegal_history = node->has_illegal_history();
-                if(!illegal_history) 
-                {
-                    const auto exposure = s.find_royal_exposure(false);
-                    illegal_history = exposure.has_value();
-                    if(illegal_history && !options.allow_illegal_history)
-                        throw pgn_validation_error(*exposure,
-                            pgn_validation_error::make_subject(act_ast, ag->source_text));
-                }
-                action act = action::from_vector(moves, node->get_state());
-                std::unique_ptr<gnode<comments_t>> child_node = gnode<comments_t>::create_child(
-                    node, std::move(s), std::move(act), act_ast.comments, illegal_history);
-                // Validate the complete incoming subtree before replacing a duplicate.
-                auto *endpoint = dfs(child_node.get(), *child_gt);
-                if(node->find_child(child_node->get_action()))
-                {
-                    node->delete_child(child_node->get_action());
-                }
-                node->add_child(std::move(child_node));
-                last = endpoint;
-            }
+            moves.push_back(s.apply_move_ast(mv_ast, ag->source_text));
         }
-        return last;
+        if(!s.test_present())
+        {
+            throw pgn_validation_error(
+                pgn_validation_error::present_not_advanced{},
+                pgn_validation_error::make_subject(act_ast, ag->source_text)
+            );
+        }
+        s.submit<true>();
+        bool illegal_history = node->has_illegal_history();
+        if(!illegal_history)
+        {
+            const auto exposure = s.find_royal_exposure(false);
+            illegal_history = exposure.has_value();
+            if(illegal_history && !options.allow_illegal_history)
+                throw pgn_validation_error(*exposure,
+                    pgn_validation_error::make_subject(act_ast, ag->source_text));
+        }
+        action act = action::from_vector(moves, node->get_state());
+        return node_t::create_child(
+            node, std::move(s), std::move(act), act_ast.comments, illegal_history);
     };
+    struct branch_frame {
+        node_t *parent;
+        const ast_tree::variations_t *variations;
+        std::size_t next_child;
+        std::unique_ptr<node_t> pending_child;
+    };
+    // DFS stack
+    std::stack<branch_frame> branches;
+    auto *node = g.gametree.get();
+    const auto *tree = &gt_ast;
+    while(true)
+    {
+        const auto *variations = std::get_if<ast_tree::variations_t>(&tree->variations_or_outcome);
+        if(variations && !variations->empty())
+        {
+            const auto &[act_ast, child_tree] = variations->front();
+            auto child = make_child(node, act_ast);
+            auto *next = child.get();
+            if(variations->size() == 1)
+            {
+                // Single continuations always start at a fresh node.
+                assert(node->get_children().empty());
+                node->add_child(std::move(child));
+            }
+            else
+            {
+                // Keep an incoming branch detached until fully validated.
+                branches.push({node, variations, 1, std::move(child)});
+            }
+            node = next;
+            tree = child_tree.get();
+            continue;
+        }
 
-    g.current_node = dfs(g.gametree.get(), gt_ast);
+        // node is the last endpoint visited, including after a nested fork.
+        while(!branches.empty())
+        {
+            auto &frame = branches.top();
+            if(frame.parent->find_child(frame.pending_child->get_action()))
+                frame.parent->delete_child(frame.pending_child->get_action());
+            frame.parent->add_child(std::move(frame.pending_child));
+            if(frame.next_child < frame.variations->size())
+            {
+                const auto &[act_ast, child_tree] = (*frame.variations)[frame.next_child++];
+                frame.pending_child = make_child(frame.parent, act_ast);
+                node = frame.pending_child.get();
+                tree = child_tree.get();
+                break;
+            }
+            branches.pop();
+        }
+        if(branches.empty()) break;
+    }
+    g.current_node = node;
     g.fresh();
     return g;
 }
@@ -525,70 +559,119 @@ std::vector<std::tuple<action, std::string>> game::get_historical_actions() cons
     return result;
 }
 
+namespace {
+constexpr std::array<std::string_view, 12> ordered_headers = {
+    "Event", "Site", "Date", "Round", "White", "Black", "Result",
+    "Variant", "Size", "Timeline", "Promotions", "Puzzle"
+};
+
+std::string_view known_header(std::string_view key)
+{
+    using pgnparser_ast::header_key_less;
+    if(header_key_less::compare(key, "Board") == 0)
+        return "Board";
+    for(const auto name : ordered_headers)
+    {
+        if(header_key_less::compare(key, name) == 0)
+            return name;
+    }
+    return {};
+}
+
+bool derived_header(std::string_view key)
+{
+    return key == "Size" || key == "Timeline" || key == "Promotions";
+}
+} /* anonymous namespace */
+
+std::optional<std::string> game::get_header(const std::string &key) const
+{
+    const auto canonical = known_header(key);
+    if(canonical == "Size")
+    {
+        const auto [x, y] = gametree->get_stored_state().get_board_size();
+        return std::to_string(x) + "x" + std::to_string(y);
+    }
+    if(canonical == "Timeline")
+    {
+        const auto range = gametree->get_stored_state().get_initial_lines_range();
+        return range == timeline_layout::even.initial_range() ? "Even" : "Odd";
+    }
+    if(canonical == "Promotions")
+        return format_promotions(get_promotion_options());
+
+    const auto it = headers.find(key);
+    if(canonical == "Variant" && (it == headers.end() || it->second.empty()))
+    {
+        const auto board = headers.find("board");
+        if(board != headers.end())
+            return board->second;
+    }
+    if(it != headers.end())
+        return it->second;
+    return std::nullopt;
+}
+
+void game::set_header(const std::string &key, const std::string &value)
+{
+    const auto canonical = known_header(key);
+    if(!derived_header(canonical))
+        headers.insert_or_assign(canonical.empty() ? key : std::string(canonical), value);
+}
+
+std::vector<std::string> game::header_keys() const
+{
+    std::vector<std::string> keys;
+    for(const auto name : ordered_headers)
+    {
+        if(get_header(std::string(name)).has_value())
+            keys.emplace_back(name);
+    }
+    if(headers.contains("board"))
+        keys.emplace_back("Board");
+    for(const auto &[key, value] : headers)
+    {
+        if(known_header(key).empty())
+            keys.push_back(key);
+    }
+    return keys;
+}
+
 std::string game::show_pgn(
     pgn_options show_flags,
     bool complete_game_tree,
     bool standard_metadata_only)
 {
     std::ostringstream oss;
-    const static std::array<std::string, 11> ordered_keys = {
-        "event", "site", "date", "round", "white", "black", "result",
-        "variant", "size", "timeline", "promotions"
+    const auto print_header = [&oss](std::string_view key, const std::string &value) {
+        oss << '[' << key << " \"" << value << "\"]\n";
     };
-
-    for(const auto &k : ordered_keys)
+    for(const auto key : ordered_headers)
     {
-        if(k == "variant")
+        if(key == "Variant")
         {
-            auto it = metadata.find("board");
-            const bool legacy_board = it != metadata.end();
-            if(!legacy_board)
-                it = metadata.find("variant");
-            if(it != metadata.end())
-                oss << '[' << (legacy_board && !standard_metadata_only ? "Board" : "Variant")
-                    << " \"" << it->second << "\"]\n";
-            continue;
-        }
-        if(k == "promotions")
-        {
-            const promotion_options promotions = get_promotion_options();
-            if(promotions != promotion_options::QUEEN
-                || metadata.contains("promotions"))
+            if(const auto board = get_header("Board"))
             {
-                oss << "[Promotions \"" << format_promotions(promotions) << "\"]\n";
+                print_header(standard_metadata_only ? "Variant" : "Board", *board);
+                continue;
             }
+        }
+        if(key == "Promotions" && !headers.contains("Promotions")
+            && get_promotion_options() == promotion_options::QUEEN)
             continue;
-        }
-        auto it = metadata.find(k);
-        if(it == metadata.end())
-        {
-            continue;
-        }
-        std::string key = it->first;
-        if(!key.empty())
-        {
-            // Capitalize the first letter of the key
-            key[0] = toupper(key[0]);
-        }
-        oss << "[" << key << " \"" << it->second << "\"]\n";
+        if(const auto value = get_header(std::string(key)))
+            print_header(key, *value);
     }
     if(!standard_metadata_only)
     {
-        for(const auto &[k, v] : metadata)
+        for(const auto &[key, value] : headers)
         {
-            if(k == "board"
-               || std::find(ordered_keys.begin(), ordered_keys.end(), k) != ordered_keys.end())
-            {
-                continue;
-            }
-            std::string key = k;
-            if(!key.empty())
-            {
-                key[0] = toupper(key[0]);
-            }
-            oss << "[" << key << " \"" << v << "\"]\n";
+            if(known_header(key).empty())
+                print_header(key, value);
         }
     }
+    auto result = std::move(oss).str();
+    oss = std::ostringstream{};
     oss << gametree->get_state().show_fen();
     if(complete_game_tree)
     {
@@ -603,7 +686,6 @@ std::string game::show_pgn(
     do not indent inside comments */
     int parentheses_level = 0;
     int curly_brace_level = 0;
-    std::string result;
     for(char c : oss.str())
     {
         result += c;

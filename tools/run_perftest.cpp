@@ -8,7 +8,6 @@
 #include <string_view>
 #include <tuple>
 
-#include "hypercuboid.h"
 #include "pgnparser.h"
 #include "search_tools.h"
 #include "turn.h"
@@ -20,7 +19,7 @@ int run_perftest(int argc, const char *argv[])
         out << "Usage: 5dtools perftest [policy]\n"
             << "  On each intermediate position, print 1 if actions are available and 0 otherwise.\n"
             << "  Reads a 5DPGN game from stdin.\n"
-            << "  policy      balanced, naive, stable, or iterative\n"
+            << "  policy      deferred (default), balanced, naive, stable, iterative, or fine\n"
             << "  -h, --help  display this help text and exit\n";
     };
     if(argc == 2 && (std::string_view(argv[1]) == "-h"
@@ -62,27 +61,7 @@ int run_perftest(int argc, const char *argv[])
     turn turn = {1,false};
     while (true)
     {
-        std::optional<moveseq> mvs;
-        switch (mode) {
-            case search_mode::balanced: {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.search(ss).first();
-                break;
-            }
-            case search_mode::naive:
-                mvs = naive_search(current_state).first();
-                break;
-            case search_mode::stable: {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.stable_search(ss).first();
-                break;
-            }
-            case search_mode::iterative: {
-                auto [w, ss] = HC_info::build_HC(current_state);
-                mvs = w.iterative_search(ss).first();
-                break;
-            }
-        }
+        const auto mvs = find_first_action(current_state, mode);
         if(mvs)
         {
             std::cout << '1' << std::flush;

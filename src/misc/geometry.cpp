@@ -187,8 +187,8 @@ void search_space::remove_slice_backwards(
         {
             auto after = std::next(current);
             search_space pieces = force_back_removal
-                ? current->remove_slice_carefully(s)
-                : current->remove_slice_if_good(s, max_codim);
+                ? std::move(*current).remove_slice_carefully(s)
+                : std::move(*current).remove_slice_if_good(s, max_codim);
             hcs.erase(current);
             hcs.splice(after, pieces.hcs);
             intersect_count++;
@@ -205,6 +205,22 @@ void search_space::remove_slice_backwards(
         }
         force_back_removal = false;
         current = previous;
+    }
+}
+
+void search_space::remove_slice_globally(const slice &s, std::stop_token stop)
+{
+    for(auto current = hcs.begin(); current != hcs.end();)
+    {
+        if(stop.stop_requested()) return;
+        if(!current->intersects(s))
+        {
+            ++current;
+            continue;
+        }
+        auto pieces = std::move(*current).remove_slice_carefully(s);
+        current = hcs.erase(current);
+        hcs.splice(current, pieces.hcs);
     }
 }
 
@@ -240,7 +256,7 @@ void search_space::prune_empty()
     });
 }
 
-search_space HC::remove_slice(const slice &s) const
+search_space HC::remove_slice(const slice &s) const &
 {
     search_space result;
     HC remaining = *this;
@@ -257,25 +273,88 @@ search_space HC::remove_slice(const slice &s) const
     return result;
 }
 
-search_space HC::remove_point(const point &p) const
+namespace
 {
-    search_space result;
-    HC remaining = *this;
-    for(index_t i = 0; i < static_cast<index_t>(p.size()); i++)
+// The caller has already checked intersection when needed. Axes are distinct,
+// so the last nonempty output can be found before changing any prefix domain.
+template<bool Careful>
+search_space remove_slice_owned(HC &&remaining, const slice &s)
+{
+    const auto &fixed = s.get_fixed_axes();
+    auto after_last = fixed.end();
+    while(after_last != fixed.begin())
     {
-        HC x = remaining;
-        x.axes[i].erase(p[i]);
-        integer_set singleton = {p[i]};
-        remaining.axes[i] = std::move(singleton);
-        if(!x.axes[i].empty()) // do not include empty hc
-        {
-            result.push_back(std::move(x));
-        }
+        const auto last = std::prev(after_last);
+        if(!remaining[last->first].is_subset_of(last->second)) break;
+        after_last = last;
     }
+    if(after_last == fixed.begin()) return {}; // The slice covers this HC.
+    const auto last = std::prev(after_last);
+
+    search_space result;
+    for(auto current = fixed.begin(); current != last; ++current)
+    {
+        const auto &[axis, values] = *current;
+        if(!remaining[axis].is_subset_of(values))
+        {
+            HC outside = remaining;
+            outside[axis].minus(values);
+            result.push_back(std::move(outside));
+        }
+        if constexpr(Careful) remaining[axis] &= values;
+        else remaining[axis] = values;
+    }
+    remaining[last->first].minus(last->second);
+    result.push_back(std::move(remaining));
     return result;
 }
 
-search_space HC::remove_slice_carefully(const slice &s) const
+std::size_t point_split_end(const HC &hc, const point &p) noexcept
+{
+    std::size_t end = p.size();
+    while(end > 0 && hc[end - 1].size() == 1) --end;
+    return end;
+}
+
+search_space remove_point_impl(HC remaining, const point &p, std::size_t end)
+{
+    search_space result;
+    for(std::size_t i = 0; i + 1 < end; ++i)
+    {
+        // Singleton axes already fix the prefix to p and have no output piece.
+        if(remaining[i].size() == 1) continue;
+        HC x = remaining;
+        x[i].erase(p[i]);
+        remaining[i] = integer_set{p[i]};
+        result.push_back(std::move(x));
+    }
+    // No later piece needs the remaining prefix, so reuse its HC directly.
+    remaining[end - 1].erase(p[end - 1]);
+    result.push_back(std::move(remaining));
+    return result;
+}
+} /* anonymous namespace */
+
+search_space HC::remove_slice(const slice &s) &&
+{
+    return remove_slice_owned<false>(std::move(*this), s);
+}
+
+search_space HC::remove_point(const point &p) const &
+{
+    const auto end = point_split_end(*this, p);
+    if(end == 0) return {};
+    return remove_point_impl(*this, p, end);
+}
+
+search_space HC::remove_point(const point &p) &&
+{
+    const auto end = point_split_end(*this, p);
+    if(end == 0) return {};
+    return remove_point_impl(std::move(*this), p, end);
+}
+
+search_space HC::remove_slice_carefully(const slice &s) const &
 {
     const auto &fixed_axes = s.get_fixed_axes();
     for(const auto &[i, fixed_coords] : fixed_axes)
@@ -303,6 +382,17 @@ search_space HC::remove_slice_carefully(const slice &s) const
         }
     }
     return result;
+}
+
+search_space HC::remove_slice_carefully(const slice &s) &&
+{
+    if(!intersects(s))
+    {
+        search_space result;
+        result.push_back(std::move(*this));
+        return result;
+    }
+    return remove_slice_owned<true>(std::move(*this), s);
 }
 
 search_space HC::remove_point_carefully(const point &p) const
@@ -340,7 +430,7 @@ bool HC::is_slice_good(const slice &s, index_t max_codim) const noexcept
     return true;
 }
 
-search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const
+search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const &
 {
     if(!is_slice_good(s, max_codim))
     {
@@ -364,6 +454,17 @@ search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) const
         }
     }
     return result;
+}
+
+search_space HC::remove_slice_if_good(const slice &s, index_t max_codim) &&
+{
+    if(!is_slice_good(s, max_codim))
+    {
+        search_space result;
+        result.push_back(std::move(*this));
+        return result;
+    }
+    return remove_slice_owned<true>(std::move(*this), s);
 }
 
 

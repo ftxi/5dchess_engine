@@ -127,7 +127,7 @@ int replay_log(int argc, const char *argv[])
               << std::flush;
 
     started = clock_type::now();
-    auto best = mcts.find_best_move(std::nullopt, 1000, {});
+    auto best = mcts.search(std::nullopt, 1000);
     std::cout << "MCTS movetime 1000 " << seconds_since(started)
               << " s, result=" << (best ? "move" : "none") << "\n"
               << std::flush;

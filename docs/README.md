@@ -8,6 +8,8 @@ The quickest way to start is the [online analyzer](https://ftxi.github.io/5dches
 
 For local use, there are two interfaces: the static WebAssembly analyzer in `ui/`, and a Python-hosted interface supplied by the `extern/client` submodule. The [build guide](usage/building.md) covers both, along with the native programs and Python binding. [Web UI architecture](architecture/webui.md) describes the static interface’s files, worker communication, rendering, and component behavior.
 
+For the rules, read [5D Chess mechanics](5d-chess-mechanics.md). It starts with a gameplay overview, then gives precise semantics and implementation evidence, including the definitions of check, checkmate, stalemate, and softmate.
+
 Games use [Branched 5DPGN](branched-5dpgn.md) to describe positions, moves, and variations. Physical moves stay on one board; superphysical moves travel between boards in time or across timelines. A turn may require several moves before it can be submitted. The notation guide explains these concepts and their representation; [the formal grammar](pgn-bnf.txt) specifies the parser syntax.
 
 ## Run engines and experiments

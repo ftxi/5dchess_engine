@@ -22,7 +22,7 @@ remain in [Building](../usage/building.md#webassembly).
 | `scripts/worker.js` | Loads the Wasm module, owns the game and private next hint, handles commands, and assembles display data |
 | `scripts/canvas.js` | Camera animation, viewport sizing, display density, mouse/touch gestures, and render scheduling |
 | `scripts/draw.js` | Chess-specific board geometry, visible-board filtering, pieces, labels, highlights, arrows, and focus points |
-| `scripts/piece.js` | Loads piece SVGs and prepares raster LOD caches |
+| `scripts/level-of-detail.js` | Shares raster LOD generation and selection for pieces and board surfaces; manages surface caches and the composition buffer |
 | `scripts/color.js` | Reads theme colors for canvas drawing and resolves CSS color values |
 | `scripts/parse.js` | Parses board FEN into cells for rendering |
 | `scripts/hash.js` | Hashes actions and history paths for remembering navigation choices |
@@ -140,6 +140,29 @@ numerals' different heights and overhangs.
 Playfair is bundled in `ui/fonts/` with its SIL Open Font License, which permits
 commercial use. The font and license come from the
 [official Playfair repository](https://github.com/clauseggers/Playfair/tree/b869b3a82f7188b4e790f9ef1ebe2d11630bde8f).
+
+Board surfaces share the piece LOD sizes and selection thresholds. Their images
+contain the margin and playable squares, excluding pieces, highlights, and
+file/rank labels. The renderer supplies the same drawing functions used for
+direct drawing. All levels are prepared together for each surface appearance;
+opacity is applied only when the completed surface is drawn. Highlighted boards
+use direct drawing to retain highlights between margins and squares. Translucent
+direct surfaces, including visible labels with their zoom fade, are composed in
+a reusable display-resolution canvas before applying board opacity once. The
+composition canvas is cropped to viewport bounds at high zoom.
+
+Before full import, the worker calls
+`from_pgn(pgn, { allowIllegalHistory: true, initialPositionOnly: true })` to obtain
+the initial setup without parsing move history or checking setup legality. Structural
+setup validation and existing lexer lookahead remain. It posts `initial_boards`
+with dimensions, decoded boards, and the import request ID, disposes that temporary
+game, then performs the full import with the actual legality setting. The main
+thread prepares all surface levels while the worker processes history; early
+boards never replace the displayed position. Cancelled or superseded preparation
+is ignored. Named variants and custom setups are resolved in C++, and JavaScript
+only decodes the returned board FENs. Endpoint data and appearance changes also
+prepare any missing surface variants. Retained board raster pixel data is bounded
+to approximately 8 MiB; missing entries fall back to direct drawing.
 
 ### Theme data
 

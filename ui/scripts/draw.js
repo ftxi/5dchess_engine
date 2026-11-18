@@ -4,7 +4,7 @@
 import { InfiniteScrollableCanvas } from 'canvas';
 import { nearestBoard, directionalTarget, focusViewBoard, heldNavigationSteps } from './navigation.js';
 
-import { chooseLOD } from 'piece';
+import { chooseLOD, SurfaceLOD, composeSurface } from 'level-of-detail';
 import { loadColors, applyFadeToColors, applyFadeToColorString, resolveColor } from 'color';
 
 // Snap near-endpoint alpha values to avoid intermittent Safari rendering flashes.
@@ -135,6 +135,7 @@ export default class ChessBoardCanvas
         }
 
         this.flipped = flipped;
+        if (this.data) this._prepareBoardRasters(this.data.boards);
 
         // Invalidate visibility cache and remap camera Y through the same flip transform used by board centers:
         // worldY' = -worldY + boardPixelHeight
@@ -148,6 +149,7 @@ export default class ChessBoardCanvas
 
     setDoNotReverseFilesWhenFlipped(value) {
         this.doNotReverseFilesWhenFlipped = value;
+        if (this.data) this._prepareBoardRasters(this.data.boards);
         this.infCanvas.startAnimation();
     }
 
@@ -220,6 +222,7 @@ export default class ChessBoardCanvas
         {
             this.focusPoints = data.focus;
         }
+        this._prepareBoardRasters(data.boards);
         // Clear cache when data changes
         this.filterCache.bounds = [null, null, null, null];
         
@@ -314,6 +317,158 @@ export default class ChessBoardCanvas
     _timelineLabelBaseline(ctx, l) {
         const ascent = ctx.measureText('L').actualBoundingBoxAscent;
         return l * this.boardSkipY - this.backgroundShiftY + ascent;
+    }
+
+    // Shared primitives for direct rendering and cached board images. Coordinates
+    // are local to the board origin; callers supply placement and raster scale.
+    _drawBoardMargin(ctx, board, shiftX, shiftY, color) {
+        ctx.save();
+        ctx.fillStyle = color ?? ((board.c == 1) ? this.colors.boardMarginBlack : this.colors.boardMarginWhite);
+        ctx.fillRect(
+            shiftX - this.boardMargin,
+            shiftY - this.boardMargin,
+            this.boardLengthX * this.squareSize + 2 * this.boardMargin,
+            this.boardLengthY * this.squareSize + 2 * this.boardMargin
+        );
+        ctx.restore();
+    }
+
+    _drawBoardSquares(ctx, board, shiftX, shiftY) {
+        ctx.save();
+        const hasWalls = board.parsed?.some(row => row.includes('#'));
+        ctx.fillStyle = this.colors.squareBlack;
+        if (!hasWalls) {
+            ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
+        }
+
+        for (let row = 0; row < this.boardLengthY; row++) {
+            for (let col = 0; col < this.boardLengthX; col++) {
+                if (board.parsed?.[row]?.[col] === '#') continue;
+                if (hasWalls || (row + col) % 2 === 0) {
+                    ctx.fillStyle = (row + col) % 2 === 0 ? this.colors.squareWhite : this.colors.squareBlack;
+                    const drawRow = this._displayBoardRow(row);
+                    ctx.fillRect(
+                        this._displayBoardCol(col) * this.squareSize + shiftX,
+                        drawRow * this.squareSize + shiftY,
+                        this.squareSize,
+                        this.squareSize
+                    );
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    _drawBoardSurface(ctx, board, shiftX, shiftY, squareLength, highlights = []) {
+        this._drawBoardMargin(ctx, board, shiftX, shiftY);
+        for (const color of highlights) {
+            this._drawBoardMargin(ctx, board, shiftX, shiftY, color);
+        }
+        this._drawBoardSquares(ctx, board, shiftX, shiftY);
+        if (squareLength > 30) this._drawBoardLabels(ctx, board, shiftX, shiftY, squareLength);
+    }
+
+    _drawBoardLabels(ctx, board, shiftX, shiftY, squareLength) {
+        const labelOpacity = safeOpacity(smoothClamp(30, 50, squareLength));
+        if (!labelOpacity) return;
+        ctx.save();
+        ctx.globalAlpha *= labelOpacity;
+        ctx.font = `italic ${this.fontSizeforXY}px Playfair, serif`;
+        ctx.textBaseline = 'alphabetic';
+        ctx.textAlign = 'left';
+        const labelInsetX = this.fontSizeforXY * 0.05;
+        const rankInsetY = this.fontSizeforXY * 0.1;
+        const rankLabels = Array.from({ length: this.boardLengthY }, (_, row) => {
+            const text = `${this._displayRankForRow(row)}`;
+            const metrics = ctx.measureText(text);
+            return { text, x: labelInsetX + metrics.actualBoundingBoxLeft,
+                y: rankInsetY + metrics.actualBoundingBoxAscent };
+        });
+        const fileLabels = Array.from({ length: this.boardLengthX }, (_, i) => {
+            const text = String.fromCharCode(97 + i);
+            return { text, x: labelInsetX + ctx.measureText(text).actualBoundingBoxLeft };
+        });
+        const fileDescent = Math.max(0, ctx.measureText(fileLabels.map(label => label.text).join('')).actualBoundingBoxDescent);
+        const bottomBoardRow = this.flipped ? 0 : this.boardLengthY - 1;
+        for (const parity of [1, 0]) {
+            for (let i = parity; i < this.boardLengthX; i += 2) {
+                if (board.parsed?.[bottomBoardRow]?.[i] === '#') continue;
+                ctx.fillStyle = this._getLabelTextColor(bottomBoardRow, i);
+                ctx.fillText(fileLabels[i].text,
+                    shiftX + this._displayBoardCol(i) * this.squareSize + fileLabels[i].x,
+                    shiftY + this.boardLengthY * this.squareSize - fileDescent);
+            }
+            for (let i = 1 - parity; i < this.boardLengthY; i += 2) {
+                if (board.parsed?.[i]?.[this._displayBoardCol(0)] === '#') continue;
+                ctx.fillStyle = this._getLabelTextColor(i, this._displayBoardCol(0));
+                ctx.fillText(rankLabels[i].text, shiftX + rankLabels[i].x,
+                    shiftY + this._displayBoardRow(i) * this.squareSize + rankLabels[i].y);
+            }
+        }
+        ctx.restore();
+    }
+
+    _boardRasterKey(board) {
+        const walls = board.parsed?.map(row => row.map(cell => cell === '#' ? '#' : '.').join('')).join('/');
+        return JSON.stringify([this.boardLengthX, this.boardLengthY, this.squareSize, this.boardMargin,
+            this.flipped, this.doNotReverseFilesWhenFlipped, Boolean(board.c), walls,
+            this.colors.boardMarginWhite, this.colors.boardMarginBlack,
+            this.colors.squareWhite, this.colors.squareBlack]);
+    }
+
+    // Early import data is only used to prepare surfaces, never to replace the
+    // displayed game. Both frame colors are needed even for a single-board setup.
+    async prepareBoardRasters(data, isCurrent = () => true) {
+        if (!this.boardLOD) this.boardLOD = new SurfaceLOD();
+        const renderer = Object.create(this);
+        renderer.boardLengthX = data.size.x;
+        renderer.boardLengthY = data.size.y;
+        renderer.colors = this._origColors || this.colors;
+        const prepared = new Set();
+        for (const board of data.boards) {
+            if (!isCurrent()) return;
+            const key = renderer._boardRasterKey(board);
+            if (prepared.has(key)) continue;
+            prepared.add(key);
+            renderer._prepareBoardRasters([board]);
+            // Yield between layouts so large custom setups do not block input.
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    _prepareBoardRasters(boards) {
+        if (!this.boardLOD) this.boardLOD = new SurfaceLOD();
+        const width = this.boardLengthX * this.squareSize + 2 * this.boardMargin;
+        const height = this.boardLengthY * this.squareSize + 2 * this.boardMargin;
+        for (const board of boards) {
+            for (const c of [false, true]) {
+                const surfaceBoard = { ...board, c };
+                this.boardLOD.prepare(this._boardRasterKey(surfaceBoard), width, height, this.squareSize,
+                    (ctx, pixelWidth, pixelHeight) => {
+                        ctx.scale(pixelWidth / width, pixelHeight / height);
+                        // No labels, pieces, highlights, or phantom opacity in LODs.
+                        this._drawBoardSurface(ctx, surfaceBoard, this.boardMargin, this.boardMargin, 1);
+                    });
+            }
+        }
+    }
+
+    _drawNormalBoard(ctx, board, squareLength, highlights, bounds) {
+        const x = (board.t * 2 + Number(board.c)) * this.boardSkipX;
+        const y = this._displayL(board.l) * this.boardSkipY;
+        const opacity = board.isPhantom ? this.colors.phantomBoardOpacity : 1;
+        if (opacity === 0) return;
+        if (opacity === 1) {
+            this._drawBoardSurface(ctx, board, x, y, squareLength, highlights);
+        } else {
+            composeSurface(ctx,
+                this.boardLengthX * this.squareSize + 2 * this.boardMargin,
+                this.boardLengthY * this.squareSize + 2 * this.boardMargin,
+                squareLength / this.squareSize * this.infCanvas.pixelRatio,
+                x - this.boardMargin, y - this.boardMargin, opacity,
+                surface => this._drawBoardSurface(surface, board, this.boardMargin, this.boardMargin,
+                    squareLength, highlights), bounds);
+        }
     }
 
     // Main drawing method
@@ -463,161 +618,38 @@ export default class ChessBoardCanvas
             );
         }
         
-        // Layer 2: Board margins
+        const boardHighlights = new Map();
+        const surfacePositions = new Set(cache.filteredBoards.map(
+            board => `${board.l},${board.t},${Number(board.c)}`));
+        for (const [color, positions] of Object.entries(cache.filteredBoardHighlight)) {
+            for (const pos of positions) {
+                const key = `${pos.l},${pos.t},${Number(pos.c)}`;
+                // Highlights may also mark an empty grid position with no board.
+                if (!surfacePositions.has(key)) {
+                    this._drawBoardMargin(ctx, pos,
+                        (pos.t * 2 + Number(pos.c)) * this.boardSkipX,
+                        this._displayL(pos.l) * this.boardSkipY, color);
+                }
+                if (!boardHighlights.has(key)) boardHighlights.set(key, []);
+                boardHighlights.get(key).push(color);
+            }
+        }
         for (const board of cache.filteredBoards) {
-            let l = this._displayL(board.l), v = board.t << 1 | board.c;
-            const shiftX = v * this.boardSkipX;
-            const shiftY = l * this.boardSkipY;
-
-            ctx.save();
-            if (board.isPhantom) {
-                ctx.globalAlpha *= this.colors.phantomBoardOpacity;
-            }
-            ctx.fillStyle = (board.c == 1) ? this.colors.boardMarginBlack : this.colors.boardMarginWhite;
-            ctx.fillRect(
-                shiftX - this.boardMargin,
-                shiftY - this.boardMargin,
-                this.boardLengthX * this.squareSize + 2 * this.boardMargin,
-                this.boardLengthY * this.squareSize + 2 * this.boardMargin
-            );
-            ctx.restore();
-        }
-        
-        // Board highlights
-        for (let color in cache.filteredBoardHighlight) {
-            ctx.fillStyle = color;
-            for (let pos of cache.filteredBoardHighlight[color]) {
-                let l = this._displayL(pos.l), v = pos.t << 1 | pos.c;
-                const shiftX = v * this.boardSkipX;
-                const shiftY = l * this.boardSkipY;
-                ctx.fillRect(
-                    shiftX - this.boardMargin,
-                    shiftY - this.boardMargin,
-                    this.boardLengthX * this.squareSize + 2 * this.boardMargin,
-                    this.boardLengthY * this.squareSize + 2 * this.boardMargin
-                );
-            }
-        }
-        
-        
-        // Walls retain the board-margin fill underneath the playable squares.
-        // This also avoids compounding opacity on phantom walls.
-        {
-            const fuzzy = squareLength <= 0.7;
-            for (const board of cache.filteredBoards) {
-                let l = this._displayL(board.l), v = board.t << 1 | board.c;
-                const shiftX = v * this.boardSkipX;
-                const shiftY = l * this.boardSkipY;
-
+            const highlights = boardHighlights.get(`${board.l},${board.t},${Number(board.c)}`) || [];
+            const image = !highlights.length && squareLength <= 30
+                ? this.boardLOD?.get(this._boardRasterKey(board), squareLength * this.infCanvas.pixelRatio) : null;
+            if (image) {
                 ctx.save();
-                if (board.isPhantom) {
-                    ctx.globalAlpha *= this.colors.phantomBoardOpacity;
-                }
-                const hasWalls = board.parsed?.some(row => row.includes('#'));
-                ctx.fillStyle = fuzzy ? this.colors.squareFuzzy : this.colors.squareBlack;
-                if (!hasWalls) {
-                    ctx.fillRect(shiftX, shiftY, this.boardLengthX * this.squareSize, this.boardLengthY * this.squareSize);
-                }
-
-                for (let row = 0; row < this.boardLengthY; row++) {
-                    for (let col = 0; col < this.boardLengthX; col++) {
-                        if (board.parsed?.[row]?.[col] === '#') continue;
-                        if (hasWalls || (!fuzzy && (row + col) % 2 === 0)) {
-                            ctx.fillStyle = fuzzy ? this.colors.squareFuzzy
-                                : (row + col) % 2 === 0 ? this.colors.squareWhite : this.colors.squareBlack;
-                            const drawRow = this._displayBoardRow(row);
-                            ctx.fillRect(
-                                this._displayBoardCol(col) * this.squareSize + shiftX,
-                                drawRow * this.squareSize + shiftY,
-                                this.squareSize,
-                                this.squareSize
-                            );
-                        }
-                    }
-                }
+                if (board.isPhantom) ctx.globalAlpha *= this.colors.phantomBoardOpacity;
+                ctx.drawImage(image,
+                    (board.t * 2 + Number(board.c)) * this.boardSkipX - this.boardMargin,
+                    this._displayL(board.l) * this.boardSkipY - this.boardMargin,
+                    this.boardLengthX * this.squareSize + 2 * this.boardMargin,
+                    this.boardLengthY * this.squareSize + 2 * this.boardMargin);
                 ctx.restore();
+            } else {
+                this._drawNormalBoard(ctx, board, squareLength, highlights, bounds);
             }
-        }
-        
-        // Layer 2.1: file/rank labels
-        const labelOpacity = safeOpacity(smoothClamp(30.0, 50.0, squareLength));
-        if (labelOpacity > 0) {
-            ctx.save();
-            ctx.font = `italic ${this.fontSizeforXY}px Playfair, serif`;
-            ctx.textBaseline = 'alphabetic';
-            ctx.textAlign = 'left';
-            // Align visible left edges consistently despite italic side bearings.
-            const labelInsetX = this.fontSizeforXY * 0.05;
-            const rankInsetY = this.fontSizeforXY * 0.1;
-            const rankLabels = Array.from({ length: this.boardLengthY }, (_, row) => {
-                const text = `${this._displayRankForRow(row)}`;
-                const metrics = ctx.measureText(text);
-                return {
-                    text,
-                    x: labelInsetX + metrics.actualBoundingBoxLeft,
-                    y: rankInsetY + metrics.actualBoundingBoxAscent
-                };
-            });
-            const fileLabels = Array.from({ length: this.boardLengthX }, (_, i) => {
-                const text = String.fromCharCode(97 + i);
-                return { text, x: labelInsetX + ctx.measureText(text).actualBoundingBoxLeft };
-            });
-            // Keep a shared baseline while reserving room for descenders.
-            const fileDescent = Math.max(0, ctx.measureText(fileLabels.map(label => label.text).join('')).actualBoundingBoxDescent);
-            ctx.globalAlpha = labelOpacity;
-            for (const board of cache.filteredBoards) {
-                let l = this._displayL(board.l), v = board.t << 1 | board.c;
-                const shiftX = v * this.boardSkipX;
-                const shiftY = l * this.boardSkipY;
-
-                const bottomBoardRow = this.flipped ? 0 : (this.boardLengthY - 1);
-                for (let i = 1; i < this.boardLengthX; i+=2) {
-                    if (board.parsed?.[bottomBoardRow]?.[i] === '#') continue;
-                    ctx.fillStyle = this._getLabelTextColor(bottomBoardRow, i);
-                    ctx.fillText(
-                        fileLabels[i].text,
-                        shiftX + this._displayBoardCol(i) * this.squareSize + fileLabels[i].x,
-                        shiftY + this.boardLengthY * this.squareSize - fileDescent
-                    );
-                }
-                for (let i = 0; i < this.boardLengthY; i+=2) {
-                    if (board.parsed?.[i]?.[this._displayBoardCol(0)] === '#') continue;
-                    const drawRow = this._displayBoardRow(i);
-                    ctx.fillStyle = this._getLabelTextColor(i, this._displayBoardCol(0));
-                    ctx.fillText(
-                        rankLabels[i].text,
-                        shiftX + rankLabels[i].x,
-                        shiftY + drawRow * this.squareSize + rankLabels[i].y
-                    );
-                }
-            }
-            for (const board of cache.filteredBoards) {
-                let l = this._displayL(board.l), v = board.t << 1 | board.c;
-                const shiftX = v * this.boardSkipX;
-                const shiftY = l * this.boardSkipY;
-
-                const bottomBoardRow = this.flipped ? 0 : (this.boardLengthY - 1);
-                for (let i = 0; i < this.boardLengthX; i+=2) {
-                    if (board.parsed?.[bottomBoardRow]?.[i] === '#') continue;
-                    ctx.fillStyle = this._getLabelTextColor(bottomBoardRow, i);
-                    ctx.fillText(
-                        fileLabels[i].text,
-                        shiftX + this._displayBoardCol(i) * this.squareSize + fileLabels[i].x,
-                        shiftY + this.boardLengthY * this.squareSize - fileDescent
-                    );
-                }
-                for (let i = 1; i < this.boardLengthY; i+=2) {
-                    if (board.parsed?.[i]?.[this._displayBoardCol(0)] === '#') continue;
-                    const drawRow = this._displayBoardRow(i);
-                    ctx.fillStyle = this._getLabelTextColor(i, this._displayBoardCol(0));
-                    ctx.fillText(
-                        rankLabels[i].text,
-                        shiftX + rankLabels[i].x,
-                        shiftY + drawRow * this.squareSize + rankLabels[i].y
-                    );
-                }
-            }
-            ctx.restore();
         }
 
         this.cameraElement.innerHTML = `SquareLength: ${squareLength.toFixed(2)}`;
@@ -951,6 +983,8 @@ export default class ChessBoardCanvas
 
     reloadColors() {
         this._loadColors();
+        if (this.data) this._prepareBoardRasters(this.data.boards);
+        this.filterCache.bounds = [];
         // force a redraw so new colors take effect
         this.infCanvas.startAnimation();
     }

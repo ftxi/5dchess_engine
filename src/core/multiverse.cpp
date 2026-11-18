@@ -199,9 +199,7 @@ void multiverse::insert_board(int l, int t, bool c, const std::shared_ptr<const 
 
 std::pair<int,int> multiverse::calculate_active_range() const noexcept
 {
-    const int left_extent = layout.mirror(l_min);
-    const int common_extent = std::min(left_extent, l_max);
-    const int radius = common_extent + (common_extent < std::max(left_extent, l_max));
+    const int radius = std::min(layout.mirror(l_min), l_max) + 1;
     return {std::max(l_min, layout.mirror(radius)), std::min(l_max, radius)};
 }
 

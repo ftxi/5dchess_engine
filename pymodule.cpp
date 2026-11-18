@@ -1,6 +1,5 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
 #include <ostream>
 #include "game.h"
@@ -9,7 +8,6 @@
 namespace py = pybind11;
 
 using metadata_t = std::map<std::string, std::string>;
-PYBIND11_MAKE_OPAQUE(metadata_t);
 
 namespace {
 int checked_coordinate(const py::int_ &value, int lower, int upper, const char *name)
@@ -39,20 +37,6 @@ metadata_t metadata_from_dict(const py::dict &headers)
 
 PYBIND11_MODULE(engine, m) {
     m.doc() = "5d chess engine"; // optional module docstring
-    py::bind_map<metadata_t>(m, "Metadata")
-        .def(py::init(&metadata_from_dict))
-        .def("get", [](const metadata_t &headers, const std::string &key, py::object fallback) {
-            auto it = headers.find(key);
-            return it == headers.end() ? fallback : py::cast(it->second);
-        }, py::arg("key"), py::arg("default") = py::none())
-        .def("update", [](metadata_t &headers, const py::dict &updates) {
-            for(const auto &[key, value] : metadata_from_dict(updates))
-                headers[key] = value;
-        }, py::arg("updates"))
-        .def("clear", &metadata_t::clear)
-        .def("copy", [](metadata_t &headers) {
-            return py::dict(py::cast(&headers, py::return_value_policy::reference));
-        });
     py::enum_<piece_t>(m, "Piece")
         .value("NO_PIECE", NO_PIECE)
         .value("WALL_PIECE", WALL_PIECE)
@@ -198,12 +182,21 @@ PYBIND11_MODULE(engine, m) {
         .def_readonly("pgn", &game::action_summary::pgn)
         .def_readonly("is_illegal", &game::action_summary::is_illegal);
     py::class_<game>(m, "game")
-        // metadata
+        .def("get_header", &game::get_header, py::arg("key"))
+        .def("set_header", &game::set_header, py::arg("key"), py::arg("value"))
+        .def("header_keys", &game::header_keys)
         .def_property("metadata",
-            [](game &g) -> metadata_t & { return g.metadata; },
-            [](game &g, const py::dict &metadata) { g.metadata = metadata_from_dict(metadata); },
-            py::return_value_policy::reference_internal,
-            "Live metadata mapping. Assignment replaces all headers; edits do not change the loaded position.")
+            [](const game &g) {
+                py::dict snapshot;
+                for(const auto &key : g.header_keys())
+                    snapshot[py::str(key)] = py::str(*g.get_header(key));
+                return snapshot;
+            },
+            [](game &g, const py::dict &metadata) {
+                for(const auto &[key, value] : metadata_from_dict(metadata))
+                    g.set_header(key, value);
+            },
+            "Header snapshot. Assignment updates the supplied editable headers.")
         // factory
         .def_static("from_pgn", [](std::string pgn, bool allow_illegal_history) {
             return game::from_pgn(std::move(pgn), {allow_illegal_history});

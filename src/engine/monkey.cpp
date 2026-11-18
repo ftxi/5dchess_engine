@@ -19,7 +19,7 @@ std::optional<action> monkey_engine::find_best_move(std::optional<int> depth_lim
     {
         return std::nullopt;
     }
-    if(auto mvs = w.iterative_search(std::move(ss), std::move(order)).first())
+    if(auto mvs = w.search<random_HC_ordering, hc_policy::iterative>(std::move(ss), std::move(order)).first())
     {
         std::vector<ext_move> ext_mvs;
         for(full_move fm : *mvs)

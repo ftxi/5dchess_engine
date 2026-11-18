@@ -1,0 +1,166 @@
+{
+  "executable": "build/5dtools",
+  "policy": "deferred",
+  "warmup_rounds": 3,
+  "rounds": 5,
+  "count_prefixes": [
+    10,
+    100,
+    1000
+  ],
+  "metrics": false,
+  "profile-count": [
+    {
+      "file": "test/pgn/count/30134.5dpgn",
+      "expected": "=30134"
+    },
+    {
+      "file": "test/pgn/count/55332.5dpgn",
+      "expected": "=55332"
+    },
+    {
+      "file": "test/pgn/NP.5dpgn",
+      "expected": "=8"
+    },
+    {
+      "file": "test/pgn/count/four-timeline-knights.5dpgn",
+      "expected": "=35204"
+    },
+    {
+      "file": "test/pgn/small.5dpgn",
+      "at": "0",
+      "expected": "=20"
+    },
+    {
+      "file": "test/pgn/NP0.5dpgn",
+      "expected": "=0"
+    },
+    {
+      "file": "test/pgn/small.5dpgn",
+      "at": "1b",
+      "expected": "=602"
+    },
+    {
+      "file": "test/pgn/online/601.5dpgn",
+      "at": "7b",
+      "expected": "=1219"
+    },
+    {
+      "file": "test/pgn/online/116.5dpgn",
+      "at": "5b",
+      "expected": "=7098"
+    },
+    {
+      "file": "test/pgn/futures.5dpgn",
+      "at": "9b",
+      "expected": "=5306"
+    },
+    {
+      "file": "test/pgn/online/026.5dpgn",
+      "at": "11b",
+      "expected": "=3420"
+    },
+    {
+      "file": "test/pgn/online/113.5dpgn",
+      "at": "17w",
+      "expected": "=3758"
+    },
+    {
+      "file": "test/pgn/online/204.5dpgn",
+      "at": "10w",
+      "expected": "=1456"
+    },
+    {
+      "file": "test/pgn/online/070.5dpgn",
+      "at": "20w",
+      "expected": "=49196"
+    },
+    {
+      "file": "test/pgn/niceAndrey.5dpgn",
+      "at": "30b",
+      "expected": "=118398"
+    },
+    {
+      "file": "test/pgn/online/235.5dpgn",
+      "at": "20w",
+      "expected": "=145310"
+    },
+    {
+      "file": "test/pgn/ctp1.5dpgn",
+      "at": "8w",
+      "expected": "=98318"
+    },
+    {
+      "file": "test/pgn/manyChecks.5dpgn",
+      "at": "20w",
+      "expected": ">50000"
+    },
+    {
+      "file": "test/pgn/wide.5dpgn",
+      "at": "18w",
+      "expected": ">50000"
+    },
+    {
+      "file": "test/pgn/niceAndrey.5dpgn",
+      "expected": ">50000"
+    }
+  ],
+  "profile-checkmate": [
+    "test/pgn/gigantic/100timelines.5dpgn",
+    "test/pgn/gigantic/factored-match-59.5dpgn",
+    "test/pgn/gigantic/factored-match-72.5dpgn",
+    "test/pgn/gigantic/flat-ucb-match-123.5dpgn"
+  ],
+  "profile-perftest": [
+    "test/pgn/online/026.5dpgn",
+    "test/pgn/online/027.5dpgn",
+    "test/pgn/online/029.5dpgn",
+    "test/pgn/online/031.5dpgn",
+    "test/pgn/online/033.5dpgn",
+    "test/pgn/online/034.5dpgn",
+    "test/pgn/online/036.5dpgn",
+    "test/pgn/online/090.5dpgn",
+    "test/pgn/online/094.5dpgn",
+    "test/pgn/online/096.5dpgn",
+    "test/pgn/online/101.5dpgn",
+    "test/pgn/online/105.5dpgn",
+    "test/pgn/online/111.5dpgn",
+    "test/pgn/online/115.5dpgn",
+    "test/pgn/online/122.5dpgn",
+    "test/pgn/online/143.5dpgn",
+    "test/pgn/online/151.5dpgn",
+    "test/pgn/online/212.5dpgn",
+    "test/pgn/online/224.5dpgn",
+    "test/pgn/online/229.5dpgn",
+    "test/pgn/online/234.5dpgn",
+    "test/pgn/online/239.5dpgn",
+    "test/pgn/online/249.5dpgn",
+    "test/pgn/online/251.5dpgn",
+    "test/pgn/online/262.5dpgn",
+    "test/pgn/online/282.5dpgn",
+    "test/pgn/online/294.5dpgn",
+    "test/pgn/online/433.5dpgn",
+    "test/pgn/online/443.5dpgn",
+    "test/pgn/online/446.5dpgn",
+    "test/pgn/online/531.5dpgn",
+    "test/pgn/online/559.5dpgn",
+    "test/pgn/online/573.5dpgn",
+    "test/pgn/online/589.5dpgn",
+    "test/pgn/online/605.5dpgn",
+    "test/pgn/online/620.5dpgn",
+    "test/pgn/online/632.5dpgn",
+    "test/pgn/online/655.5dpgn",
+    "test/pgn/online/671.5dpgn",
+    "test/pgn/online/682.5dpgn",
+    "test/pgn/online/693.5dpgn",
+    "test/pgn/online/710.5dpgn",
+    "test/pgn/online/736.5dpgn",
+    "test/pgn/online/751.5dpgn",
+    "test/pgn/online/755.5dpgn",
+    "test/pgn/online/759.5dpgn",
+    "test/pgn/online/760.5dpgn",
+    "test/pgn/online/775.5dpgn",
+    "test/pgn/online/779.5dpgn",
+    "test/pgn/online/780.5dpgn"
+  ]
+}

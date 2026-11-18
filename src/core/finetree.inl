@@ -216,7 +216,7 @@ inline fine_node<T> *fine_node<T>::expand(const Order &order)
     }
     const auto &[pt, cell, hc] = *ans;
     fine_node<T> *final_node = isolate(pt, cell, hc);
-    fine_node<T> *next_node = normalize(pt, cell, final_node);
+    fine_node<T> *next_node = normalize(pt, final_node);
     return next_node;
 }
 
@@ -252,10 +252,10 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
             continue;
         }
 
-        auto problem = hc_info.find_problem(*pt_opt, hc);
+        auto problem = hc_info.find_problem(*pt_opt, hc_info.get_universe());
         if(problem)
         {
-            remove_problem(*problem, cell);
+            remove_problem(*problem);
             continue;
         }
 
@@ -267,78 +267,33 @@ inline std::optional<std::tuple<point, fine_cell<T> *, HC *>> fine_node<T>::expl
 
 template<typename T>
     requires std::default_initializable<T>
-inline void fine_node<T>::remove_from_cell(
-    const slice &s,
-    fine_cell<T> *cell,
-    bool force_back_removal
-)
+inline void fine_node<T>::remove_from_cell(const slice &s, fine_cell<T> *cell)
 {
-    if(cell->space.intersects(s))
-    {
-        cell->subspace.remove_slice_backwards(s, force_back_removal);
-    }
+    if(!cell->space.intersects(s)) return;
+    cell->subspace.remove_slice_globally(s);
 }
 
 template<typename T>
     requires std::default_initializable<T>
-inline void fine_node<T>::remove_from_node(
-    const slice &s,
-    fine_node<T> *node,
-    fine_cell<T> *critical_cell,
-    bool force_critical_removal
-)
+inline void fine_node<T>::remove_from_node(const slice &s, fine_node<T> *node)
 {
-    remove_from_cell(s, critical_cell, force_critical_removal);
-    for(fine_cell<T> *cell : node->cells)
-    {
-        if(cell != critical_cell)
-        {
-            remove_from_cell(s, cell, false);
-        }
-    }
+    for(fine_cell<T> *cell : node->cells) remove_from_cell(s, cell);
 }
 
 template<typename T>
     requires std::default_initializable<T>
-inline void fine_node<T>::remove_problem(const slice &s, fine_cell<T> *origin_cell)
+inline void fine_node<T>::remove_problem(const slice &s)
 {
     nodal_pocession *problem_context = get_context();
-    // Process only the cells owned by the current node and its ancestors.
-    // Do not enter either the current node's descendants or off-path child
-    // subtrees of an ancestor. The originating HC is always cut to guarantee
-    // progress; secondary HCs are subject to the quality filter.
-    remove_from_node(s, this, origin_cell, true);
-    if(is_nodal())
+    // Propagate the whole conflict through every remaining HC on the current
+    // node/ancestor path. Stay within this position's context; do not visit
+    // descendants or off-path sibling subtrees.
+    for(fine_node<T> *node = this;
+        node && node->get_context() == problem_context;
+        node = node->parent)
     {
-        return;
-    }
-
-    // Cells grow monotonically along the parent chain. If cutting the problem
-    // slice from the current path cell already exceeds the quality limit, the
-    // corresponding parent cells cannot improve.
-    if(!origin_cell->space.is_slice_good(s))
-    {
-        return;
-    }
-
-    fine_node<T> *ancestor = parent;
-    fine_cell<T> *path_cell = origin_cell->parent;
-    while(ancestor != nullptr
-          && ancestor->get_context() == problem_context
-          && path_cell != nullptr)
-    {
-        if(!path_cell->space.is_slice_good(s))
-        {
-            break;
-        }
-
-        remove_from_node(s, ancestor, path_cell, false);
-        if(ancestor->is_nodal())
-        {
-            break;
-        }
-        ancestor = ancestor->parent;
-        path_cell = path_cell->parent;
+        remove_from_node(s, node);
+        if(node->is_nodal()) break;
     }
 }
 
@@ -371,7 +326,7 @@ inline fine_node<T> *fine_node<T>::isolate(const point &p, fine_cell<T> *target_
 
 template<typename T>
     requires std::default_initializable<T>
-inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *target_cell, fine_node<T> *final_node)
+inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_node<T> *final_node)
 {
     std::vector<fine_node<T> *> nodes(get_context()->hc_info.dimension()+1, nullptr);
     fine_node<T> *current_node = final_node;
@@ -383,9 +338,10 @@ inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *targe
     index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
     nodes[next_n] = this;
     
-    auto try_isolate = [current_node=this, &p, target_cell, &nodes](HC *target_hc)
+    auto try_isolate = [current_node=this, &p, &nodes](
+        fine_cell<T> *source_cell, HC *target_hc)
     -> void {
-        fine_cell<T> *current_cell = target_cell;
+        fine_cell<T> *current_cell = source_cell;
         HC *current_hc = target_hc;
         index_t next_n = current_node->is_nodal() ? 0 : current_node->n + 1;
         auto context = current_node->get_context();
@@ -409,9 +365,14 @@ inline fine_node<T> *fine_node<T>::normalize(const point &p, fine_cell<T> *targe
         }
     };
 
-    for(HC &hc : target_cell->subspace)
+    // Transfer matching prefixes from every cell owned by this node.
+    // Each transferred region retains its source cell as its parent.
+    for(fine_cell<T> *source_cell : cells)
     {
-        try_isolate(&hc);
+        for(HC &hc : source_cell->subspace)
+        {
+            try_isolate(source_cell, &hc);
+        }
     }
     index_t n1 = next_n + 1;
     return nodes[n1];

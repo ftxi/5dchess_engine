@@ -76,6 +76,8 @@ for (const first of ['engine', 'pieces', 'both']) {
         assert.equal(document.status.textContent, '[5/5] Loading the starting position…');
         assert.equal(document.screen.removed, false);
         vm.runInContext("reportLoaded('position'); reportLoaded('engine')", context);
+        assert.equal(document.screen.removed, false, 'Board preparation must also finish');
+        vm.runInContext("reportLoaded('boards')", context);
         assert.equal(document.screen.removed, true);
         assert.equal(document.status.textContent, '[5/5] Loading the starting position…');
     });
@@ -96,6 +98,8 @@ test('early interface and repeated reports still wait for every startup dependen
     assert.equal(document.screen.removed, false);
     vm.runInContext("reportLoaded('engine')", context);
     assert.equal(document.status.textContent, '[5/5] Loading the starting position…');
+    vm.runInContext("reportLoaded('boards'); reportLoaded('boards')", context);
+    assert.equal(document.screen.removed, false, 'Prepared boards still need a rendered position');
     vm.runInContext("reportLoaded('position'); reportLoaded('position')", context);
     assert.equal(document.screen.removed, true);
     assert.equal(sibling.inert, false);

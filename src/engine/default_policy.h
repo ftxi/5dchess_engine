@@ -148,10 +148,12 @@ public:
             {
                 bool player = s.get_present().c();
                 std::optional<bool> winner = std::nullopt;
-                if(s.get_mate_type() == mate_type::CHECKMATE)
+                // The action search has already proved there is no legal action.
+                if(s.has_phantom_check())
                 {
                     winner = !player;
                 }
+                if(stop_token.stop_requested()) return std::nullopt;
                 return cutoff_evaluation.mate_reward(winner, num_actions);
             }
             for(full_move mv : *action)

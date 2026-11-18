@@ -6,7 +6,11 @@
 #include "game.h"
 #include "pgnparser.h"
 
-using namespace emscripten;
+using emscripten::class_;
+using emscripten::constant;
+using emscripten::function;
+using emscripten::optional_override;
+using emscripten::val;
 
 namespace
 {
@@ -88,14 +92,33 @@ const char *error_code(const board_fen_error::error_type_t &reason)
         [](const board_fen_error::invalid_unmoved_marker &) { return "invalid_unmoved_marker"; }
     }, reason);
 }
+
+game::load_options read_load_options(const val &js_options)
+{
+    game::load_options options;
+    if(js_options.isUndefined()) return options;
+    if(js_options.isNull() || js_options.typeOf().as<std::string>() != "object" || js_options.isArray())
+        val::global("TypeError").new_(std::string("from_pgn options must be an object")).throw_();
+    const auto read_boolean = [&js_options](const char *name, bool &target) {
+        const val value = js_options[name];
+        if(value.isUndefined()) return;
+        if(value.typeOf().as<std::string>() != "boolean")
+            val::global("TypeError").new_(std::string("from_pgn option ") + name + " must be a boolean").throw_();
+        target = value.as<bool>();
+    };
+    read_boolean("allowIllegalHistory", options.allow_illegal_history);
+    read_boolean("initialPositionOnly", options.initial_position_only);
+    return options;
+}
+
 } /* anonymous namespace */
 
 // Safe wrapper that returns JavaScript object with success/error
-val create_game_from_pgn(const std::string &pgn, bool allow_illegal_history)
+val create_game_from_pgn(const std::string &pgn, game::load_options options)
 {
     val result = val::object();
     try {
-        auto game_ptr = std::make_shared<game>(game::from_pgn(pgn, {allow_illegal_history}));
+        auto game_ptr = std::make_shared<game>(game::from_pgn(pgn, options));
         result.set("success", true);
         result.set("game", val(game_ptr));
         return result;
@@ -214,14 +237,18 @@ inline val convert_action_to_js(const action &act)
     return js_act;
 }
 
-inline val convert_metadata_to_js(const std::map<std::string, std::string> &metadata)
+inline val convert_metadata_to_js(const game &g)
 {
-    val js_metadata = val::object();
-    for (const auto &[key, value] : metadata)
+    val entries = val::array();
+    unsigned index = 0;
+    for(const auto &key : g.header_keys())
     {
-        js_metadata.set(key, value);
+        val entry = val::array();
+        entry.set(0u, key);
+        entry.set(1u, *g.get_header(key));
+        entries.set(index++, entry);
     }
-    return js_metadata;
+    return val::global("Object").call<val>("fromEntries", entries);
 }
 
 ///////////////////////////////
@@ -294,20 +321,30 @@ val child_actions_to_js(const game &g, pgn_options show_flags)
 EMSCRIPTEN_BINDINGS(engine) {
     // Factory function for creating games
     function("from_pgn", optional_override([](const std::string &pgn) {
-        return create_game_from_pgn(pgn, false);
+        return create_game_from_pgn(pgn, {});
     }));
-    function("from_pgn", &create_game_from_pgn);
+    function("from_pgn", optional_override([](const std::string &pgn, const val &options) {
+        return create_game_from_pgn(pgn, read_load_options(options));
+    }));
 
     // Class: game
     class_<game>("game")
         .smart_ptr<std::shared_ptr<game>>("game")
-        .property("metadata", &game::metadata)
         .function("has_illegal_history", &game::has_illegal_history)
+        .function("get_header", optional_override([](const game &self, const std::string &key) {
+            const auto value = self.get_header(key);
+            return value ? val(*value) : val::undefined();
+        }))
+        .function("set_header", &game::set_header)
+        .function("header_keys", optional_override([](const game &self) {
+            return val::array(self.header_keys());
+        }))
         .function("get_metadata", optional_override([](const game &self) {
-            return convert_metadata_to_js(self.metadata);
+            return convert_metadata_to_js(self);
         }))
         .function("set_metadata", optional_override([](game &self, val js_metadata) {
-            self.metadata = convert_js_to_metadata(js_metadata);
+            for(const auto &[key, value] : convert_js_to_metadata(js_metadata))
+                self.set_header(key, value);
         }))
         .function("get_current_present", optional_override([](const game &self) {
             const auto [t, c] = self.get_current_present();

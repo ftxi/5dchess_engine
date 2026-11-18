@@ -64,7 +64,8 @@ private:
 public:
     std::optional<actions> parse_actions();
     std::optional<gametree> parse_gametree();
-    std::optional<game> parse_game();
+    // Setup-only parsing leaves the move history unparsed; lexer lookahead remains.
+    std::optional<game> parse_game(bool initial_position_only = false);
 
     // Parse a metadata string that represents a board FEN entry
     // Expected format: <fen-string> ':' ['+' | '-' | NIL] <line> ':' <time> ':' {'w'|'b'}

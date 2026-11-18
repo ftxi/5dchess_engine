@@ -75,12 +75,10 @@ Node *first_ordered_child(Node *node, const Order &order,
     for(auto *child : children)
         if(!unregistered_only || !child->get_info().registered)
             candidates.insert(child->get_i());
-    Node *first = nullptr;
     const index_t axis = children.front()->get_n();
-    order.for_each(axis, candidates, [&](index_t coordinate) {
-        if(!first) first = node->get_child(coordinate);
-    });
-    return first;
+    for(index_t coordinate : order(axis, candidates))
+        return node->get_child(coordinate);
+    return nullptr;
 }
 
 template<class Node, HCOrdering Order>

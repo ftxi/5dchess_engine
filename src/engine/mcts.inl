@@ -49,16 +49,13 @@ template <class TP, class DP, class BP, class SP, class Observer>
 inline std::optional<action>
 basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
     std::optional<int> depth_limit,
-    std::optional<int> time_limit_ms,
+    std::optional<int>,
     std::stop_token stop_token
 )
 {
     constexpr static int DEPTH_TO_ITERATION_MULTIPLIER = 10; // if depth limit is set, iteration_limit = depth_limit * DEPTH_TO_ITERATION_MULTIPLIER
 
     const auto time_search_start = std::chrono::steady_clock::now();
-    const auto time_stop = time_limit_ms.has_value()
-        ? time_search_start + std::chrono::milliseconds(time_limit_ms.value())
-        : std::chrono::steady_clock::time_point::max();
     // Convert depth_limit to iteration budget if provided
     std::optional<std::size_t> iteration_limit;
     if(depth_limit.has_value())
@@ -79,20 +76,12 @@ basic_mcts_engine<TP, DP, BP, SP, Observer>::find_best_move(
             });
             break;
         }
-        // Check iteration limit and time limit
+        // The shared search wrapper requests stop when movetime expires.
         if(iteration_limit.has_value() && iteration_count >= iteration_limit.value())
         {
             watch_event(observer, event::search_aborted{
                 .iteration = iteration_count,
                 .reason = "iteration limit reached"
-            });
-            break;
-        }
-        if(time_limit_ms.has_value() && std::chrono::steady_clock::now() >= time_stop)
-        {
-            watch_event(observer, event::search_aborted{
-                .iteration = iteration_count,
-                .reason = "time limit reached"
             });
             break;
         }

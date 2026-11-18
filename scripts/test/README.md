@@ -35,6 +35,11 @@ immediate decisions, fixed-look p values, and concise final summaries.
 Calibration checks verify the Standard startpos, configured search time, and
 fixed mean of actual target iteration counts across worker CPUs.
 
+`test_profile_hc.py` checks required count comparisons in the profiling manifest,
+their stdin encoding, filename mapping in saved reports, and rejection of invalid
+or overflowing limits. It mocks the native process; native enumeration counts
+are checked by the `hc_count_*` CTest checks.
+
 `test_public_api.py` checks these files through their public interfaces:
 
 | File | What passing verifies |

@@ -1,5 +1,7 @@
 #include <charconv>
 #include <cstdlib>
+#include <chrono>
+#include "search_control.h"
 #include <type_traits>
 #include "uci.h"
 #include <pgnparser.h>
@@ -82,6 +84,19 @@ void engine::stop_search()
     {
         search_thread.request_stop();
     }
+}
+
+std::optional<action> engine::search(
+    std::optional<int> depth_limit,
+    std::optional<int> time_limit_ms,
+    std::stop_token stop)
+{
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = time_limit_ms
+        ? std::optional{started + std::chrono::milliseconds(*time_limit_ms)}
+        : std::nullopt;
+    search_stop_scope control(stop, deadline);
+    return find_best_move(depth_limit, time_limit_ms, control.get_token());
 }
 
 void engine::write_line(const std::string &line)
@@ -212,7 +227,7 @@ void engine::mainloop()
                 launch_async_task(task_state::searching,
                     [this, depth_limit, time_limit_ms](std::stop_token st)
                     -> std::optional<std::string> {
-                    auto best_move = find_best_move(depth_limit, time_limit_ms, st);
+                    auto best_move = search(depth_limit, time_limit_ms, st);
                     if(quit_requested.load())
                     {
                         return std::nullopt;
@@ -567,4 +582,26 @@ void engine::send_debug_info(const std::string &info)
 void engine::on_option_changed(const std::string & /*key*/, const option_value_t & /*value*/)
 {
     // Default no-op — derived engines override to react to specific options.
+}
+
+void engine::set_search_description(std::string description)
+{
+    std::lock_guard lock(options_mutex);
+    search_description = std::move(description);
+}
+
+std::string engine::search_configuration() const
+{
+    std::lock_guard lock(options_mutex);
+    std::ostringstream out;
+    out << "engine_command=" << search_description;
+    for(const auto &[key, value] : options)
+    {
+        out << "\noption " << key << '=';
+        std::visit([&](const auto &entry) {
+            if constexpr(!std::is_same_v<std::decay_t<decltype(entry)>, std::monostate>)
+                out << entry;
+        }, value);
+    }
+    return out.str();
 }

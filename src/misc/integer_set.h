@@ -73,14 +73,17 @@ private:
     template <bool Const>
     class iterator_base
     {
+    public:
+        using value_type = integer_set::value_type;
+    private:
         template <bool>
         friend class iterator_base;
 
         using set_type = std::conditional_t<Const, const integer_set, integer_set>;
 
-        set_type *set;
-        value_type block_index;
-        value_type bit_index;
+        set_type *set = nullptr;
+        value_type block_index = 0;
+        value_type bit_index = 0;
 
         /* advance_to_next:
         if the current block is block_count(), do nothing
@@ -189,6 +192,10 @@ public:
     [[nodiscard]] bool intersects(const integer_set &other) const noexcept;
     [[nodiscard]] bool is_subset_of(const integer_set &other) const noexcept;
 
+    // Visit common values in ascending order without allocating an intersection.
+    template<class F>
+    void for_each_intersection(const integer_set &other, F &&visit) const;
+
     iterator begin() & noexcept { return iterator(this, 0, 0); }
     iterator end() & noexcept { return iterator(this, static_cast<value_type>(block_count()), 0); }
     const_iterator begin() const & noexcept { return const_iterator(this, 0, 0); }
@@ -199,6 +206,13 @@ public:
     const_iterator cbegin() const && = delete;
     const_iterator end() const && = delete;
     const_iterator cend() const && = delete;
+
+    // Remove all values while retaining storage for higher blocks.
+    void clear() noexcept
+    {
+        first_block = 0;
+        remaining_blocks.clear();
+    }
 
     inline constexpr void insert(value_type value);
     bool erase(value_type value) noexcept;
@@ -229,6 +243,21 @@ struct std::iterator_traits<integer_set::const_iterator>
     using value_type = integer_set::value_type;
 };
 
+template <class F>
+inline void integer_set::for_each_intersection(const integer_set &other, F &&visit) const
+{
+    const size_t count = std::min(block_count(), other.block_count());
+    for(size_t block_index = 0; block_index < count; ++block_index)
+    {
+        block_t common = block_at(block_index) & other.block_at(block_index);
+        while(common != 0)
+        {
+            visit(static_cast<value_type>(
+                (block_index << block_shift) | std::countr_zero(common)));
+            common &= common - 1;
+        }
+    }
+}
 
 template <typename Predicate>
 void integer_set::erase_if(Predicate pred)

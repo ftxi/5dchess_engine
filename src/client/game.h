@@ -22,6 +22,7 @@ class game
     std::vector<cache_t> cached;
     std::vector<cache_t>::iterator now;
     std::optional<state> preview;
+    pgnparser_ast::header_map headers;
     
     game(std::unique_ptr<gnode<comments_t>> gt);
     mutable std::optional<bool> nonterminal;
@@ -31,14 +32,16 @@ public:
 
     struct load_options {
         bool allow_illegal_history = false;
+        // With allow_illegal_history, setup legality is unchecked for display preparation.
+        bool initial_position_only = false;
     };
 
-    /* Metadata edits do not change the loaded game’s rules or position. During PGN export, headers 
-    describing game configuration are generated from the actual configuration and override conflicting 
-    metadata values. */
-    std::map<std::string, std::string> metadata;
-    
-    static game from_pgn(std::string str, load_options options = {false});
+    std::optional<std::string> get_header(const std::string &key) const;
+    // Size, Timeline, and Promotions are derived from the initial position.
+    void set_header(const std::string &key, const std::string &value);
+    std::vector<std::string> header_keys() const;
+
+    static game from_pgn(std::string str, load_options options = {false, false});
 
     // Flags describe submitted history, not temporary draft moves or previews.
     bool has_illegal_history() const noexcept;

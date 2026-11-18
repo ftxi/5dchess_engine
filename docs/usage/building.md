@@ -136,6 +136,19 @@ pass `allow_submit_with_checks=True` to both methods. This still requires a
 completed turn and marks accepted exposed actions as illegal history. Loading
 such games separately requires `game.from_pgn(pgn, allow_illegal_history=True)`.
 
+Use `game.get_header("event")` to read a header, `game.set_header("Event", value)`
+to edit it, and `game.header_keys()` to list the available names. Lookups and edits
+match keys case-insensitively. Export uses canonical spelling for known headers,
+including `Puzzle`, and preserves the original spelling of custom headers.
+Standard-only export includes `Puzzle` and omits custom headers.
+
+`Size`, `Timeline`, and `Promotions` report the loaded rules and ignore edits.
+`Timeline` uses `Odd` or `Even`. Reading `Variant` falls back to `Board` when
+`Variant` is empty or absent. Loading and export prefer `Board` when both are
+present. In Python, `game.metadata` returns a snapshot dictionary. Assign a
+dictionary to update the supplied editable headers, or use `set_header` to edit
+one header. Headers omitted from the dictionary keep their values.
+
 ## WebAssembly
 
 Requires [emscripten](https://emscripten.org).
@@ -155,6 +168,19 @@ On opening the interface, the engine initializes alongside chess-piece loading.
 The starting position appears once both are ready; bundled board-label fonts
 load in the background.
 
+When zoomed out, board surfaces and frames use cached images; highlighted
+boards keep direct drawing to preserve their highlight layering. Zooming in
+restores direct drawing and the file/rank labels. Phantom-board labels use the
+same opacity as their board, combined with their zoom fade.
+
+The analyzer prepares board images while checking an import. The import dialog
+shows **Checking import and preparing boards…** while both tasks run, then
+**Checking import…** or **Preparing boards…** if one finishes first. The loaded
+position opens after both tasks finish and the import is accepted. Zoomed-out
+boards use these images even at the furthest zoom; close views show file/rank
+labels. Phantom-board opacity applies uniformly to each board
+surface, including its labels.
+
 For interface structure and behavior, see
 [Web UI architecture](../architecture/webui.md).
 
@@ -162,7 +188,9 @@ For interface structure and behavior, see
 
 On opening the analyzer, a text-only loading screen shows numbered checkpoints
 while WebAssembly and chess pieces load, the interface is prepared, and the
-starting position loads. Checkpoint 3 names whichever resource is still loading
+starting position loads. The final checkpoint includes preparing board images;
+the loading screen closes only after preparation finishes and the position is
+drawn. Checkpoint 3 names whichever resource is still loading
 and may be skipped. The numbers identify startup checkpoints rather than a
 percentage. The screen closes when the starting board is drawn.
 
@@ -184,6 +212,11 @@ darkhttpd ui/
 ```
 
 ### Correcting PGN imports
+
+Long game histories and deeply nested variations can be imported in browser
+workers, including Safari. Importing and discarding these trees no longer use
+call-stack space proportional to their depth; available memory still limits
+the size of a game.
 
 If a PGN cannot be loaded, the import dialog stays open and shows the full error
 below the input. Hover over the underlined yellow location to highlight the

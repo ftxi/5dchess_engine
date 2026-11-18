@@ -129,9 +129,15 @@ Moves, comments, variations, and user-supplied metadata remain preserved.
 ### Binding and UI integration
 
 Python exposes `game.from_pgn(pgn, allow_illegal_history=False)`, both history
-queries, and `match_status_t.ILLEGAL_HISTORY`. WebAssembly supports both
-`from_pgn(pgn)` (strict) and `from_pgn(pgn, allow_illegal_history)`, with the
-existing `{success, game, message}` result convention. It exposes both history
+queries, and `match_status_t.ILLEGAL_HISTORY`. WebAssembly supports
+`from_pgn(pgn)` (strict) and `from_pgn(pgn, options)`, where the optional JavaScript
+object accepts boolean `allowIllegalHistory` and `initialPositionOnly` properties.
+Omitted or undefined properties retain the C++ load-option defaults. For example,
+`from_pgn(pgn, { allowIllegalHistory: true })` enables permissive loading. The
+initial-only option returns the setup without processing history; combining it
+with `allowIllegalHistory: true` also bypasses setup legality checking for display
+preparation. Invalid option types throw JavaScript `TypeError`s. PGN loading
+retains the existing `{success, game, message}` result convention. It exposes both history
 queries and formats the flagged match status as `White's Move (Illegal History)`
 or `Black's Move (Illegal History)` from the selected node's mover.
 

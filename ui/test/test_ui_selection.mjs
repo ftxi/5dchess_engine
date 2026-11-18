@@ -157,7 +157,7 @@ test('main-thread wiring renders local feedback, preserves it on refresh and cle
             postMessage(message) { messages.push(message); }
         },
         ChessBoardCanvasBase: class {
-            constructor() { this.infCanvas = { _cancelPendingTap() {} }; }
+            constructor() { this.infCanvas = { _cancelPendingTap() {}, startAnimation() {} }; }
             setSelectionHighlights(value) { highlights = structuredClone(value); }
             setData(value) { displayed = structuredClone(value); }
         },

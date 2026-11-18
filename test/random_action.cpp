@@ -31,7 +31,7 @@ int main()
     auto [w, ss] = HC_info::build_HC(s);
     random_HC_ordering order(w.get_universe());
 
-    auto gen = w.search(std::move(ss), std::move(order));
+    auto gen = w.search<decltype(order), hc_policy::balanced>(std::move(ss), std::move(order));
     int printed = 0;
     for(const moveseq &mvs : gen)
     {

@@ -67,6 +67,11 @@ int run()
                 std::cerr << "Test failed: subset query disagrees with reference\n";
                 return 1;
             }
+            std::vector<uint32_t> common, visited;
+            std::set_intersection(a_values.begin(), a_values.end(),
+                b_values.begin(), b_values.end(), std::back_inserter(common));
+            a.for_each_intersection(b, [&](index_t i) { visited.push_back(i); });
+            assert(visited == common);
         }
     }
 
@@ -254,6 +259,11 @@ int run()
 
 namespace ordering_tests
 {
+static_assert(std::forward_iterator<integer_set::iterator>);
+static_assert(std::forward_iterator<integer_set::const_iterator>);
+static_assert(HCCoordinateRange<std::vector<index_t>>);
+static_assert(!HCCoordinateRange<std::vector<float>>);
+
 template<HCOrdering Order>
 std::vector<index_t> collect(
     const Order &order,
@@ -261,9 +271,25 @@ std::vector<index_t> collect(
     const integer_set &allowed)
 {
     std::vector<index_t> result;
-    order.for_each(axis, allowed, [&](index_t i) {
-        result.push_back(i);
-    });
+    auto &&coordinates = order(axis, allowed);
+    auto first = coordinates.begin();
+    auto copy = first;
+    if(first != coordinates.end())
+    {
+        const index_t value = *copy;
+        auto previous = first++;
+        assert(*previous == value && *copy == value);
+        assert(copy == coordinates.begin());
+    }
+    for(index_t i : coordinates) result.push_back(i);
+    std::vector<index_t> repeated;
+    for(index_t i : coordinates) repeated.push_back(i);
+    assert(result == repeated);
+    const integer_set empty;
+    auto &&none = order(axis, empty);
+    assert(none.begin() == none.end());
+    using Iterator = decltype(first);
+    assert(Iterator{} == Iterator{});
     return result;
 }
 
@@ -274,6 +300,29 @@ void test_natural_ordering()
     natural_HC_ordering natural;
     auto expected = std::vector<index_t>{0, 1, 2, 3};
     assert((collect(natural, 0, universe[0]) == expected));
+}
+
+void test_sparse_coordinate_ranges()
+{
+    HC universe{integer_set{0, 1, 63, 64, 127, 128, 511}};
+    const integer_set allowed{0, 64, 128, 511};
+    natural_HC_ordering natural;
+    assert((collect(natural, 0, allowed) == std::vector<index_t>{0, 64, 128, 511}));
+    std::vector<std::vector<float>> scores(1, std::vector<float>(512));
+    for(index_t i : universe[0]) scores[0][i] = static_cast<float>(i + 1);
+    std::mt19937 rng(71);
+    scored_HC_ordering scored(universe, scores, rng);
+    assert((collect(scored, 0, allowed) == std::vector<index_t>{511, 128, 64, 0}));
+    random_HC_ordering random(universe, rng);
+    weighted_HC_ordering weighted(universe, {{1, 2, 3, 4, 5, 6, 7}}, rng);
+    const auto check_subset = [&](const auto &order) {
+        std::vector<index_t> expected;
+        for(index_t i : collect(order, 0, universe[0]))
+            if(allowed.contains(i)) expected.push_back(i);
+        assert(collect(order, 0, allowed) == expected);
+    };
+    check_subset(random);
+    check_subset(weighted);
 }
 
 void test_random_ordering()
@@ -374,6 +423,7 @@ void test_weighted_ordering()
 int run()
 {
     test_natural_ordering();
+    test_sparse_coordinate_ranges();
     test_random_ordering();
     test_scored_ordering();
     test_weighted_ordering();

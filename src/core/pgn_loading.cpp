@@ -1,3 +1,4 @@
+#include <locale>
 #include "pgn_loading.h"
 #include "variants.h"
 #include "utils.h"
@@ -14,9 +15,10 @@ struct invalid_variant {
     std::string header;
 };
 
-std::pair<int, int> get_board_size_from_headers(const std::map<std::string, std::string> &metadata)
+std::pair<int, int> get_board_size_from_headers(const pgnparser_ast::header_map &metadata)
 {
-    std::string size_str = find_or_default(metadata, std::string("size"), std::string("8x8"));
+    const auto size = metadata.find("size");
+    const std::string size_str = size == metadata.end() ? "8x8" : size->second;
     auto pos = size_str.find('x');
     if (pos == std::string::npos)
     {
@@ -94,8 +96,8 @@ variant_setup_t resolve_variant_setup(const pgnparser_ast::game &g)
     if(auto timeline = metadata.find("timeline"); timeline != metadata.end())
     {
         std::string value = timeline->second;
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
+        std::transform(value.begin(), value.end(), value.begin(), [](char c) {
+            return std::tolower(c, std::locale::classic());
         });
         if(value == "even")
             is_even_timelines = true;

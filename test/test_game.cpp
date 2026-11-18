@@ -268,7 +268,7 @@ int run() try
     state initial = state::from_pgn<true>("[Variant \"Standard\"]");
     auto [info, space] = HC_info::build_HC(initial);
     std::vector<action> actions;
-    for(const auto &moves : info.search(std::move(space)))
+    for(const auto &moves : info.search<natural_HC_ordering, hc_policy::balanced>(std::move(space)))
     {
         actions.push_back(action::from_moveseq(moves, initial));
         if(actions.size() == 2) break;
@@ -1329,8 +1329,178 @@ int run()
 }
 } /* namespace illegal_history_tests */
 
+namespace stack_safety_tests
+{
+namespace {
+const std::string setup = "[Board \"Custom\"]\n[7k/8/8/8/8/8/8/K7:0:1:w]\n";
+
+std::string quiet_move(int ply)
+{
+    switch(ply % 4)
+    {
+        case 0: return "Ka1b1";
+        case 1: return "Kh8g8";
+        case 2: return "Kb1a1";
+        default: return "Kg8h8";
+    }
+}
+
+void test_long_import()
+{
+    std::string input = setup;
+    for(int ply = 0; ply < 1024; ++ply)
+        input += "/ " + quiet_move(ply) + "\n";
+    {
+        auto g = game::from_pgn(input);
+        assert((g.get_current_present() == std::pair{513, false}));
+        for(int ply = 0; ply < 1024; ++ply)
+        {
+            assert(g.has_parent());
+            g.visit_parent();
+        }
+        assert(!g.has_parent());
+        assert(g.delete_child(g.get_child_actions().front().act));
+        assert(g.get_child_actions().empty());
+    }
+    // Validation failure must also clean up the entire partial history.
+    bool rejected = false;
+    try { game::from_pgn(input + "/ Ka1h7"); }
+    catch(const pgn_validation_error &) { rejected = true; }
+    assert(rejected);
+}
+
+void test_nested_variations()
+{
+    std::string input = setup;
+    constexpr int depth = 256;
+    for(int ply = 0; ply < depth; ++ply)
+        input += "(/ " + quiet_move(ply) + " ";
+    for(int ply = depth - 1; ply >= 0; --ply)
+    {
+        const std::string from = quiet_move(ply).substr(0, 3);
+        input += ") / " + from + (ply % 2 ? "h7" : "a2") + " ";
+    }
+    auto g = game::from_pgn(input);
+    // Import ends at the outermost main continuation, not a nested leaf.
+    assert((g.get_current_present() == std::pair{1, true}));
+    g.visit_parent();
+    for(int ply = 0; ply < depth; ++ply)
+    {
+        const auto children = g.get_child_actions();
+        assert(children.size() == 2);
+        assert(g.visit_child(children.front().act));
+    }
+    assert(g.get_child_actions().empty());
+
+    // Missing closing parentheses retain the established syntax diagnostic.
+    input = setup;
+    for(int ply = 0; ply < depth; ++ply)
+        input += "(/ " + quiet_move(ply) + " ";
+    bool rejected = false;
+    try { pgnparser(input).parse_game(); }
+    catch(const parse_error &) { rejected = true; }
+    assert(rejected);
+}
+
+void test_deep_destruction()
+{
+    constexpr int depth = 50000;
+    {
+        pgnparser_ast::gametree root;
+        auto *node = &root;
+        for(int i = 0; i < depth; ++i)
+        {
+            auto child = std::make_unique<pgnparser_ast::gametree>();
+            auto *next = child.get();
+            std::get<pgnparser_ast::gametree::variations_t>(node->variations_or_outcome)
+                .emplace_back(pgnparser_ast::actions{}, std::move(child));
+            node = next;
+        }
+        // Move assignment must safely destroy the previous long tree too.
+        root = pgnparser_ast::gametree{};
+    }
+    struct payload {
+        int *live;
+        payload *parent = nullptr;
+        bool alive = true;
+        explicit payload(int &live) : live(&live) { ++live; }
+        payload(payload &&other) noexcept : live(other.live) { ++*live; }
+        ~payload()
+        {
+            assert(!parent || parent->alive);
+            alive = false;
+            --*live;
+        }
+    };
+    int live = 0;
+    {
+        auto root = gnode<payload>::create_root(state::from_pgn(setup), payload{live});
+        auto *node = root.get();
+        for(int i = 0; i < depth; ++i)
+        {
+            auto *child = node->add_child(gnode<payload>::create_child(node, std::nullopt, action{}, payload{live}));
+            child->get_info().parent = &node->get_info();
+            node = child;
+        }
+        assert(live == depth + 1);
+        root.reset();
+    }
+    assert(live == 0);
+}
+} /* anonymous namespace */
+
+void run()
+{
+    test_long_import();
+    test_nested_variations();
+    test_deep_destruction();
+}
+} /* namespace stack_safety_tests */
+
+namespace initial_position_tests
+{
+void run()
+{
+    const std::string setup = "[Board \"Standard - Turn Zero\"]\n";
+    const auto initial = game::from_pgn(setup);
+    const auto endpoint = game::from_pgn(setup + "1. e4 / e5");
+    const auto only = game::from_pgn(setup + "1. e4 / e5",
+        {.allow_illegal_history = true, .initial_position_only = true});
+    assert(only.get_current_boards() == initial.get_current_boards());
+    assert(only.get_current_boards() != endpoint.get_current_boards());
+    assert(!only.has_parent());
+    assert(only.get_child_actions().empty());
+    const auto ast = pgnparser(setup + "1. e4 / e5").parse_game(true);
+    assert(ast && std::get<pgnparser_ast::gametree::variations_t>(ast->gt.variations_or_outcome).empty());
+    // A valid first token can precede malformed history; only full loading
+    // parses the rest. Existing one-token lexer lookahead is intentional.
+    const auto partial = game::from_pgn(setup + "1. {",
+        {.allow_illegal_history = true, .initial_position_only = true});
+    assert(partial.get_current_boards() == initial.get_current_boards());
+    bool rejected = false;
+    try { game::from_pgn(setup + "1. {"); }
+    catch(const parse_error &) { rejected = true; }
+    assert(rejected);
+    const std::string exposed = "[Board \"Custom\"]\n[7k/3r4/8/8/3K4/8/8/8:0:1:b]";
+    const auto unchecked = game::from_pgn(exposed,
+        {.allow_illegal_history = true, .initial_position_only = true});
+    assert(!unchecked.get_current_boards().empty());
+    rejected = false;
+    try { game::from_pgn(exposed, {.initial_position_only = true}); }
+    catch(const pgn_validation_error &) { rejected = true; }
+    assert(rejected);
+    rejected = false;
+    try { game::from_pgn("[Board \"Custom\"] [bad:0:1:w]",
+        {.allow_illegal_history = true, .initial_position_only = true}); }
+    catch(const board_fen_error &) { rejected = true; }
+    assert(rejected);
+}
+} /* namespace initial_position_tests */
+
 int main()
 {
+    initial_position_tests::run();
+    stack_safety_tests::run();
     import_diagnostic_tests::run();
     std::cerr << "Running FEN tests\n";
     if(const int result = fen_tests::run(); result != 0)

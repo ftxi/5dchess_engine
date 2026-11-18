@@ -75,6 +75,7 @@ endif()
 # Optional products. With every option disabled, only the core library is built.
 option(ENGINE "Build the 5dchess UCI executable" OFF)
 option(TOOLS "Build the 5dtools command-line utilities" OFF)
+option(HC_PROFILE_METRICS "Enable opt-in allocation and live-HC profiling instrumentation" OFF)
 option(TEST "Build test executables" OFF)
 option(JSTEST "Copy JavaScript tests into the WebAssembly interface" OFF)
 option(PYMODULE "Build Python module" OFF)
@@ -112,6 +113,9 @@ file(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS
 # The client and engine components are excluded from the default build. They are
 # built automatically when a requested product links against them.
 add_library(5dchess_core STATIC ${CORE_SOURCES})
+if(HC_PROFILE_METRICS)
+    target_compile_definitions(5dchess_core PUBLIC HC_PROFILE_METRICS)
+endif()
 add_library(5dchess_client STATIC EXCLUDE_FROM_ALL ${CLIENT_SOURCES})
 add_library(5dchess_engine STATIC EXCLUDE_FROM_ALL ${ENGINE_SOURCES})
 
