@@ -135,6 +135,8 @@ struct HC_build_options
     bool prune_optional_moves = false;
 };
 
+namespace structural_probe { class model; struct coordinate; }
+
 class HC_info
 {
     struct physical_entry
@@ -404,6 +406,8 @@ public:
         friend class HC_info;
         std::shared_ptr<local_space> local;
         std::vector<std::shared_ptr<local_space>> local_cache;
+        std::shared_ptr<structural_probe::model> structural_model;
+        std::size_t structural_trace_id = 0;
     public:
         explicit completion_space(search_space initial, hc_cell_options options = {})
             : cells(std::move(initial), options) {}
@@ -442,6 +446,9 @@ public:
                                     const Ordering &order = {}, completion_query *query = nullptr) const;
 
 private:
+    std::vector<std::vector<structural_probe::coordinate>> structural_coordinates() const;
+    bool run_structural_probe(completion_space &space, const HC &domain) const;
+    void trace_structural_query(completion_space &space, const HC &domain) const;
     enum class completion_stage { initial_local, initial_global, selected,
                                   pop, subtract, probe_local, probe_global, validate };
     struct completion_region

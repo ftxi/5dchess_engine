@@ -765,6 +765,7 @@ std::optional<point> HC_info::find_witness(
     }
     HC selection = restriction;
     if(!constrain_domain(selection, &space.propagation)) return std::nullopt;
+    trace_structural_query(space, selection);
     using clock = std::chrono::steady_clock;
     const auto started = metrics ? clock::now() : clock::time_point{};
     std::size_t work = 0, temporary_regions = 0;
@@ -919,7 +920,8 @@ std::optional<point> HC_info::find_witness(
                 if(temporary_regions >= matching_probe_threshold && !dependency_checked)
                 {
                     dependency_checked = true;
-                    if(has_forced_departure_cycle(selection)) return outcome::whole_failure;
+                    if(has_forced_departure_cycle(selection) || run_structural_probe(space, selection))
+                        return outcome::whole_failure;
                 }
                 if(temporary_regions >= matching_probe_threshold && !part.probed)
                 {
