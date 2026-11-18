@@ -10,8 +10,32 @@ hc_cell_tree::hc_cell_tree(search_space initial, hc_cell_options options)
 
 hc_cell_tree::~hc_cell_tree()
 {
+    if(auto session = traversal_session.lock()) session->owner = nullptr;
     destroying = true;
     for(auto &root : roots) discard(root);
+}
+
+hc_cell_tree::traversal::~traversal()
+{
+    if(owner) owner->finish();
+}
+
+std::shared_ptr<hc_cell_tree::traversal> hc_cell_tree::keep_traversal()
+{
+    auto session = traversal_session.lock();
+    if(!session)
+    {
+        session = std::make_shared<traversal>(this);
+        traversal_session = session;
+    }
+    return session;
+}
+
+void hc_cell_tree::dirty_chain(const link &entry)
+{
+    if(entry->chain_dirty) return;
+    entry->chain_dirty = true;
+    pending_chains.emplace_back(entry);
 }
 
 hc_cell_tree::link hc_cell_tree::resolve(link entry)
@@ -52,6 +76,7 @@ hc_cell_tree::link hc_cell_tree::prepare(link entry)
         return nullptr;
     }
     if(!propagate(entry)) { pending_compaction.emplace_back(ancestor); return nullptr; }
+    if(!entry->children.empty()) dirty_chain(entry);
     normalize(entry->children);
     if(entry->divided && entry->children.empty()) { discard(entry); return nullptr; }
     entry->prepared = revision;
@@ -75,6 +100,22 @@ void hc_cell_tree::finish()
     for(const auto &entry : pending_compaction) compact_ancestors(entry.lock());
     pending_compaction.clear();
     normalize(roots);
+    if(traversal_session.expired())
+    {
+        for(const auto &weak : pending_chains)
+            if(auto entry = weak.lock())
+            {
+                link previous;
+                for(const auto &child : entry->children)
+                {
+                    child->previous = previous;
+                    previous = child;
+                }
+                entry->last_child = std::move(previous);
+                entry->chain_dirty = false;
+            }
+        pending_chains.clear();
+    }
 }
 
 hc_cell_tree::frontier hc_cell_tree::restrict(const HC &domain, const frontier *parent)
@@ -156,6 +197,74 @@ integer_set hc_cell_tree::supported(frontier &candidates, const HC &restriction,
     finish();
     normalize(candidates.entries);
     return result;
+}
+
+hc_cell_tree::discovery hc_cell_tree::discover(const frontier *candidates)
+{
+    discovery result;
+    result.session = keep_traversal();
+    for(const auto &entry : candidates ? candidates->entries : roots)
+        result.push({entry, false});
+    return result;
+}
+
+hc_cell_tree::discovery hc_cell_tree::discover(const handle &subtree)
+{
+    discovery result;
+    result.session = keep_traversal();
+    if(subtree.entry) result.push({subtree.entry, false});
+    return result;
+}
+
+std::optional<hc_cell_tree::handle> hc_cell_tree::advance(
+    discovery &cursor, const HC &restriction, std::size_t &credit, std::size_t &visits)
+{
+    while(credit && !cursor.empty())
+    {
+        auto &frame = *cursor.current;
+        auto entry = frame.next;
+        // Read the immutable sibling link before resolving unary successors.
+        frame.next = frame.siblings ? entry->previous : nullptr;
+        if(!frame.next) cursor.pop();
+        --credit;
+        ++visits;
+        entry = prepare(std::move(entry));
+        if(!entry || !intersects(entry->bounds, restriction) || failed_before(*entry, restriction)) continue;
+        if(entry->children.empty())
+        {
+            finish();
+            return handle(std::move(entry));
+        }
+        transfer(*entry);
+        cursor.push({entry->last_child, true});
+    }
+    finish();
+    return std::nullopt;
+}
+
+hc_cell_tree::leaf_view hc_cell_tree::read(const handle &leaf)
+{
+    auto entry = resolve(leaf.entry);
+    assert(entry && entry->children.empty());
+    leaf_view result{entry->bounds, {}};
+    result.negative.reserve(entry->negative.size());
+    for(auto id : entry->negative) result.negative.push_back(problems[id].region);
+    return result;
+}
+
+void hc_cell_tree::exhausted(const handle &subtree, const HC &restriction, std::size_t work)
+{
+    if(auto entry = prepare(subtree.entry); entry && admit_failure(work))
+        remember_failure(*entry, restriction);
+    finish();
+}
+
+void hc_cell_tree::exhausted(const frontier *candidates, const HC &restriction, std::size_t work)
+{
+    if(admit_failure(work))
+        for(const auto &entry : candidates ? candidates->entries : roots)
+            if(auto current = prepare(entry)) remember_failure(*current, restriction);
+    finish();
 }
 
 bool hc_cell_tree::narrow(HC &domain, const HC &parent)
@@ -269,6 +378,7 @@ void hc_cell_tree::discard(link &entry)
     recycle(entry->negative);
     for(auto &child : entry->children) discard(child);
     entry->children.clear();
+    entry->last_child.reset();
     entry->bounds = HC{};
     entry->alive = false;
     entry.reset();
@@ -277,6 +387,7 @@ void hc_cell_tree::discard(link &entry)
 void hc_cell_tree::compact(link &entry)
 {
     entry = resolve(std::move(entry));
+    if(entry && !entry->children.empty()) dirty_chain(entry);
     if(entry) normalize(entry->children);
     while(entry && entry->children.size() == 1)
     {
@@ -299,6 +410,7 @@ void hc_cell_tree::compact(link &entry)
         }
         child->parent = entry->parent;
         entry->children.clear();
+        entry->last_child.reset();
         entry->bounds = HC{};
         entry->alive = false;
         entry->successor = child;
@@ -328,7 +440,9 @@ void hc_cell_tree::replace(link &entry, search_space pieces)
         {
             auto child = std::make_shared<cell>(std::move(domain));
             child->parent = entry;
+            if(!entry->children.empty()) child->previous = entry->children.back();
             entry->children.push_back(std::move(child));
+            entry->last_child = entry->children.back();
         }
     }
 }

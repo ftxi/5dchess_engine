@@ -1,6 +1,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <limits>
 #include <iterator>
 #include <ranges>
@@ -728,6 +729,8 @@ std::optional<point> HC_info::find_witness(
     completion_space &space, const HC &restriction, const Ordering &order, completion_query *query) const
 {
     assert(restriction.dimension() == dimension());
+    auto *metrics = space.diagnostics;
+    if(metrics) *metrics = {};
     if(restriction.empty()) return std::nullopt;
     ++space.witness_calls;
     space.scratch.reuse_between_points = true;
@@ -762,123 +765,362 @@ std::optional<point> HC_info::find_witness(
     }
     HC selection = restriction;
     if(!constrain_domain(selection, &space.propagation)) return std::nullopt;
-    std::vector<slice> additional_problems;
-    std::size_t temporary_regions = 0;
+    using clock = std::chrono::steady_clock;
+    const auto started = metrics ? clock::now() : clock::time_point{};
+    std::size_t work = 0, temporary_regions = 0;
     constexpr std::size_t matching_probe_threshold = 1024;
     bool dependency_checked = false;
-    for(;;)
-    {
-        additional_problems.clear();
-        std::optional<point> result;
-        std::optional<slice> problem;
-        const auto visit = [&](const HC &bounds, std::span<const slice *const> negative) {
-            for(index_t n = 0; n < dimension(); ++n)
-                if(!bounds[n].intersects(selection[n])) return false;
-            HC region = bounds;
-            for(std::size_t n = 0; n < dimension(); ++n) region[n] &= selection[n];
-            if(!prune_slice_refs(region, negative)) return false;
-            bool from_local = false;
-            const auto select = [&](HC &domain) -> std::optional<point> {
-                if(space.reuse_local && space.local)
-                    if(auto candidate = take_local_point(*space.local, space.local->representative, domain, order))
-                    {
-                        from_local = true;
-                        return candidate;
-                    }
-                from_local = false;
-                return take_point(domain, order, &space.scratch);
+    const auto *frontier = query ? &query->choices : nullptr;
+    auto discovery = space.cells.discover(frontier);
+    std::vector<completion_cursor> active;
+    std::size_t admitted = 0;
+    completion_cursor *admitting = nullptr;
+    std::optional<point> result;
+    enum class outcome { yielded, exhausted, witness, published, whole_failure };
+    const auto intersect = [&](HC &domain, const HC &bounds) {
+        for(index_t n = 0; n < dimension(); ++n) domain[n] &= bounds[n];
+        return !domain.empty();
+    };
+    const auto make_region = [&](hc_cell_tree::handle owner, const HC &domain) {
+        completion_region region;
+        region.owner = std::move(owner);
+        auto view = space.cells.read(region.owner);
+        region.domain = std::move(view.bounds);
+        intersect(region.domain, domain);
+        if(!view.negative.empty())
+            region.negative = std::make_shared<const std::vector<slice>>(std::move(view.negative));
+        region.revision = space.cells.version();
+        return region;
+    };
+    const auto publish = [&](slice exclusion) {
+        if(metrics) ++metrics->exclusions;
+        std::size_t codimension = 0;
+        for(const auto &[axis, values] : exclusion.get_fixed_axes())
+            codimension += !universe[axis].is_subset_of(values);
+        if(codimension <= 1) space.cells.remove_slice_globally(exclusion);
+        else
+        {
+            space.cells.add_negative(std::move(exclusion));
+            space.cells.balance(universe);
+        }
+    };
+    const auto record_storage = [&] {
+        if(!metrics) return;
+        std::size_t regions = 0, bytes = active.capacity() * sizeof(completion_cursor) + discovery.storage();
+        const auto count_cursor = [&](const completion_cursor &cursor) {
+            regions += cursor.pending.size() + bool(cursor.current);
+            bytes += cursor.pending.capacity() * sizeof(completion_region);
+            const auto count_region = [&](const completion_region &part) {
+                bytes += dimension() * sizeof(integer_set);
+                for(index_t n = 0; n < dimension(); ++n) bytes += part.domain[n].size() * sizeof(index_t);
+                if(part.refresh) bytes += part.refresh->storage();
+                if(part.negative)
+                {
+                    std::size_t retained = sizeof(std::vector<slice>) + part.negative->capacity() * sizeof(slice);
+                    for(const auto &exclusion : *part.negative)
+                        retained += exclusion.get_fixed_axes().size() * (sizeof(integer_set) + sizeof(index_t) + 3 * sizeof(void *));
+                    bytes += retained / part.negative.use_count();
+                }
             };
-            auto candidate = select(region);
-            if(!candidate || !prune_slice_refs(region, negative)) return false;
-            if(!region.contains(*candidate) || std::any_of(negative.begin(), negative.end(),
-                [&](const slice *p) { return p->contains(*candidate); }))
-            {
-                // Keep hard-negative subtraction temporary until Deferred's
-                // balance rule chooses a persistent cut in the shared forest.
-                std::vector<std::pair<HC, std::size_t>> pending;
-                pending.emplace_back(std::move(region), 0);
-                candidate.reset();
-                while(!pending.empty())
-                {
-                    auto [part, next] = std::move(pending.back());
-                    pending.pop_back();
-                    while(next < negative.size() && !part.intersects(*negative[next])) ++next;
-                    if(next == negative.size())
-                    {
-                        if(auto chosen = select(part)) { candidate = std::move(chosen); break; }
-                        continue;
-                    }
-                    // Once this query has substantial subdivision work, test
-                    // matching before making more descendants of a region.
-                    // Failure rules out the entire region. Successful probes
-                    // also remove unsupported arrivals before the next cut.
-                    if(temporary_regions >= matching_probe_threshold && !dependency_checked)
-                    {
-                        dependency_checked = true;
-                        // A closed set of forced departures has no first jump.
-                        // This proves failure for the whole query restriction.
-                        if(has_forced_departure_cycle(selection)) return true;
-                    }
-                    if(temporary_regions < matching_probe_threshold) ++temporary_regions;
-                    else
-                    {
-                        // Probes establish feasibility. Keep the witness seed
-                        // for subsequent candidate selection across this probe.
-                        auto saved_seed = space.scratch.matching_seed;
-                        const bool matched = bool(select(part));
-                        space.scratch.matching_seed = std::move(saved_seed);
-                        if(!matched) continue;
-                    }
-                    auto pieces = std::move(part).remove_slice_carefully(*negative[next]);
-                    for(auto &piece : pieces) pending.emplace_back(std::move(piece), next + 1);
-                }
-            }
-            if(!candidate) return false;
-            problem = from_local ? find_checks(*candidate, universe)
-                                 : find_problem(*candidate, universe, &additional_problems);
-            if(!problem)
-            {
-                if(space.reuse_local && !from_local)
-                {
-                    std::shared_ptr<local_space> next;
-                    if(space.local && local_contains(*space.local, *candidate)) next = space.local;
-                    else
-                        for(const auto &cached : space.local_cache)
-                            if(local_contains(*cached, *candidate)) { next = cached; break; }
-                    if(!next)
-                    {
-                        next = build_local_space(universe, *candidate);
-                        if(next) next->representative = *candidate;
-                    }
-                    if(next) std::erase(space.local_cache, next);
-                    if(space.local && space.local_capacity && next != space.local)
-                    {
-                        if(space.local_cache.size() >= space.local_capacity) space.local_cache.erase(space.local_cache.begin());
-                        space.local_cache.push_back(std::move(space.local));
-                    }
-                    space.local = std::move(next);
-                }
-                if(query && space.local) query->local = space.local;
-                result = std::move(candidate);
-            }
-            return true;
+            if(cursor.current) count_region(*cursor.current);
+            for(const auto &part : cursor.pending) count_region(part);
         };
-        ++space.forest_searches;
-        if(query) space.cells.visit(query->choices, restriction, visit, space.scratch.matching_calls);
-        else space.cells.visit(restriction, visit, space.scratch.matching_calls);
-        if(result || !problem) return result;
-        const auto publish = [&](slice exclusion) {
-            std::size_t codimension = 0;
-            for(const auto &[axis, values] : exclusion.get_fixed_axes())
-                codimension += !universe[axis].is_subset_of(values);
-            if(codimension <= 1) space.cells.remove_slice_globally(exclusion);
+        for(const auto &cursor : active) count_cursor(cursor);
+        if(admitting) { bytes += sizeof(completion_cursor); count_cursor(*admitting); }
+        metrics->peak_cursors = std::max(metrics->peak_cursors, active.size() + bool(admitting));
+        metrics->peak_regions = std::max(metrics->peak_regions, regions);
+        metrics->peak_storage = std::max(metrics->peak_storage, bytes);
+    };
+    const auto retain_class = [&](completion_region &part) {
+        if(space.reuse_local && !part.matching_class)
+        {
+            std::shared_ptr<local_space> next;
+            if(space.local && local_contains(*space.local, *part.candidate)) next = space.local;
             else
+                for(const auto &cached : space.local_cache)
+                    if(local_contains(*cached, *part.candidate)) { next = cached; break; }
+            if(!next)
             {
-                space.cells.add_negative(std::move(exclusion));
-                space.cells.balance(universe);
+                next = build_local_space(universe, *part.candidate);
+                if(next) next->representative = *part.candidate;
             }
-        };
-        publish(std::move(*problem));
-        for(auto &related : additional_problems) publish(std::move(related));
+            if(next) std::erase(space.local_cache, next);
+            if(space.local && space.local_capacity && next != space.local)
+            {
+                if(space.local_cache.size() >= space.local_capacity) space.local_cache.erase(space.local_cache.begin());
+                space.local_cache.push_back(std::move(space.local));
+            }
+            space.local = std::move(next);
+        }
+        if(query)
+            query->local = part.matching_class ? part.matching_class : space.local;
+    };
+    const auto resume = [&](completion_cursor &cursor, std::size_t &credit) -> outcome {
+        while(credit && !cursor.empty())
+        {
+            record_storage();
+            auto &part = cursor.back();
+            if(part.domain.empty()) { cursor.pop(); continue; }
+            if(part.refresh || part.revision != space.cells.version())
+            {
+                const auto refresh_started = metrics ? clock::now() : clock::time_point{};
+                if(!part.refresh)
+                {
+                    part.refresh = space.cells.discover(part.owner);
+                    if(metrics) ++metrics->repeated_regions;
+                }
+                // Each old temporary region is intersected with the surviving
+                // descendants separately. Removed pieces never enter this DFS.
+                // Keep its stable DFS across further publications: restarting
+                // would repeat descendants that have already been delegated.
+                std::size_t visits = 0;
+                auto leaf = space.cells.advance(*part.refresh, part.domain, credit, visits);
+                work += visits;
+                cursor.work += visits;
+                if(metrics)
+                {
+                    metrics->tree_visits += visits;
+                    metrics->refresh_visits += visits;
+                }
+                if(leaf)
+                {
+                    auto next = make_region(std::move(*leaf), part.domain);
+                    next.stage = completion_stage::pop;
+                    if(part.candidate && next.domain.contains(*part.candidate)
+                       && (!next.negative || std::none_of(next.negative->begin(), next.negative->end(),
+                           [&](const slice &negative) { return negative.contains(*part.candidate); })))
+                    {
+                        next.candidate = part.candidate;
+                        next.matching_class = part.matching_class;
+                        next.stage = completion_stage::validate;
+                    }
+                    cursor.push(std::move(next));
+                }
+                else if(part.refresh->empty()) cursor.pop();
+                if(metrics) metrics->refresh_seconds += std::chrono::duration<double>(clock::now() - refresh_started).count();
+                continue;
+            }
+            const auto charge = [&] { --credit; ++work; ++cursor.work; };
+            const auto negative = part.negative ? std::span<const slice>(*part.negative) : std::span<const slice>{};
+            switch(part.stage)
+            {
+            case completion_stage::pop:
+                charge();
+                if(metrics) ++metrics->temporary_pops;
+                part.stage = completion_stage::subtract;
+                break;
+            case completion_stage::subtract:
+                while(part.next < negative.size() && !part.domain.intersects(negative[part.next])) ++part.next;
+                if(part.next == negative.size())
+                {
+                    part.stage = completion_stage::initial_local;
+                    break;
+                }
+                if(temporary_regions >= matching_probe_threshold && !dependency_checked)
+                {
+                    dependency_checked = true;
+                    if(has_forced_departure_cycle(selection)) return outcome::whole_failure;
+                }
+                if(temporary_regions >= matching_probe_threshold && !part.probed)
+                {
+                    part.stage = completion_stage::probe_local;
+                    break;
+                }
+                {
+                    if(temporary_regions < matching_probe_threshold) ++temporary_regions;
+                    const auto operation_started = metrics ? clock::now() : clock::time_point{};
+                    auto pieces = std::move(part.domain).remove_slice_carefully(negative[part.next]);
+                    if(metrics) metrics->subtraction_seconds += std::chrono::duration<double>(clock::now() - operation_started).count();
+                    auto owner = part.owner;
+                    auto retained = part.negative;
+                    const auto revision = part.revision, next = part.next + 1;
+                    cursor.pop();
+                    for(auto &piece : pieces)
+                    {
+                        completion_region child;
+                        child.owner = owner;
+                        child.domain = std::move(piece);
+                        child.negative = retained;
+                        child.revision = revision;
+                        child.next = next;
+                        child.stage = completion_stage::pop;
+                        cursor.push(std::move(child));
+                    }
+                }
+                break;
+            case completion_stage::initial_local:
+            case completion_stage::probe_local:
+                if(part.stage == completion_stage::initial_local
+                   && !prune_retained_slices(part.domain, negative))
+                { cursor.pop(); break; }
+                if(space.reuse_local && space.local)
+                {
+                    charge();
+                    if(metrics) ++metrics->matching_calls;
+                    const auto operation_started = metrics ? clock::now() : clock::time_point{};
+                    auto candidate = take_local_point(*space.local, space.local->representative, part.domain, order);
+                    if(metrics) metrics->matching_seconds += std::chrono::duration<double>(clock::now() - operation_started).count();
+                    if(candidate)
+                    {
+                        if(part.stage == completion_stage::probe_local)
+                        {
+                            part.probed = true;
+                            part.stage = completion_stage::subtract;
+                        }
+                        else
+                        {
+                            part.candidate = std::move(candidate);
+                            part.matching_class = space.local;
+                            part.stage = completion_stage::selected;
+                        }
+                        break;
+                    }
+                }
+                part.stage = part.stage == completion_stage::probe_local
+                    ? completion_stage::probe_global : completion_stage::initial_global;
+                break;
+            case completion_stage::initial_global:
+            case completion_stage::probe_global:
+                {
+                    charge();
+                    if(metrics) ++metrics->matching_calls;
+                    const bool probing = part.stage == completion_stage::probe_global;
+                    auto saved_seed = probing ? space.scratch.matching_seed
+                                              : std::vector<std::pair<index_t, index_t>>{};
+                    const auto operation_started = metrics ? clock::now() : clock::time_point{};
+                    auto candidate = take_point(part.domain, order, &space.scratch);
+                    if(metrics) metrics->matching_seconds += std::chrono::duration<double>(clock::now() - operation_started).count();
+                    if(probing) space.scratch.matching_seed = std::move(saved_seed);
+                    if(!candidate) { cursor.pop(); break; }
+                    if(probing)
+                    {
+                        part.probed = true;
+                        part.stage = completion_stage::subtract;
+                    }
+                    else
+                    {
+                        part.candidate = std::move(candidate);
+                        part.matching_class.reset();
+                        part.stage = completion_stage::selected;
+                    }
+                }
+                break;
+            case completion_stage::selected:
+                if(!prune_retained_slices(part.domain, negative))
+                { cursor.pop(); break; }
+                if(!part.domain.contains(*part.candidate)
+                   || std::any_of(negative.begin(), negative.end(),
+                       [&](const slice &excluded) { return excluded.contains(*part.candidate); }))
+                {
+                    part.candidate.reset();
+                    part.matching_class.reset();
+                    part.next = 0;
+                    part.stage = completion_stage::pop;
+                }
+                else part.stage = completion_stage::validate;
+                break;
+            case completion_stage::validate:
+                {
+                    // The revision gate above rechecks saved points against the
+                    // current restriction, descendants and owned exclusions.
+                    assert(selection.contains(*part.candidate));
+                    charge();
+                    if(metrics) ++metrics->legality_calls;
+                    std::vector<slice> additional;
+                    const auto operation_started = metrics ? clock::now() : clock::time_point{};
+                    auto problem = part.matching_class ? find_checks(*part.candidate, universe)
+                        : find_problem(*part.candidate, universe, &additional);
+                    if(metrics) metrics->legality_seconds += std::chrono::duration<double>(clock::now() - operation_started).count();
+                    if(!problem)
+                    {
+                        retain_class(part);
+                        result = std::move(part.candidate);
+                        if(metrics) metrics->winning_rank = cursor.rank;
+                        return outcome::witness;
+                    }
+                    publish(std::move(*problem));
+                    for(auto &related : additional) publish(std::move(related));
+                    return outcome::published;
+                }
+            }
+        }
+        record_storage();
+        return cursor.empty() ? outcome::exhausted : outcome::yielded;
+    };
+    const auto turn = [&](completion_cursor &cursor, std::size_t &credit) {
+        if(metrics) ++metrics->turns[cursor.rank - 1];
+        const auto compute_started = metrics ? clock::now() : clock::time_point{};
+        const auto previous_refresh = metrics ? metrics->refresh_seconds : 0;
+        outcome status;
+        do { status = resume(cursor, credit); } while(status == outcome::published && credit);
+        if(metrics) metrics->computation_seconds += std::chrono::duration<double>(clock::now() - compute_started).count()
+            - (metrics->refresh_seconds - previous_refresh);
+        if(cursor.empty())
+        {
+            space.cells.exhausted(cursor.owner, selection, cursor.work);
+            return outcome::exhausted;
+        }
+        return status;
+    };
+    ++space.forest_searches;
+    std::size_t round = 0;
+    while(!discovery.empty() || !active.empty())
+    {
+        ++round;
+        const auto older = active.size();
+        const bool discovering = !discovery.empty();
+        if(discovering)
+        {
+            auto credit = std::max<std::size_t>(1, space.turn_budget);
+            const auto discover_started = metrics ? clock::now() : clock::time_point{};
+            std::size_t visits = 0;
+            auto leaf = space.cells.advance(discovery, selection, credit, visits);
+            while(!leaf && !discovery.empty() && active.empty())
+            {
+                credit = std::max<std::size_t>(1, space.turn_budget);
+                leaf = space.cells.advance(discovery, selection, credit, visits);
+            }
+            work += visits;
+            if(metrics)
+            {
+                metrics->tree_visits += visits;
+                metrics->discovery_seconds += std::chrono::duration<double>(clock::now() - discover_started).count();
+            }
+            if(leaf)
+            {
+                completion_cursor cursor;
+                cursor.owner = *leaf;
+                cursor.rank = ++admitted;
+                cursor.push(make_region(std::move(*leaf), selection));
+                admitting = &cursor;
+                if(metrics)
+                {
+                    ++metrics->leaves;
+                    metrics->turns.push_back(0);
+                    const auto elapsed = std::chrono::duration<double>(clock::now() - started).count();
+                    if(admitted == 1) { metrics->first_admission_work = work; metrics->first_admission_seconds = elapsed; }
+                    if(admitted == 2) { metrics->second_admission_work = work; metrics->second_admission_seconds = elapsed; }
+                }
+                record_storage();
+                auto status = turn(cursor, credit);
+                admitting = nullptr;
+                if(status == outcome::witness || status == outcome::whole_failure) return result;
+                if(status != outcome::exhausted) active.push_back(std::move(cursor));
+            }
+        }
+        // The opening is A | B. From round three onward, only cursors that
+        // existed at the start of this round get an older-leaf turn.
+        if(round >= 3 || !discovering)
+            for(std::size_t i = older; i > 0; --i)
+            {
+                auto credit = discovery.empty() && active.size() == 1
+                    ? std::numeric_limits<std::size_t>::max() : std::max<std::size_t>(1, space.turn_budget);
+                auto status = turn(active[i - 1], credit);
+                if(status == outcome::witness || status == outcome::whole_failure) return result;
+                if(status == outcome::exhausted) active.erase(active.begin() + (i - 1));
+                record_storage();
+            }
     }
+    space.cells.exhausted(frontier, selection, work);
+    return std::nullopt;
 }

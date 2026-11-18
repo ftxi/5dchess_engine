@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -33,12 +34,16 @@ class hc_cell_tree
         std::vector<link> children;
         std::weak_ptr<cell> parent;
         link successor;
+        // Stable reverse sibling chain for suspended DFS, including dead cells.
+        link previous;
+        link last_child;
         std::vector<std::size_t> negative;
         std::size_t failure = no_id;
         std::size_t prepared = 0;
         bool alive = true;
         bool divided = false;
         bool dirty = true;
+        bool chain_dirty = false;
         explicit cell(HC domain) : bounds(std::move(domain)) {}
     };
     struct problem { slice region; std::size_t references = 0; };
@@ -56,6 +61,16 @@ class hc_cell_tree
     std::size_t pooled_capacity = 0;
     std::vector<const slice *> slice_refs;
     std::vector<std::weak_ptr<cell>> pending_compaction;
+    struct traversal
+    {
+        hc_cell_tree *owner;
+        explicit traversal(hc_cell_tree *owner) : owner(owner) {}
+        ~traversal();
+    };
+    std::weak_ptr<traversal> traversal_session;
+    std::vector<std::weak_ptr<cell>> pending_chains;
+    std::shared_ptr<traversal> keep_traversal();
+    void dirty_chain(const link &entry);
 
     static bool narrow(HC &domain, const HC &parent);
     static bool intersects(const HC &domain, const HC &restriction);
@@ -153,6 +168,44 @@ class hc_cell_tree
     }
 
 public:
+    struct handle
+    {
+    private:
+        friend class hc_cell_tree;
+        link entry;
+        explicit handle(link entry) : entry(std::move(entry)) {}
+    public:
+        handle() = default;
+    };
+    struct discovery
+    {
+    private:
+        friend class hc_cell_tree;
+        struct frame { link next; bool siblings; };
+        std::vector<frame> pending;
+        std::optional<frame> current;
+        std::shared_ptr<traversal> session;
+        void push(frame entry)
+        {
+            if(current) pending.push_back(std::move(*current));
+            current = std::move(entry);
+        }
+        void pop()
+        {
+            current.reset();
+            if(pending.empty()) return;
+            current = std::move(pending.back());
+            pending.pop_back();
+        }
+    public:
+        bool empty() const noexcept { return !current; }
+        std::size_t storage() const noexcept { return sizeof(*this) + pending.capacity() * sizeof(frame); }
+    };
+    struct leaf_view
+    {
+        HC bounds;
+        std::vector<slice> negative;
+    };
     // An antichain of candidate subtrees. Handles survive cuts and unary
     // collapse; reclaimed cells retain no domain or negative storage.
     struct frontier
@@ -176,6 +229,20 @@ public:
     void balance(const HC &universe);
     void remove_slice_globally(const slice &region);
     frontier restrict(const HC &domain, const frontier *parent = nullptr);
+    // Reverse DFS charges one pending node per unit and admits at most one
+    // leaf. An empty return can mean yield; inspect cursor.empty() for proof
+    // of exhaustion. No failure is recorded by admission or suspension.
+    discovery discover(const frontier *candidates = nullptr);
+    discovery discover(const handle &subtree);
+    std::optional<handle> advance(discovery &cursor, const HC &restriction,
+                                  std::size_t &credit, std::size_t &visits);
+    // Read immediately after admission, before another tree mutation. The
+    // snapshot owns its exclusions, including any recycled problem records.
+    leaf_view read(const handle &leaf);
+    // Call only after proving exhaustion of the entire restricted subtree.
+    void exhausted(const handle &subtree, const HC &restriction, std::size_t work);
+    void exhausted(const frontier *candidates, const HC &restriction, std::size_t work);
+    std::size_t version() const noexcept { return revision; }
     integer_set supported(frontier &candidates, const HC &restriction, index_t axis);
 
     // The projector returns an overapproximation of supported coordinates.

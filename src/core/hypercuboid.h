@@ -375,6 +375,18 @@ public:
 
     // Mutable, shared cell forest for fine-node restrictions. Legal witnesses
     // are retained; coordinate admission belongs to the requesting fine-node.
+    struct completion_metrics
+    {
+        std::size_t tree_visits = 0, leaves = 0, temporary_pops = 0;
+        std::size_t matching_calls = 0, legality_calls = 0, exclusions = 0;
+        std::size_t refresh_visits = 0, repeated_regions = 0, winning_rank = 0;
+        std::size_t peak_cursors = 0, peak_regions = 0, peak_storage = 0;
+        std::size_t first_admission_work = 0, second_admission_work = 0;
+        double first_admission_seconds = 0, second_admission_seconds = 0;
+        double discovery_seconds = 0, refresh_seconds = 0, computation_seconds = 0;
+        double matching_seconds = 0, legality_seconds = 0, subtraction_seconds = 0;
+        std::vector<std::size_t> turns;
+    };
     struct completion_space
     {
         hc_cell_tree cells;
@@ -385,6 +397,9 @@ public:
         std::size_t local_capacity = 8;
         std::size_t witness_calls = 0, local_hits = 0, forest_searches = 0;
         std::size_t local_resumes = 0, local_resume_hits = 0;
+        // Internal experimental controls; no protocol option or logging cost.
+        std::size_t turn_budget = 64;
+        completion_metrics *diagnostics = nullptr;
     private:
         friend class HC_info;
         std::shared_ptr<local_space> local;
@@ -427,6 +442,43 @@ public:
                                     const Ordering &order = {}, completion_query *query = nullptr) const;
 
 private:
+    enum class completion_stage { initial_local, initial_global, selected,
+                                  pop, subtract, probe_local, probe_global, validate };
+    struct completion_region
+    {
+        hc_cell_tree::handle owner;
+        HC domain{};
+        std::shared_ptr<const std::vector<slice>> negative;
+        std::size_t revision = 0, next = 0;
+        completion_stage stage = completion_stage::initial_local;
+        bool probed = false;
+        std::optional<point> candidate;
+        // Preserve the checks-only proof across suspension and cache changes.
+        std::shared_ptr<local_space> matching_class;
+        std::optional<hc_cell_tree::discovery> refresh;
+    };
+    struct completion_cursor
+    {
+        hc_cell_tree::handle owner;
+        // The common first-leaf success needs no region-stack allocation.
+        std::optional<completion_region> current;
+        std::vector<completion_region> pending;
+        std::size_t rank = 0, work = 0;
+        bool empty() const noexcept { return !current; }
+        completion_region &back() { return *current; }
+        void push(completion_region region)
+        {
+            if(current) pending.push_back(std::move(*current));
+            current = std::move(region);
+        }
+        void pop()
+        {
+            current.reset();
+            if(pending.empty()) return;
+            current = std::move(pending.back());
+            pending.pop_back();
+        }
+    };
     static bool local_contains(const local_space &local, const point &p);
     void prepare_local_layout(local_space &local, const point &seed) const;
     bool restrict_local_axis(HC &projected, const local_space &local,

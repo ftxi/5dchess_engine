@@ -189,6 +189,88 @@ void proof_scope_and_reclamation()
     assert(many.inspect().cached_failures == 0 && many.inspect().cells == 0);
 }
 
+void suspended_discovery()
+{
+    const HC universe{{0,1,2}, {0,1,2}, {0,1,2}, {0,1,2}};
+    hc_cell_tree tree(search_space{universe});
+    tree.remove_slice_globally(slice{{{0, {2}}, {1, {2}}, {2, {2}}, {3, {2}}}});
+    auto cursor = tree.discover();
+    std::size_t visits = 0, count = 0;
+    while(!cursor.empty())
+    {
+        std::size_t credit = 1;
+        const auto before = visits;
+        auto leaf = tree.advance(cursor, universe, credit, visits);
+        assert(visits == before + 1 && credit == 0);
+        if(!leaf) continue;
+        ++count;
+        // A yield or admission never creates a failure proof.
+        assert(tree.inspect().cached_failures == 0);
+        const auto view = tree.read(*leaf);
+        assert(!view.bounds.empty());
+        // Change pending siblings and collapse ancestors between visits.
+        if(count == 1) tree.remove_slice_globally(slice{{{0, {1}}}});
+    }
+    assert(count > 1);
+    tree.remove_slice_globally(slice{});
+    cursor = tree.discover();
+    assert(cursor.empty());
+    std::size_t credit = 1;
+    assert(!tree.advance(cursor, universe, credit, visits) && credit == 1);
+}
+
+void suspended_partition_refresh()
+{
+    const HC universe{{0,1,2}, {0,1,2}, {0,1,2}, {0,1,2}};
+    hc_cell_tree tree(search_space{universe});
+    auto discovery = tree.discover();
+    std::size_t credit = 1, visits = 0;
+    auto original = tree.advance(discovery, universe, credit, visits);
+    assert(original && discovery.empty());
+    // Model disjoint, still-pending regions of a suspended completion cursor.
+    // Its already exhausted region must never be reintroduced by refresh.
+    auto [done, remaining] = universe.split(0, 0);
+    auto [a, b] = remaining.split(1, 0);
+    const std::vector<HC> pending{a, b};
+    std::vector<slice> exclusions;
+    for(const auto &cut : {slice{{{0, {2}}, {2, {2}}}}, // split
+                          slice{{{1, {1}}}},           // shrink/collapse
+                          slice{{{0, {1}}}},           // remove descendants
+                          slice{}})                   // remove the handle
+    {
+        exclusions.push_back(cut);
+        tree.remove_slice_globally(cut);
+        std::vector<point> reached;
+        for(const auto &domain : pending)
+        {
+            auto refresh = tree.discover(*original);
+            while(!refresh.empty())
+            {
+                credit = 1;
+                auto leaf = tree.advance(refresh, domain, credit, visits);
+                if(!leaf) continue;
+                const auto view = tree.read(*leaf);
+                for(const auto &p : grid())
+                    if(domain.contains(p) && view.bounds.contains(p))
+                    {
+                        assert(!done.contains(p));
+                        assert(std::none_of(exclusions.begin(), exclusions.end(),
+                            [&](const slice &excluded) { return excluded.contains(p); }));
+                        assert(std::find(reached.begin(), reached.end(), p) == reached.end());
+                        reached.push_back(p);
+                    }
+            }
+        }
+        for(const auto &p : grid())
+        {
+            const bool expected = !done.contains(p)
+                && std::none_of(exclusions.begin(), exclusions.end(),
+                    [&](const slice &excluded) { return excluded.contains(p); });
+            assert((std::find(reached.begin(), reached.end(), p) != reached.end()) == expected);
+        }
+    }
+}
+
 void complete_action_oracle()
 {
     const auto position = state::from_pgn(
@@ -196,6 +278,7 @@ void complete_action_oracle()
         "[3k/4/1r2/KN2:0:1:w]\n[3k/4/4/KN2:1:1:w]\n");
     auto [info, initial] = HC_info::build_HC(position);
     std::vector<point> legal;
+    std::optional<point> illegal;
     auto pending = initial;
     while(!pending.empty())
     {
@@ -204,6 +287,7 @@ void complete_action_oracle()
         auto candidate = info.take_point(region);
         if(!candidate) continue;
         if(!info.find_problem(*candidate, info.get_universe())) legal.push_back(*candidate);
+        else illegal = *candidate;
         pending.concat(std::move(region).remove_point(*candidate));
     }
     std::size_t arrival_replacements = 0;
@@ -231,6 +315,58 @@ void complete_action_oracle()
                 }
     }
     assert(arrival_replacements > 0);
+    const auto singleton = [](const point &p) {
+        std::vector<integer_set> axes;
+        for(auto coordinate : p) axes.push_back(integer_set{coordinate});
+        return HC(std::move(axes));
+    };
+    assert(legal.size() >= 2 && illegal);
+    {
+        assert(legal.size() >= 4);
+        HC_info::completion_space space(search_space{singleton(legal[3]), singleton(legal[2]),
+                                                      singleton(legal[1]), singleton(legal[0])});
+        space.reuse_local = false;
+        space.turn_budget = 1;
+        HC_info::completion_metrics metrics;
+        space.diagnostics = &metrics;
+        // Admission consumes the whole turn. Round three is C, B, A;
+        // round four is D, C, B (which validates), with A still pending.
+        assert(info.find_witness(space, info.get_universe()) == legal[1]);
+        assert(metrics.winning_rank == 2 && metrics.leaves == 4);
+        assert((metrics.turns == std::vector<std::size_t>{2, 3, 2, 1}));
+    }
+    for(std::size_t budget : {1, 2, 4, 16, 64})
+    {
+        // Reverse DFS admits A first. Both leaves certify the same preferred
+        // coordinate (the restriction itself is held fixed by this query).
+        auto same = std::find_if(legal.begin() + 1, legal.end(),
+            [&](const point &p) { return p[0] == legal.front()[0]; });
+        assert(same != legal.end());
+        HC restriction = info.get_universe();
+        restriction[0] = integer_set{legal.front()[0]};
+        HC_info::completion_space space(search_space{singleton(*same), singleton(legal.front())});
+        space.reuse_local = false;
+        space.turn_budget = budget;
+        HC_info::completion_metrics metrics;
+        space.diagnostics = &metrics;
+        const auto candidate = info.find_witness(space, restriction);
+        assert(candidate && restriction.contains(*candidate));
+        if(budget <= 2)
+        {
+            assert(metrics.leaves == 2 && metrics.winning_rank == 2);
+            assert(*candidate == *same);
+        }
+        // B publishes a conflict and exhausts; A's saved matching must survive
+        // publication and eventually supply the sole legal witness.
+        if(budget > 2) continue;
+        HC_info::completion_space only_a(search_space{singleton(*illegal), singleton(legal.front())});
+        only_a.reuse_local = false;
+        only_a.turn_budget = budget;
+        only_a.diagnostics = &metrics;
+        assert(info.find_witness(only_a, info.get_universe()) == legal.front());
+        assert(metrics.winning_rank == 1 && metrics.legality_calls >= 1);
+        assert(metrics.exclusions && metrics.refresh_visits);
+    }
     {
         HC_info::completion_space space(initial);
         space.local_capacity = 1;
@@ -340,9 +476,11 @@ void complete_action_oracle()
     for(auto policy : {hc_failure_policy::none, hc_failure_policy::all,
                        hc_failure_policy::expensive, hc_failure_policy::adaptive})
         for(bool local : {false, true})
+        for(std::size_t budget : {1, 2, 4, 16, 64})
         {
             HC_info::completion_space space(initial, {policy, 7, 4});
             space.reuse_local = local;
+            space.turn_budget = budget;
             space.local_capacity = 2;
             std::vector<HC> restrictions{info.get_universe()};
             for(index_t n = 0; n < info.dimension(); ++n)
@@ -381,5 +519,7 @@ int main()
     resumed_frontiers();
     conditional_supports();
     proof_scope_and_reclamation();
+    suspended_discovery();
+    suspended_partition_refresh();
     complete_action_oracle();
 }

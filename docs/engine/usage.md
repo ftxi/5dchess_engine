@@ -96,6 +96,8 @@ at least one legal continuation, then completes its branch using the same
 ordering. This preserves score priority among siblings at every semimove
 prefix, including when a higher-priority choice needs a new timeline. Shared
 search results and reusable legal continuations reduce repeated search work.
+For a choice that needs a longer continuation search, compatible regions take
+turns supplying a legal witness while the requested choice stays fixed.
 This ordering does not imply a global ranking of complete-action scores.
 
 ```sh
