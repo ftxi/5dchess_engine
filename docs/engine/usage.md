@@ -91,9 +91,10 @@ Branch arrivals retain their normal scores. The penalty affects expansion order,
 while search rewards and UCT selection use the usual outcomes. Progressive
 widening can delay low-priority moves at finite search budgets.
 
-Fine-tree expansion in the progressive widening engines first searches for a
-legal continuation of the highest-ranked unexpanded semimove. When a probe
-uses up its work budget, the next probe includes one more ranked semimove.
+Fine-tree expansion in `zero` and the progressive widening engines first
+searches for a legal continuation of the highest-ranked unexpanded semimove.
+When a probe uses up its work budget, the next probe includes one more ranked
+semimove.
 Each probe shares the learned exclusions with the other probes. A legal
 continuation found after widening completes the action immediately. At full
 width, expansion can use a retained legal continuation or ordinary Deferred

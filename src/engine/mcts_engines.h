@@ -117,8 +117,10 @@ class zero_engine final : public zero_mcts_engine
 public:
     zero_engine(std::unique_ptr<io_handler> io,
                 std::optional<std::uint32_t> seed = std::nullopt,
-                int = default_mcts_rollout_max_actions)
-        : zero_mcts_engine({}, uct_tree_policy<>{seed}, {}, {}, {}, std::move(io)) {}
+                int = default_mcts_rollout_max_actions,
+                std::size_t prefix_budget = default_fine_prefix_budget)
+        : zero_mcts_engine({}, uct_tree_policy<>{seed, nullptr, prefix_budget},
+            {}, {}, {}, std::move(io)) {}
 };
 
 class zero_capture_engine final : public zero_capture_mcts_engine

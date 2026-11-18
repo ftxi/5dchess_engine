@@ -173,6 +173,7 @@ private:
     std::optional<std::mt19937> rng;
     std::uint64_t policy_id;
     coordinate_score_function score_function;
+    std::size_t prefix_budget;
 
     template<class F>
     auto with_order(node_t *node, std::stop_token stop, F &&use)
@@ -249,13 +250,15 @@ public:
     {
         fine_search_options options;
         if(score_function) options.builder = fine_builder::solid;
+        options.prefix_budget = prefix_budget;
         return options;
     }
 
     explicit uct_tree_policy(
         std::optional<std::uint32_t> seed = std::nullopt,
-        coordinate_score_function score = nullptr)
-        : policy_id(uct_detail::next_policy_id()), score_function(score)
+        coordinate_score_function score = nullptr,
+        std::size_t prefix_work = 0)
+        : policy_id(uct_detail::next_policy_id()), score_function(score), prefix_budget(prefix_work)
     {
         if constexpr(std::constructible_from<Order, const HC &,
                      const std::vector<std::vector<float>> &, std::mt19937 &>

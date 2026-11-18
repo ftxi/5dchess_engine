@@ -79,7 +79,7 @@ void print_usage(std::ostream &out)
            " (default 2)\n"
         << "  --pw-alpha <n>                  widening exponent in (0, 1] for"
            " *-pw engines (default 0.5)\n"
-        << "  --fine-prefix-budget <n>        work units per ranked group for PW engines"
+        << "  --fine-prefix-budget <n>        work units per ranked group for zero and PW engines"
            " (default " << default_fine_prefix_budget << ", 0 for strict ordering)\n"
         << "  -h, --help                      display this help text and exit\n";
 }
@@ -183,7 +183,8 @@ command_line_options parse_options(
         }
         else if(option == "--fine-prefix-budget")
         {
-            if((engine_name != "zero-capture-check-pw" && !is_mvvlva_engine(engine_name))
+            if((engine_name != "zero" && engine_name != "zero-capture-check-pw"
+                && !is_mvvlva_engine(engine_name))
                || fine_prefix_budget_seen || ++i >= argc)
                 throw std::invalid_argument("invalid fine prefix budget option");
 
@@ -260,7 +261,8 @@ int main(int argc, const char *argv[])
     else if(engine_name == "zero")
     {
         selected_engine = std::make_unique<zero_engine>(
-            std::make_unique<stdio_handler>(), options.seed);
+            std::make_unique<stdio_handler>(), options.seed,
+            options.rollout_max_actions, options.fine_prefix_budget);
     }
     else if(engine_name == "zero-capture")
     {
