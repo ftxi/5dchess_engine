@@ -8,7 +8,7 @@ import secrets
 import shlex
 import sys
 
-import cpu_affinity
+from . import cpu_affinity
 
 
 def add_execution_options(parser):
@@ -67,7 +67,8 @@ def configure_cpus(parser, args):
     if set(selected) & set(args.controller_cores):
         parser.error("engine and controller CPU pools must not overlap")
     if not slots:
-        slots = [(cpu, None) for cpu in sorted(available - set(args.controller_cores))]
+        eligible = available - set(args.controller_cores)
+        slots = [(cpu, None) for cpu in sorted(eligible, key=lambda cpu: (cpu == 0, cpu))]
     if args.jobs > len(slots):
         parser.error("--jobs cannot exceed the available engine CPUs; select more CPUs "
                      "or explicitly use --no-pin")

@@ -13,8 +13,11 @@ import hashlib
 import json
 import math
 import random
+import shutil
 import sqlite3
 import sys
+import textwrap
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,6 +67,11 @@ DEFAULT_DATABASE = Path("logs/elo-matchmaker.sqlite3")
 DEFAULT_RATING = 1500.0
 DEFAULT_K_FACTOR = 32.0
 RESULTS = {"white", "black", "draw", "void"}
+TERMINATIONS = ("checkmate", "stalemate", "forfeit", "illegal-action",
+                "protocol-failure", "action-cap")
+TERMINATION_COLUMN = "termination TEXT CHECK (termination IN (" + ", ".join(
+    repr(value) for value in TERMINATIONS
+) + "))"
 FOCUSED_STRATEGIES = {"adaptive", "coverage"}
 
 
@@ -121,7 +129,7 @@ def connect(path: Path | str = DEFAULT_DATABASE) -> sqlite3.Connection:
 
 def initialize_schema(connection: sqlite3.Connection) -> None:
     connection.executescript(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS engines (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -178,6 +186,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
                     'scheduled', 'running', 'reported', 'completed', 'void', 'aborted'
                 )),
             result TEXT CHECK (result IN ('white', 'black', 'draw', 'void')),
+            {TERMINATION_COLUMN},
             reason TEXT NOT NULL DEFAULT '',
             summary TEXT NOT NULL DEFAULT '',
             pgn TEXT NOT NULL DEFAULT '',
@@ -231,6 +240,12 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     if "execution_group" not in match_columns:
         try:
             connection.execute("ALTER TABLE matches ADD COLUMN execution_group TEXT")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+    if "termination" not in match_columns:
+        try:
+            connection.execute(f"ALTER TABLE matches ADD COLUMN {TERMINATION_COLUMN}")
         except sqlite3.OperationalError as exc:
             if "duplicate column name" not in str(exc).lower():
                 raise
@@ -1260,6 +1275,7 @@ def report_result(
     match_id: int,
     result: str,
     *,
+    termination: str | None = None,
     reason: str = "",
     summary: str = "",
     pgn: str = "",
@@ -1270,6 +1286,8 @@ def report_result(
     result = result.lower()
     if result not in RESULTS:
         raise EloError(f"result must be one of {', '.join(sorted(RESULTS))}")
+    if termination is not None and termination not in TERMINATIONS:
+        raise EloError(f"termination must be one of {', '.join(TERMINATIONS)}")
     status = "void" if result == "void" else "reported"
     with connection:
         row = connection.execute(
@@ -1282,13 +1300,14 @@ def report_result(
         connection.execute(
             """
             UPDATE matches
-            SET status = ?, result = ?, reason = ?, summary = ?, pgn = ?,
+            SET status = ?, result = ?, termination = ?, reason = ?, summary = ?, pgn = ?,
                 output_log = ?, metrics_csv = ?, reported_at = ?
             WHERE id = ?
             """,
             (
                 status,
                 result,
+                termination,
                 reason,
                 summary,
                 pgn,
@@ -1439,17 +1458,47 @@ def leaderboard(
 
 
 def match_history(
-    connection: sqlite3.Connection, limit: int = 20
+    connection: sqlite3.Connection, limit: int = 20, *, termination: str | None = None
 ) -> list[dict[str, object]]:
+    condition = ""
+    parameters: tuple = (limit,)
+    if termination == "non-checkmate":
+        condition = "WHERE m.termination <> 'checkmate'"
+    elif termination == "unknown":
+        condition = "WHERE m.termination IS NULL AND m.result IS NOT NULL"
+    elif termination is not None:
+        condition = "WHERE m.termination = ?"
+        parameters = (termination, limit)
     rows = connection.execute(
-        """
+        f"""
         SELECT m.*, b.rated, b.strategy, b.status AS batch_status
         FROM matches m JOIN batches b ON b.id = m.batch_id
+        {condition}
         ORDER BY m.id DESC LIMIT ?
         """,
-        (limit,),
+        parameters,
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def head_to_head(connection: sqlite3.Connection) -> dict[tuple[str, str], tuple[int, int]]:
+    """Return (wins, games) for each ordered pair, combining both colors."""
+    rows = connection.execute(
+        """
+        SELECT white_id, black_id, COUNT(*), SUM(result = 'white'), SUM(result = 'black')
+        FROM matches
+        WHERE status IN ('reported', 'completed') AND result IN ('white', 'black', 'draw')
+        GROUP BY white_id, black_id
+        """
+    )
+    wins: Counter[tuple[str, str]] = Counter()
+    games: Counter[tuple[str, str]] = Counter()
+    for white, black, count, white_wins, black_wins in rows:
+        wins[white, black] += white_wins
+        wins[black, white] += black_wins
+        games[white, black] += count
+        games[black, white] += count
+    return {pair: (wins[pair], count) for pair, count in games.items()}
 
 
 def pending_matches(connection: sqlite3.Connection) -> list[dict[str, object]]:
@@ -1498,10 +1547,74 @@ def _print_leaderboard(rows: Sequence[dict[str, object]]) -> None:
         )
 
 
+def _print_matrix(
+    engines: Sequence[EngineRecord],
+    ratings: dict[str, float],
+    results: dict[tuple[str, str], tuple[int, int]],
+    *,
+    display_disabled: bool = False,
+) -> None:
+    participants = {row for row, _ in results}
+    ranked = sorted(
+        (engine for engine in engines if engine.id in participants or not engine.enabled),
+        key=lambda engine: (-ratings[engine.id], engine.id),
+    )
+    if not ranked:
+        print("No scored games.")
+        return
+
+    numbered = [(f"#{rank}", engine) for rank, engine in enumerate(ranked, start=1)]
+    visible = [(label, engine) for label, engine in numbered if engine.enabled or display_disabled]
+    visible_ids = {engine.id for _, engine in visible}
+    visible_results = {
+        (row, column): record for (row, column), record in results.items()
+        if row in visible_ids and column in visible_ids
+    }
+    win_counts = {pair: f"{wins}/{games}" for pair, (wins, games) in visible_results.items()}
+    win_rates = {pair: f"{wins / games:.1%}" for pair, (wins, games) in visible_results.items()}
+    row_width = len(numbered[-1][0])
+    cell_width = max(row_width, max(map(len, win_counts.values()), default=0),
+                     max(map(len, win_rates.values()), default=0))
+    width = max(shutil.get_terminal_size().columns, row_width + 3, row_width + 1 + cell_width)
+    if visible:
+        columns_per_block = (width - row_width) // (cell_width + 1)
+        print(textwrap.fill(
+            "Rows play against columns. Draws count as games. A dash means no games.",
+            width=width,
+        ))
+        print()
+
+        for title, cells in (("Wins / total", win_counts), ("Win rate", win_rates)):
+            print(textwrap.fill(title, width=width))
+            for offset in range(0, len(visible), columns_per_block):
+                columns = visible[offset:offset + columns_per_block]
+                if offset:
+                    print()
+                print(f"{'vs':>{row_width}}" + "".join(f" {label:>{cell_width}}" for label, _ in columns))
+                for label, row_engine in visible:
+                    entries = (cells.get((row_engine.id, col_engine.id), "-") for _, col_engine in columns)
+                    print(f"{label:>{row_width}}" + "".join(f" {entry:>{cell_width}}" for entry in entries))
+            print()
+    else:
+        print("No enabled engines with scored games.\n" if results else "No scored games.\n")
+
+    print("Engines")
+    for label, engine in numbered:
+        name = engine.name if engine.name == engine.id else f"{engine.name} [{engine.id}]"
+        if not engine.enabled:
+            name += " (disabled)"
+        print(textwrap.fill(
+            f"{ratings[engine.id]:.1f} Elo  {name}",
+            width=width, initial_indent=f"{label:>{row_width}}  ",
+            subsequent_indent=" " * (row_width + 2),
+        ))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = DefaultsHelpArgumentParser(description=__doc__)
-    parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
-    subparsers = parser.add_subparsers(dest="action", required=True)
+    parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE,
+                        help="path to the SQLite Elo database")
+    subparsers = parser.add_subparsers(dest="action", required=True, title="commands", metavar="COMMAND")
 
     register = subparsers.add_parser(
         "register", help="register an immutable engine version"
@@ -1564,14 +1677,26 @@ def build_parser() -> argparse.ArgumentParser:
             )
             command.add_argument("--reason", default="engine disabled")
 
-    for action in ("list", "leaderboard"):
-        command = subparsers.add_parser(action)
+    for action, help_text in (
+        ("list", "list registered engines and their settings"),
+        ("leaderboard", "rank engines by Elo and show rated results"),
+    ):
+        command = subparsers.add_parser(action, help=help_text)
         command.add_argument("--json", action="store_true")
         if action == "leaderboard":
             command.add_argument("--include-training", action="store_true")
 
-    for action in ("suggest", "schedule"):
-        command = subparsers.add_parser(action)
+    matrix = subparsers.add_parser(
+        "matrix", help="show head-to-head win counts and rates for rated and unrated games"
+    )
+    matrix.add_argument("--display-disabled", action="store_true",
+                        help="include disabled engines in both tables")
+
+    for action, help_text in (
+        ("suggest", "preview pairings for new matches"),
+        ("schedule", "create match records for new pairings"),
+    ):
+        command = subparsers.add_parser(action, help=help_text)
         command.add_argument("count", type=int)
         command.add_argument("--engine", dest="focus_engine")
         command.add_argument(
@@ -1591,22 +1716,25 @@ def build_parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("report", help="report one externally played result")
     report.add_argument("match_id", type=int)
     report.add_argument("result", choices=sorted(RESULTS))
+    report.add_argument("--termination", choices=TERMINATIONS, help="known cause of the result")
     report.add_argument("--reason", default="")
     report.add_argument("--summary", default="")
     report.add_argument("--pgn", type=Path)
     report.add_argument("--no-auto-finalize", action="store_true")
 
-    finalize = subparsers.add_parser("finalize")
+    finalize = subparsers.add_parser("finalize", help="settle a finished batch and update Elo ratings")
     finalize.add_argument("batch_id", type=int)
 
-    history = subparsers.add_parser("history")
+    history = subparsers.add_parser("history", help="show recent match records")
     history.add_argument("--limit", type=int, default=20)
     history.add_argument("--json", action="store_true")
+    history.add_argument("--termination", choices=(*TERMINATIONS, "non-checkmate", "unknown"),
+                         help="filter by termination cause")
 
-    pending = subparsers.add_parser("pending")
+    pending = subparsers.add_parser("pending", help="list matches awaiting completion or finalization")
     pending.add_argument("--json", action="store_true")
 
-    reset = subparsers.add_parser("reset-running")
+    reset = subparsers.add_parser("reset-running", help="return a running match to the schedule")
     reset.add_argument("match_id", type=int)
 
     abort = subparsers.add_parser(
@@ -1755,6 +1883,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(json.dumps(rows, indent=2))
                 else:
                     _print_leaderboard(rows)
+            elif args.action == "matrix":
+                results = head_to_head(connection)
+                ratings = fitted_ratings(connection)
+                _print_matrix(
+                    list_engines(connection), ratings, results, display_disabled=args.display_disabled
+                )
             elif args.action == "suggest":
                 pairings = suggest_pairings(
                     connection,
@@ -1787,6 +1921,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     connection,
                     args.match_id,
                     args.result,
+                    termination=args.termination,
                     reason=args.reason,
                     summary=args.summary,
                     pgn=pgn,
@@ -1799,7 +1934,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rows = finalize_batch(connection, args.batch_id)
                 print(f"Finalized batch {args.batch_id} with {len(rows)} match(es)")
             elif args.action == "history":
-                rows = match_history(connection, args.limit)
+                rows = match_history(connection, args.limit, termination=args.termination)
                 if args.json:
                     print(json.dumps(rows, indent=2))
                 else:
@@ -1807,10 +1942,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                         delta = ""
                         if row["white_delta"] is not None:
                             delta = f" ({row['white_delta']:+.2f}/{row['black_delta']:+.2f})"
+                        ending = ""
+                        if args.termination is not None:
+                            ending = f" [{row['termination'] or 'unknown'}]"
                         print(
                             f"Match {row['id']} batch {row['batch_id']}: {row['white_id']} vs "
-                            f"{row['black_id']} — {row['result'] or row['status']}{delta}"
+                            f"{row['black_id']} — {row['result'] or row['status']}{delta}{ending}"
                         )
+                        if args.termination is not None and row["output_log"]:
+                            print(f"  Log: {row['output_log']}")
             elif args.action == "pending":
                 rows = pending_matches(connection)
                 if args.json:

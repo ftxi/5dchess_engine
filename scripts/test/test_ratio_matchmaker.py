@@ -306,8 +306,8 @@ class CPUAllocationTests(unittest.TestCase):
         with patch.object(matcher.cpu_affinity, "available_cpus", return_value={0, 1, 2, 3}):
             args = settings(jobs=2)
             matcher.configure_cpus(parser, args)
-            self.assertEqual(args.worker_cores, [0, 1])
-            self.assertEqual(args.controller_cpus, [2, 3])
+            self.assertEqual(args.worker_cores, [1, 2])
+            self.assertEqual(args.controller_cpus, [0, 3])
             args = settings(jobs=2, controller_cores=[0, 1])
             matcher.configure_cpus(parser, args)
             self.assertEqual(args.worker_cores, [2, 3])
