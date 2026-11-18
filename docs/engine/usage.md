@@ -2,7 +2,7 @@
 
 Available engines include `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
 `zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-pruned`,
-`mvvlva-solid-only`, `mvvlva-solid`, `solid`, `linear`, `linear-trained`, `linear-weighted`,
+`mvvlva-solid`, `solid`, `linear`, `linear-trained`, `linear-weighted`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
 
@@ -51,8 +51,8 @@ position instead. Setting the limit to zero disables rollout entirely.
 ## MVV-LVA experiments
 
 `mvvlva` uses numerical victim values with preference for lower-valued attackers,
-check ordering, zero rollout evaluation, and progressive widening. `mvvlva-exposure`
-also penalizes locally attacked, undefended captures and rewards promotion gain.
+check ordering, zero rollout evaluation, and progressive widening. The
+`mvvlva-*` variants use the same scoring as `solid`.
 These geometric exposure scores do not establish whether a recapture is legal.
 
 The material values used by MVV, exposure, and promotion gain are:
@@ -69,7 +69,7 @@ The material values used by MVV, exposure, and promotion gain are:
 | Unicorn | 60 |
 | Dragon | 30 |
 
-In `mvvlva` and its exposure variants, the capture score for a nonroyal victim is
+In `mvvlva`, the capture score for a nonroyal victim is
 `480 + alpha * victim_value + beta * (maximum_attacker_rank - attacker_rank)`,
 where `alpha` is `1/16` and
 `beta = alpha * minimum_material_value_gap / maximum_attacker_rank`.
@@ -78,13 +78,10 @@ Attacker ranks are generated at compile time from distinct material values;
 equal values share a rank. Both royals receive the highest attacker rank and
 are excluded from victim scoring. The derived LVA step remains a tie-breaker
 when the values change.
-Checking adds 300. Exposure subtracts up to 128, and promotion gain adds up to
-48. These bounds preserve the priority of checking captures over other
-captures, and captures over checking quiet promotions. Other weighted
-engines retain their grouped capture features.
+Checking adds 300. Other weighted engines retain their grouped capture features.
 
 `solid` retains the complete legal-action space and pre-removes unavoidable
-royal checks. A capture scores one quarter of the victim's material value plus
+royal checks. In `solid` and the `mvvlva-*` variants, a capture scores one quarter of the victim's material value plus
 the same small attacker tie-breaker. If the resulting destination square has
 an enemy attacker and no friendly defender, it subtracts one quarter of the
 arriving piece's value. Check still adds 300, and promotion gain adds up to 48.
@@ -119,8 +116,7 @@ default is 256. Use 0 to compare against strict semimove ordering.
 - Omit physical moves on optional timelines and arrivals onto existing optional
   timelines whose source timeline is also optional. Arrivals from mandatory
   timelines and moves creating new branches remain available.
-- Pre-prune coordinates that unavoidably expose a friendly royal. Both options
-  use the regular HC builder and its partitions by branch count.
+- Pre-prune coordinates that unavoidably expose a friendly royal.
 
 Optional-timeline pruning may reduce the number of legal actions generated.
 Check pre-pruning preserves the legal-action set.
@@ -130,7 +126,7 @@ to unrestricted move generation for that position. Rules and terminal
 adjudication continue to use the complete legal-action space.
 
 For comparisons, `mvvlva-pruned` enables only optional-timeline pruning, and
-`mvvlva-solid-only` enables only check pre-pruning. These engines accept
+`solid` enables only check pre-pruning. These engines accept
 `--seed`, `--pw-constant` (default 2), `--pw-alpha` (default 0.5), and
 `--fine-prefix-budget` (default 256).
 
