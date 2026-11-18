@@ -18,7 +18,7 @@ import time
 from datetime import date
 from pathlib import Path
 
-import cpu_affinity
+from support import cpu_affinity
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -299,12 +299,13 @@ class EngineProcess:
                 response.cancel()
             with contextlib.suppress(asyncio.CancelledError, ProtocolError):
                 await response
-        if line == "nobestmove":
-            self.phase = "idle"
-            return None
-        moves = line.split()[1:]
         self.phase = "idle"
-        return moves or None
+        response_type, *moves = line.split()
+        if response_type == "nobestmove" and not moves:
+            return None
+        if response_type == "bestmove" and moves:
+            return moves
+        raise ProtocolError(f"{self.name}: malformed {response_type} reply; {self.diagnostic()}")
 
     async def close(self) -> None:
         if not self.process:
@@ -562,37 +563,42 @@ def set_pgn_result(game, outcome: str) -> None:
     game.metadata = metadata
 
 
-def append_termination_comment(game, comment: str) -> None:
-    """Append a concise, PGN-safe explanation to the current game node."""
+def add_termination_comment(game, comment: str) -> None:
+    """Place a PGN-safe explanation immediately after the current action."""
 
-    safe_comment = (
-        re.sub(r"\s+", " ", comment)
-        .replace("{", "(")
-        .replace("}", ")")
-        .strip()
-    )
-    comments = list(game.get_comments())
-    comments.append(safe_comment)
-    game.set_comments(comments)
+    # Engine diagnostics can contain unmatched braces or variation parentheses.
+    safe_comment = re.sub(r"\s+", " ", comment).translate(str.maketrans("{}()", "[][]")).strip()
+    game.set_comments([safe_comment, *game.get_comments()])
 
 
-def protocol_termination_comment(
-    player: EngineProcess, index: int, error: Exception
-) -> str:
+def protocol_termination_comment(actor: str, error: Exception) -> str:
     """Describe a protocol termination without copying verbose diagnostics."""
 
-    detail = str(error).lower()
-    if isinstance(error, (BrokenPipeError, ConnectionResetError)):
-        reason = "crashed"
-    elif "cannot start" in detail:
-        reason = "failed to start"
-    elif "timed out" in detail or "did not respond" in detail:
+    message = str(error).partition("; phase=")[0]
+    detail = message.lower()
+    reported_error = re.search(r": engine reported (.+)", message)
+    exit_code = re.search(r"exited with (-?\d+)", detail)
+    waiting_for = re.search(r"timed out in \w+ waiting for ([\w/]+)", detail)
+    if reported_error:
+        reason = f"reported a protocol error ({reported_error[1]})"
+    elif exit_code:
+        reason = f"exited with code {exit_code[1]}"
+    elif waiting_for:
+        reason = f"timed out waiting for {' or '.join(waiting_for[1].split('/'))}"
+    elif "did not respond to stop" in detail:
+        reason = "timed out waiting for stop"
+    elif "timed out" in detail:
         reason = "timed out"
-    elif "exited with" in detail:
-        reason = "crashed"
+    elif "failed the 5duci startup handshake" in detail:
+        reason = "failed the 5DUCI handshake"
+    elif any(text in detail for text in ("cannot start", "was not found", "is not executable")):
+        reason = "failed to start"
+    elif isinstance(error, (BrokenPipeError, ConnectionResetError)) or "connection closed" in detail:
+        reason = "closed the protocol connection"
     else:
-        reason = "had a protocol failure"
-    return f"{'Black' if index else 'White'} [{player.name or player.command}] {reason}."
+        description = message.partition(": ")[2] or message
+        reason = f"had a protocol failure ({description})"
+    return f"{actor} {reason}"
 
 
 def status_worker(module_dir: str, pgn: str, sender) -> None:
@@ -607,8 +613,10 @@ def status_worker(module_dir: str, pgn: str, sender) -> None:
         sender.send("black")
     elif status == rules.match_status_t.STALEMATE:
         sender.send("draw")
-    else:
+    elif status == rules.match_status_t.PLAYING:
         sender.send("playing")
+    else:
+        sender.send("illegal-history")
     sender.close()
 
 
@@ -773,6 +781,7 @@ async def play(
     except (AttributeError, NotImplementedError, OSError):
         pass
     result = "draw: action limit reached"
+    termination = None
 
     def player_label(index: int) -> str:
         player = players[index]
@@ -809,12 +818,10 @@ async def play(
         if startup_errors:
             failed_index, startup_error = startup_errors[0]
             outcome = "protocol"
+            termination = "protocol-failure"
             result = f"protocol failure during startup: {startup_error}"
-            append_termination_comment(
-                game,
-                protocol_termination_comment(
-                    players[failed_index], failed_index, startup_error
-                ),
+            add_termination_comment(
+                game, protocol_termination_comment("black" if failed_index else "white", startup_error)
             )
             failure_file = save_protocol_failure(
                 game, players, result, show_flags, game_number, log_dir
@@ -837,12 +844,10 @@ async def play(
         if new_game_errors:
             failed_index, new_game_error = new_game_errors[0]
             outcome = "protocol"
+            termination = "protocol-failure"
             result = f"protocol failure during new game: {new_game_error}"
-            append_termination_comment(
-                game,
-                protocol_termination_comment(
-                    players[failed_index], failed_index, new_game_error
-                ),
+            add_termination_comment(
+                game, protocol_termination_comment("black" if failed_index else "white", new_game_error)
             )
             failure_file = save_protocol_failure(
                 game, players, result, show_flags, game_number, log_dir
@@ -860,6 +865,7 @@ async def play(
             timeline_count = len({board[0] for board in boards})
             board_count = len(boards)
             index = int(black_to_move)
+            color = "black" if black_to_move else "white"
             player = players[index]
             try:
                 moves = await player.choose(initial_position, history, args.movetime, commands)
@@ -867,12 +873,11 @@ async def play(
                 record_go_metrics(
                     args.metrics_csv, player, game_number, turn, move_number,
                     timeline_count, board_count,
-                    "black" if index else "white", args.movetime, "protocol_error")
+                    color, args.movetime, "protocol_error")
                 outcome = "protocol"
+                termination = "protocol-failure"
                 result = f"protocol failure from {player_label(index)}: {exc}"
-                append_termination_comment(
-                    game, protocol_termination_comment(player, index, exc)
-                )
+                add_termination_comment(game, protocol_termination_comment(color, exc))
                 failure_file = save_protocol_failure(
                     game, players, result, show_flags, game_number, log_dir
                 )
@@ -882,7 +887,7 @@ async def play(
             record_go_metrics(
                 args.metrics_csv, player, game_number, turn, move_number,
                 timeline_count, board_count,
-                "black" if index else "white", args.movetime,
+                color, args.movetime,
                 "bestmove" if moves else "nobestmove")
             if not moves:
                 adjudication_file = save_adjudication_position(game, game_number, log_dir)
@@ -892,41 +897,39 @@ async def play(
                     flush=True,
                 )
                 status = await adjudicate(adjudication_file.read_text(), args.module_dir)
-                if status == "white":
-                    outcome = "white"
-                    result = winner(0)
-                elif status == "black":
-                    outcome = "black"
-                    result = winner(1)
+                if status in ("white", "black"):
+                    outcome = status
+                    termination = "checkmate"
+                    result = f"{winner(int(status == 'black'))} by checkmate"
                 elif status == "draw":
                     outcome = "draw"
+                    termination = "stalemate"
                     result = "draw: stalemate"
-                elif status.startswith("error:"):
-                    outcome = "error"
-                    exit_code = status.partition(":")[2]
-                    append_termination_comment(
-                        game, f"Adjudication failed with exit code {exit_code}."
-                    )
-                    result = (
-                        f"no result: adjudicator exited with {exit_code}; "
-                        f"position retained at {adjudication_file}"
-                    )
-                else:
+                elif status == "playing":
                     winning_index = 1 - index
                     outcome = "black" if winning_index else "white"
+                    termination = "forfeit"
                     result = (
                         f"{winner(winning_index)}: {player_label(index)} returned no move; "
                         "position is not terminal"
                     )
+                    add_termination_comment(game, f"{color} forfeits")
+                else:
+                    outcome = "error"
+                    detail = (
+                        f"adjudicator exited with {status.partition(':')[2]}"
+                        if status.startswith("error:") else f"adjudicator reported {status}"
+                    )
+                    add_termination_comment(game, f"{detail.capitalize()}.")
+                    result = f"no result: {detail}; position retained at {adjudication_file}"
                 break
             error = apply_action(rules, game, moves)
             if error:
                 winning_index = 1 - index
                 outcome = "black" if winning_index else "white"
+                termination = "illegal-action"
                 result = f"{winner(winning_index)}: {player_label(index)} {error}"
-                append_termination_comment(
-                    game, f"{player_label(index)} reported an illegal bestmove: {error}."
-                )
+                add_termination_comment(game, f"{color} attempts to play an illegal action")
                 failure_file = save_illegal_action(
                     game, player, moves, error, game_number, turn, log_dir
                 )
@@ -947,7 +950,8 @@ async def play(
             else:
                 print(f"{move_number}{color}. {' '.join(moves)}")
         else:
-            result = "draw: action limit reached"
+            termination = "action-cap"
+            add_termination_comment(game, "action cap reached")
 
         set_pgn_result(game, outcome)
         print(f"\nResult: {result}\n")
@@ -955,14 +959,14 @@ async def play(
         return outcome
     except asyncio.CancelledError:
         set_pgn_result(game, "protocol")
-        append_termination_comment(game, "Interrupted.")
+        add_termination_comment(game, "Interrupted.")
         print("\nInterrupted: quitting both engines.\n", file=sys.stderr)
         print("Partial game PGN:\n")
         print(game.show_pgn(show_flags))
         raise
     except Exception as exc:
         set_pgn_result(game, "error")
-        append_termination_comment(game, f"Autoplay failed: {type(exc).__name__}.")
+        add_termination_comment(game, f"Autoplay failed: {type(exc).__name__}.")
         raise
     finally:
         if watching_stdin:
@@ -971,6 +975,7 @@ async def play(
         if capture is not None:
             capture.update(
                 outcome=outcome,
+                termination=termination or "",
                 summary=result,
                 pgn=game.show_pgn(show_flags),
             )

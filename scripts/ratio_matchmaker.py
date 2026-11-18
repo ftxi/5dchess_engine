@@ -32,13 +32,17 @@ import time
 from typing import Iterable
 
 import autoplay
-import cpu_affinity
-import matchmaker_options as common
 from elo import DefaultsHelpArgumentParser
+from support import cpu_affinity
+from support import matchmaker_options as common
 
 
 DEPTH_TO_ITERATIONS = 10
 STARTPOS_PGN = '[Board "Standard - Turn Zero"]'
+GAME_COLUMNS = (
+    "ratio", "pair", "game", "target_color",
+    "outcome", "actions", "reason", "pgn_path", "cpu", "termination",
+)
 
 
 @dataclass(frozen=True)
@@ -111,6 +115,7 @@ class GameResult:
     reason: str
     actions: int
     pgn: str
+    termination: str | None = None
 
 
 @dataclass
@@ -231,13 +236,7 @@ class Experiment:
     def initialize_logs(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         with self.games_csv.open("w", newline="") as output:
-            csv.DictWriter(
-                output,
-                fieldnames=(
-                    "ratio", "pair", "game", "target_color",
-                    "outcome", "actions", "reason", "pgn_path", "cpu",
-                ),
-            ).writeheader()
+            csv.DictWriter(output, fieldnames=GAME_COLUMNS).writeheader()
         with self.searches_csv.open("w", newline="") as output:
             csv.DictWriter(
                 output,
@@ -272,13 +271,7 @@ class Experiment:
         )
         pgn_path.write_text(result.pgn)
         with self.games_csv.open("a", newline="") as output:
-            writer = csv.DictWriter(
-                output,
-                fieldnames=(
-                    "ratio", "pair", "game", "target_color",
-                    "outcome", "actions", "reason", "pgn_path", "cpu",
-                ),
-            )
+            writer = csv.DictWriter(output, fieldnames=GAME_COLUMNS)
             writer.writerow(
                 {
                     "ratio": ratio,
@@ -290,6 +283,7 @@ class Experiment:
                     "reason": result.reason,
                     "pgn_path": pgn_path,
                     "cpu": cpu,
+                    "termination": result.termination,
                 }
             )
             output.flush()
@@ -590,6 +584,13 @@ class ProgressReporter:
         self.report(state)
 
 
+class EngineStartupError(autoplay.ProtocolError):
+    def __init__(self, player: autoplay.EngineProcess, phase: str, error: Exception):
+        super().__init__(f"{player.name}: {phase} failed: {error}")
+        self.player = player
+        self.error = error
+
+
 async def start_engines(players: Iterable[autoplay.EngineProcess]) -> None:
     players = list(players)
     results = await asyncio.gather(
@@ -597,13 +598,13 @@ async def start_engines(players: Iterable[autoplay.EngineProcess]) -> None:
     )
     for player, result in zip(players, results):
         if isinstance(result, Exception):
-            raise autoplay.ProtocolError(f"{player.name}: startup failed: {result}")
+            raise EngineStartupError(player, "startup", result) from result
     results = await asyncio.gather(
         *(player.new_game() for player in players), return_exceptions=True
     )
     for player, result in zip(players, results):
         if isinstance(result, Exception):
-            raise autoplay.ProtocolError(f"{player.name}: new-game failed: {result}")
+            raise EngineStartupError(player, "new-game", result) from result
 
 
 async def calibrate_on(experiment: Experiment, cpu: int | None) -> None:
@@ -676,6 +677,8 @@ async def play_game(
     show_flags = rules.SHOW_CAPTURE | rules.SHOW_PROMOTION | rules.SHOW_SHORT
     outcome = "void"
     reason = "game did not start"
+    termination = None
+    comment = None
     actions = 0
     try:
         await start_engines((target, baseline, meter))
@@ -683,6 +686,7 @@ async def play_game(
             actions = action_number
             _, black_to_move = game.get_current_present()
             color_index = int(black_to_move)
+            color = "black" if black_to_move else "white"
             player = players[color_index]
             target_turn = player is target
             if target_turn:
@@ -692,7 +696,9 @@ async def play_game(
                     )
                 except (autoplay.ProtocolError, ValueError) as exc:
                     outcome = "void"
+                    termination = "protocol-failure"
                     reason = f"baseline meter failure: {exc}"
+                    comment = autoplay.protocol_termination_comment("baseline meter", exc)
                     break
                 if not meter_moves:
                     status = await autoplay.adjudicate(
@@ -700,13 +706,15 @@ async def play_game(
                     )
                     if status in ("white", "black", "draw"):
                         outcome = winner_to_target_outcome(status, target_white)
-                        reason = f"baseline meter detected terminal position: {status}"
+                        termination = "stalemate" if status == "draw" else "checkmate"
+                        reason = "stalemate" if status == "draw" else f"{status} wins by checkmate"
                     else:
                         outcome = "void"
-                        reason = (
-                            "baseline meter returned no move in a nonterminal "
-                            f"position ({status})"
+                        comment = (
+                            "baseline meter returned no move in a nonterminal position"
+                            if status == "playing" else f"adjudication failed ({status})"
                         )
+                        reason = comment
                     break
                 reference = search_sample(meter)
                 experiment.add_baseline(cpu, reference)
@@ -727,7 +735,9 @@ async def play_game(
                     )
                 except (autoplay.ProtocolError, ValueError) as exc:
                     outcome = "loss"
+                    termination = "protocol-failure"
                     reason = f"target failure: {exc}"
+                    comment = autoplay.protocol_termination_comment(color, exc)
                     break
                 if moves:
                     sample = search_sample(target)
@@ -760,7 +770,9 @@ async def play_game(
                     )
                 except (autoplay.ProtocolError, ValueError) as exc:
                     outcome = "win"
+                    termination = "protocol-failure"
                     reason = f"baseline failure: {exc}"
+                    comment = autoplay.protocol_termination_comment(color, exc)
                     break
                 if moves:
                     sample = search_sample(baseline)
@@ -793,16 +805,22 @@ async def play_game(
                 )
                 if status in ("white", "black", "draw"):
                     outcome = winner_to_target_outcome(status, target_white)
-                    reason = f"terminal position: {status}"
-                elif target_turn:
-                    outcome = "loss"
-                    reason = f"target returned no move in nonterminal position ({status})"
+                    termination = "stalemate" if status == "draw" else "checkmate"
+                    reason = "stalemate" if status == "draw" else f"{status} wins by checkmate"
                 else:
-                    outcome = "win"
-                    reason = f"baseline returned no move in nonterminal position ({status})"
+                    outcome = "loss" if target_turn else "win"
+                    if status == "playing":
+                        termination = "forfeit"
+                        reason = f"{player.name} returned no move in nonterminal position ({status})"
+                        comment = f"{color} forfeits"
+                    else:
+                        reason = f"adjudication failed ({status})"
+                        comment = reason
                 break
             error = autoplay.apply_action(rules, game, moves)
             if error:
+                termination = "illegal-action"
+                comment = f"{color} attempts to play an illegal action"
                 if target_turn:
                     outcome = "loss"
                     reason = f"target illegal action: {error}"
@@ -814,20 +832,28 @@ async def play_game(
             history.append("submit")
         else:
             outcome = "draw"
+            termination = "action-cap"
             reason = "action limit reached"
-        autoplay.set_pgn_result(
-            game,
-            "draw" if outcome == "draw" else
-            "white" if (outcome == "win") == target_white else
-            "black" if outcome in ("win", "loss") else "protocol",
-        )
-        autoplay.append_termination_comment(game, reason)
-        return GameResult(outcome, reason, actions, game.show_pgn(show_flags))
+            comment = "action cap reached"
+        pgn_result = outcome
+        if outcome in ("win", "loss"):
+            pgn_result = "white" if (outcome == "win") == target_white else "black"
+        autoplay.set_pgn_result(game, pgn_result)
+        if comment is not None:
+            autoplay.add_termination_comment(game, comment)
+        return GameResult(outcome, reason, actions, game.show_pgn(show_flags), termination)
+    except EngineStartupError as exc:
+        if exc.player is meter:
+            actor = "baseline meter"
+        else:
+            actor = "black" if exc.player is players[1] else "white"
+        autoplay.add_termination_comment(game, autoplay.protocol_termination_comment(actor, exc.error))
+        return GameResult("void", str(exc), actions, game.show_pgn(show_flags), "protocol-failure")
     except asyncio.CancelledError:
         raise
     except Exception as exc:
         reason = f"controller error: {type(exc).__name__}: {exc}"
-        autoplay.append_termination_comment(game, reason)
+        autoplay.add_termination_comment(game, reason)
         return GameResult("void", reason, actions, game.show_pgn(show_flags))
     finally:
         await asyncio.gather(target.close(), baseline.close(), meter.close())
