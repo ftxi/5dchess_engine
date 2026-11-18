@@ -91,17 +91,20 @@ Branch arrivals retain their normal scores. The penalty affects expansion order,
 while search rewards and UCT selection use the usual outcomes. Progressive
 widening can delay low-priority moves at finite search budgets.
 
-Fine-tree expansion searches the highest-scoring unexpanded semimove that has
-at least one legal continuation, then completes its branch using the same
-ordering. This preserves score priority among siblings at every semimove
-prefix, including when a higher-priority choice needs a new timeline. Shared
-search results and reusable legal continuations reduce repeated search work.
-For a choice that needs a longer continuation search, compatible regions take
-turns supplying a legal witness while the requested choice stays fixed.
-This ordering does not imply a global ranking of complete-action scores.
+Fine-tree expansion in the progressive widening engines first searches for a
+legal continuation of the highest-ranked unexpanded semimove. When a probe
+uses up its work budget, the next probe includes one more ranked semimove.
+Each probe shares the learned exclusions with the other probes. A legal
+continuation found after widening completes the action immediately. At full
+width, expansion can use a retained legal continuation or ordinary Deferred
+hypercuboid search with the earlier semimoves still fixed.
+
+`--fine-prefix-budget <n>` sets the work budget per ranked group. It counts
+tree visits, temporary search steps, matching, and legality checks. The
+default is 256. Use 0 to compare against strict semimove ordering.
 
 ```sh
-./build/5dchess solid --seed 42 --pw-constant 2 --pw-alpha 0.5
+./build/5dchess solid --seed 42 --fine-prefix-budget 128
 ```
 
 `mvvlva-solid` is the legacy pruning experiment. It adds two HC construction changes to `mvvlva-exposure`:
@@ -121,7 +124,8 @@ adjudication continue to use the complete legal-action space.
 
 For comparisons, `mvvlva-pruned` enables only optional-timeline pruning, and
 `mvvlva-solid-only` enables only check pre-pruning. These engines accept
-`--seed`, `--pw-constant` (default 2), and `--pw-alpha` (default 0.5).
+`--seed`, `--pw-constant` (default 2), `--pw-alpha` (default 0.5), and
+`--fine-prefix-budget` (default 256).
 
 ```sh
 ./build/5dchess mvvlva-solid --seed 42 --pw-constant 2 --pw-alpha 0.5

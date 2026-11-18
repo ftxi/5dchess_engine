@@ -215,8 +215,8 @@ class HC_info
     template<HCOrdering Ordering>
     std::optional<point> local_witness(
         local_space &local, const point &seed, const HC &restriction, const Ordering &order) const;
-    template<HCOrdering Ordering, hc_policy Policy>
-    generator<moveseq> local_search(
+    template<class Result, HCOrdering Ordering, hc_policy Policy>
+    generator<Result> local_search(
         const HC &outer_hc, local_space &local, const point &seed, const Ordering &order,
         bool seed_already_yielded,
         std::span<const slice> negative = {}
@@ -445,6 +445,16 @@ public:
     std::optional<point> find_witness(completion_space &space, const HC &restriction,
                                     const Ordering &order = {}, completion_query *query = nullptr) const;
 
+    struct bounded_witness
+    {
+        std::optional<point> witness;
+        bool budget_exhausted = false;
+        std::size_t work = 0;
+    };
+    template<HCOrdering Ordering = natural_HC_ordering>
+    bounded_witness find_witness_with_budget(completion_space &space, const HC &restriction,
+        const Ordering &order, completion_query *query, std::optional<std::size_t> limit) const;
+
 private:
     std::vector<std::vector<structural_probe::coordinate>> structural_coordinates() const;
     bool run_structural_probe(completion_space &space, const HC &domain) const;
@@ -520,6 +530,9 @@ private:
     bool has_forced_departure_cycle(const HC &domain) const;
     static HC_info build_info(const state &s, HC_build_options options);
     void prune_checks();
+    search_space partition_by_branches(const HC &domain) const;
+    template<class Result, HCOrdering Ordering, hc_policy Policy>
+    generator<Result> search_impl(search_space ss, Ordering order) const;
 
 public:
     static std::pair<HC_info, search_space> build_HC(
@@ -532,6 +545,8 @@ public:
     generator<moveseq> search(search_space ss, Ordering order = {}) const &;
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>
     generator<moveseq> search(search_space ss, Ordering order = {}) const && = delete;
+    // Ordinary Deferred search with the same branch partitions, under a fine-node restriction.
+    std::optional<point> first_completion(const HC &restriction) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
 };

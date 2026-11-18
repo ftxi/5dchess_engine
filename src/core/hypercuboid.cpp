@@ -503,20 +503,29 @@ HC_info HC_info::build_info(const state &s, HC_build_options options)
 std::pair<HC_info, search_space> HC_info::build_HC(const state &s, HC_build_options options)
 {
     auto info = build_info(s, options);
-    const index_t dimension = info.dimension();
-    // split the search space by number of branches
-    HC hc_n_lines = info.universe;
-    for(index_t n = info.new_axis; n < dimension; n++)
+    auto space = info.partition_by_branches(info.universe);
+    return {std::move(info), std::move(space)};
+}
+
+search_space HC_info::partition_by_branches(const HC &domain) const
+{
+    HC hc_n_lines = domain;
+    for(index_t n = new_axis; n < dimension(); ++n)
         hc_n_lines[n] &= integer_set{null_coordinate};
-    search_space ss{{hc_n_lines}};
-    for(index_t n = info.new_axis; n < dimension; n++)
+    search_space space{{hc_n_lines}};
+    for(index_t n = new_axis; n < dimension(); ++n)
     {
-        // Use each axis's pruned universe: check removal can differ by axis.
-        hc_n_lines[n] = info.universe[n];
+        hc_n_lines[n] = domain[n];
         hc_n_lines[n].erase(null_coordinate);
-        ss.push_front(hc_n_lines); // prefer fewer branching moves
+        space.push_front(hc_n_lines); // prefer fewer branching moves
     }
-    return {std::move(info), std::move(ss)};
+    return space;
+}
+
+std::optional<point> HC_info::first_completion(const HC &restriction) const
+{
+    return search_impl<point, natural_HC_ordering, hc_policy::deferred>(
+        partition_by_branches(restriction), {}).first();
 }
 
 

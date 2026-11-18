@@ -236,8 +236,49 @@ void test_shared_ordered_search()
     check_changing_order_prefixes(changing_root.get(), legal, changing_order);
 }
 
+void test_budgeted_prefix_search()
+{
+    const auto position = state::from_pgn(
+        "[Board \"custom\"]\n[Size \"4x4\"]\n"
+        "[3k/4/4/KN2:0:1:w]\n[3k/4/4/KN2:1:1:w]\n");
+    auto [info, initial] = HC_info::build_HC(position);
+    const auto legal = legal_completions(info, initial);
+    const auto fallback = info.first_completion(info.get_universe());
+    assert(fallback && info.dimension() > 1);
+    const auto alternative = std::find_if(legal.begin(), legal.end(), [&](const point &p) {
+        return p[0] != (*fallback)[0];
+    });
+    assert(alternative != legal.end());
+
+    std::vector<std::vector<float>> scores(info.dimension());
+    for(index_t axis = 0; axis < info.dimension(); ++axis)
+        scores[axis].resize(*std::ranges::max_element(info.get_universe()[axis]) + 1);
+    scores[0][(*alternative)[0]] = 2;
+    scores[0][(*fallback)[0]] = 1;
+    std::mt19937 random(91);
+    const scored_HC_ordering order(info.get_universe(), scores, random);
+
+    auto strict = test_node::make_root(position);
+    assert(strict->expand_next(order)->get_i() == (*alternative)[0]);
+
+    // One unit spends the budget during discovery. Full width must adopt
+    // the ordinary completion even though the preferred semimove is legal.
+    auto root = test_node::make_root(position, {}, fine_search_options{.prefix_budget = 1});
+    auto *child = root->expand_next(order);
+    assert(child && child->get_i() == (*fallback)[0]);
+    assert(finetree_nearby_ceiling(child)->to_action() == info.to_action(*fallback));
+
+    // The timed-out choice stays available and the materialized suffix still
+    // admits every other legal continuation.
+    std::set<moveseq> expected, actual;
+    for(const auto &p : legal) expected.insert(info.to_action(p));
+    collect_tree_actions(root.get(), order, actual);
+    assert(actual == expected);
+}
+
 int main()
 {
+    test_budgeted_prefix_search();
     test_shared_ordered_search();
     state s = state::from_pgn<true>(str);
     test_normalization_preserves_actions(s);

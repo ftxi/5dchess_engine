@@ -1,5 +1,6 @@
 // Accessing the 5dchess engines
 
+#include <charconv>
 #include <cstdint>
 #include <cmath>
 #include <iostream>
@@ -25,6 +26,7 @@ struct command_line_options
     double progressive_widening_constant
         = default_progressive_widening_constant;
     double progressive_widening_alpha = default_progressive_widening_alpha;
+    std::size_t fine_prefix_budget = default_fine_prefix_budget;
 };
 
 bool is_weighted_engine(std::string_view name)
@@ -77,6 +79,8 @@ void print_usage(std::ostream &out)
            " (default 2)\n"
         << "  --pw-alpha <n>                  widening exponent in (0, 1] for"
            " *-pw engines (default 0.5)\n"
+        << "  --fine-prefix-budget <n>        work units per ranked group for PW engines"
+           " (default " << default_fine_prefix_budget << ", 0 for strict ordering)\n"
         << "  -h, --help                      display this help text and exit\n";
 }
 
@@ -111,6 +115,7 @@ command_line_options parse_options(
     bool weight_temperature_seen = false;
     bool pw_constant_seen = false;
     bool pw_alpha_seen = false;
+    bool fine_prefix_budget_seen = false;
     for(int i = 2; i < argc; ++i)
     {
         const std::string option = argv[i];
@@ -175,6 +180,19 @@ command_line_options parse_options(
             if(options.progressive_widening_alpha > 1.0)
                 throw std::invalid_argument("widening alpha exceeds one");
             pw_alpha_seen = true;
+        }
+        else if(option == "--fine-prefix-budget")
+        {
+            if((engine_name != "zero-capture-check-pw" && !is_mvvlva_engine(engine_name))
+               || fine_prefix_budget_seen || ++i >= argc)
+                throw std::invalid_argument("invalid fine prefix budget option");
+
+            const std::string_view value = argv[i];
+            const auto end = value.data() + value.size();
+            const auto [parsed, error] = std::from_chars(value.data(), end, options.fine_prefix_budget);
+            if(error != std::errc{} || parsed != end)
+                throw std::invalid_argument("invalid fine prefix budget");
+            fine_prefix_budget_seen = true;
         }
         else
         {
@@ -253,14 +271,16 @@ int main(int argc, const char *argv[])
     {
         selected_engine = std::make_unique<zero_capture_check_pw_engine>(
             std::make_unique<stdio_handler>(), options.seed,
-            options.progressive_widening_constant, options.progressive_widening_alpha);
+            options.progressive_widening_constant, options.progressive_widening_alpha,
+            options.fine_prefix_budget);
     }
     else if(is_mvvlva_engine(engine_name))
     {
         if(engine_name == "mvvlva")
             selected_engine = std::make_unique<mvvlva_engine>(
                 std::make_unique<stdio_handler>(), options.seed,
-                options.progressive_widening_constant, options.progressive_widening_alpha);
+                options.progressive_widening_constant, options.progressive_widening_alpha,
+                HC_build_options{}, options.fine_prefix_budget);
         else
             selected_engine = std::make_unique<mvvlva_exposure_engine>(
                 std::make_unique<stdio_handler>(), options.seed,
@@ -269,7 +289,8 @@ int main(int argc, const char *argv[])
                     .remove_check = engine_name == "mvvlva-solid-only"
                         || engine_name == "mvvlva-solid" || engine_name == "solid",
                     .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"},
-                engine_name == "solid" ? capture_ordering::solid : capture_ordering::mvvlva_exposure);
+                engine_name == "solid" ? capture_ordering::solid : capture_ordering::mvvlva_exposure,
+                options.fine_prefix_budget);
     }
     else if(engine_name == "linear" || engine_name == "linear-trained"
             || engine_name == "linear-weighted")

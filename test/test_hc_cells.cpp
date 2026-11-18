@@ -322,6 +322,27 @@ void complete_action_oracle()
     };
     assert(legal.size() >= 2 && illegal);
     {
+        const auto &first = legal.front();
+        const auto later = std::find_if(legal.begin(), legal.end(), [&](const point &p) {
+            return p[0] != first[0];
+        });
+        assert(later != legal.end());
+        HC_info::completion_space space(search_space{singleton(first), singleton(*later)});
+        HC single = info.get_universe();
+        single[0] = integer_set{first[0]};
+        auto query = info.restrict_completion(space, info.get_universe(), 0);
+        const natural_HC_ordering order;
+        auto expired = info.find_witness_with_budget(space, single, order, &query, 1);
+        assert(expired.budget_exhausted && expired.work == 1 && !expired.witness);
+        HC group = single;
+        group[0].insert((*later)[0]);
+        auto joint = info.find_witness_with_budget(space, group, order, &query, 256);
+        assert(!joint.budget_exhausted && joint.work <= 256 && joint.witness && group.contains(*joint.witness));
+        // A wider witness or a timed-out singleton leaves the original choice open.
+        assert(info.find_witness(space, single, order, &query) == first);
+    }
+
+    {
         assert(legal.size() >= 4);
         HC_info::completion_space space(search_space{singleton(legal[3]), singleton(legal[2]),
                                                       singleton(legal[1]), singleton(legal[0])});

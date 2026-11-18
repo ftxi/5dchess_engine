@@ -194,7 +194,8 @@ inline generator<index_t> fine_node<T>::search(Order order) &
 template<typename T>
     requires std::default_initializable<T>
 template<HCOrdering Order>
-inline fine_node<T> *fine_node<T>::expand_one(const Order &order)
+inline fine_node<T> *fine_node<T>::expand_one(
+    const Order &order, std::shared_ptr<const completion_record> &finish)
 {
     auto *ctx = get_context();
     auto *continuation = query();
@@ -203,6 +204,7 @@ inline fine_node<T> *fine_node<T>::expand_one(const Order &order)
     if(axis >= ctx->hc_info.dimension() || remaining.empty()) return nullptr;
     const HC *propagated = nullptr;
     const auto admit = [&](index_t coordinate, std::shared_ptr<const completion_record> witness) {
+        assert(remaining.contains(coordinate));
         auto *child = add_child(axis, coordinate);
         if(propagated && axis + 1 < ctx->hc_info.dimension()) child->remaining &= (*propagated)[axis + 1];
         if(!child->is_ceiling())
@@ -232,6 +234,9 @@ inline fine_node<T> *fine_node<T>::expand_one(const Order &order)
         completion = remaining.empty() ? nullptr : std::move(witness);
         return child;
     };
+    if(finish) return admit(finish->coordinates[axis], finish);
+
+    const auto budget = ctx->options.prefix_budget;
     if(completion)
     {
         index_t first;
@@ -246,11 +251,14 @@ inline fine_node<T> *fine_node<T>::expand_one(const Order &order)
         if(auto candidate = ctx->hc_info.try_local_completion(completion->coordinates, axis, first))
             return admit(first, std::make_shared<const completion_record>(std::move(*candidate),
                 continuation ? pending->global : completion->base));
-        const auto *local_parent = !is_nodal() ? (parent->pending ? parent->pending->local.get() : nullptr) : nullptr;
-        if(auto candidate = ctx->hc_info.resume_local(ctx->search, pending_search().local,
-                local_parent, completion->coordinates, axis, first, order))
-            return admit(first, std::make_shared<const completion_record>(std::move(*candidate),
-                continuation ? pending->global : completion->base));
+        if(!budget)
+        {
+            const auto *local_parent = !is_nodal() && parent->pending ? parent->pending->local.get() : nullptr;
+            if(auto candidate = ctx->hc_info.resume_local(ctx->search, pending_search().local,
+                    local_parent, completion->coordinates, axis, first, order))
+                return admit(first, std::make_shared<const completion_record>(std::move(*candidate),
+                    continuation ? pending->global : completion->base));
+        }
     }
     if(!continuation)
     {
@@ -281,6 +289,40 @@ inline fine_node<T> *fine_node<T>::expand_one(const Order &order)
     HC &restriction = ctx->restriction;
     restriction = continuation->active;
     propagated = &continuation->active;
+    if(budget)
+    {
+        const auto choices = remaining;
+        integer_set group;
+        for(auto coordinate : order(axis, choices))
+        {
+            group.insert(coordinate);
+            restriction[axis] = group;
+            const bool full_width = group.size() == remaining.size();
+            auto witness = completion;
+            if(!witness || !restriction.contains(witness->coordinates))
+            {
+                auto result = full_width
+                    ? HC_info::bounded_witness{ctx->hc_info.first_completion(restriction)}
+                    : ctx->hc_info.find_witness_with_budget(ctx->search, restriction, order, continuation, budget);
+                if(result.budget_exhausted) continue;
+                if(!result.witness)
+                {
+                    remaining.minus(group);
+                    group.clear();
+                    continue;
+                }
+                witness = std::make_shared<const completion_record>(
+                    std::move(*result.witness), pending->global);
+            }
+            const auto selected = witness->coordinates[axis];
+            // Use the entire witness once search has widened past the first choice.
+            if(group.size() > 1) finish = witness;
+            return admit(selected, std::move(witness));
+        }
+        completion.reset();
+        pending->global.reset();
+        return nullptr;
+    }
     if(!completion || !restriction.contains(completion->coordinates))
     {
         // A single unrestricted failure can close a terminal prefix. Do not
@@ -343,14 +385,14 @@ template<typename T>
 template<HCOrdering Order>
 inline fine_node<T> *fine_node<T>::expand_next(const Order &order) &
 {
-    auto *first = expand_one(order);
+    std::shared_ptr<const completion_record> finish;
+    auto *first = expand_one(order, finish);
     if(!first) return nullptr;
-    // Preserve MCTS's complete-witness-branch contract. Every suffix coordinate
-    // is selected by the same order; a matching witness never overrides it.
+    // A widened choice can supply the entire suffix in this expansion.
     auto *current = first;
     while(!current->is_ceiling())
     {
-        current = current->expand_one(order);
+        current = current->expand_one(order, finish);
         assert(current && "an admitted prefix must retain a legal completion");
     }
     return first;
@@ -389,12 +431,17 @@ inline void fine_node<T>::ignite_impl(const state &s, fine_search_options option
     };
     auto [info, initial, negative] = build(options.build_options);
     // Probe before constructing score tables: fallback changes coordinate IDs.
-    if(options.build_options.prune_optional_moves && info.has_optional_timelines()
-       && !info.template search<natural_HC_ordering, hc_policy::stable>(initial).first())
+    if(options.build_options.prune_optional_moves && info.has_optional_timelines())
     {
-        auto fallback = options.build_options;
-        fallback.prune_optional_moves = false;
-        std::tie(info, initial, negative) = build(fallback);
+        const bool has_completion = options.prefix_budget
+            ? info.first_completion(info.get_universe()).has_value()
+            : info.template search<natural_HC_ordering, hc_policy::stable>(initial).first().has_value();
+        if(!has_completion)
+        {
+            auto fallback = options.build_options;
+            fallback.prune_optional_moves = false;
+            std::tie(info, initial, negative) = build(fallback);
+        }
     }
     pocessed_context = std::make_unique<nodal_pocession>(
         std::move(info), std::move(initial), options);

@@ -139,8 +139,8 @@ std::optional<point> HC_info::take_point(
     return std::nullopt;
 }
 
-template<HCOrdering Ordering, hc_policy Policy>
-generator<moveseq> HC_info::local_search(
+template<class Result, HCOrdering Ordering, hc_policy Policy>
+generator<Result> HC_info::local_search(
     const HC &outer_hc, local_space &local, const point &seed, const Ordering &order,
     bool seed_already_yielded,
     std::span<const slice> negative) const
@@ -231,7 +231,8 @@ generator<moveseq> HC_info::local_search(
         auto problem = find_checks(full, universe);
         if(!problem)
         {
-            co_yield to_action(full);
+            if constexpr(std::is_same_v<Result, point>) co_yield full;
+            else co_yield to_action(full);
             remaining.concat(std::move(hc).remove_point(*selected));
             continue;
         }
@@ -283,6 +284,12 @@ generator<moveseq> HC_info::local_search(
 template<HCOrdering Ordering, hc_policy Policy>
 generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
 {
+    return search_impl<moveseq, Ordering, Policy>(std::move(ss), std::move(order));
+}
+
+template<class Result, HCOrdering Ordering, hc_policy Policy>
+generator<Result> HC_info::search_impl(search_space ss, Ordering order) const
+{
     // Mandatory timelines occupy the first axes. Physical moves on all of
     // them, with null entries everywhere else, need only the check constraint.
     if(!mandatory_lines.empty() && !ss.empty())
@@ -332,7 +339,7 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
                     coordinates.push_back(hc[n]);
                 }
                 local.universe = HC(std::move(coordinates));
-                auto actions = local_search<Ordering, Policy>(hc, local, seed, order, false);
+                auto actions = local_search<Result, Ordering, Policy>(hc, local, seed, order, false);
                 while(auto moves = actions.first()) co_yield std::move(*moves);
                 for(const slice &problem : local.problems)
                 {
@@ -391,10 +398,11 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
         }();
         if(!problem)
         {
-            co_yield to_action(*pt);
+            if constexpr(std::is_same_v<Result, point>) co_yield *pt;
+            else co_yield to_action(*pt);
             if(auto local = build_local_space(hc, *pt))
             {
-                auto actions = local_search<Ordering, Policy>(hc, *local, *pt, order, true, negative);
+                auto actions = local_search<Result, Ordering, Policy>(hc, *local, *pt, order, true, negative);
                 while(auto moves = actions.first()) co_yield std::move(*moves);
                 active.concat(std::move(hc).remove_slice(local->outer_region));
                 for(const slice &problem : local->problems) active.remove_slice_globally(problem);
@@ -442,7 +450,7 @@ generator<moveseq> HC_info::search(search_space ss, Ordering order) const &
         }
     }
     if constexpr(Policy == hc_policy::balanced)
-        for(auto &&moves : search<Ordering, hc_policy::stable>(std::move(active), std::move(order)))
+        for(auto &&moves : search_impl<Result, Ordering, hc_policy::stable>(std::move(active), std::move(order)))
             co_yield std::move(moves);
 }
 
@@ -728,10 +736,22 @@ template<HCOrdering Ordering>
 std::optional<point> HC_info::find_witness(
     completion_space &space, const HC &restriction, const Ordering &order, completion_query *query) const
 {
+    return find_witness_with_budget(space, restriction, order, query, std::nullopt).witness;
+}
+
+template<HCOrdering Ordering>
+HC_info::bounded_witness HC_info::find_witness_with_budget(
+    completion_space &space, const HC &restriction, const Ordering &order, completion_query *query,
+    std::optional<std::size_t> limit) const
+{
+    using clock = std::chrono::steady_clock;
+    const bool bounded = limit.has_value();
+    const auto work_limit = limit.value_or(std::numeric_limits<std::size_t>::max());
     assert(restriction.dimension() == dimension());
     auto *metrics = space.diagnostics;
     if(metrics) *metrics = {};
-    if(restriction.empty()) return std::nullopt;
+    if(restriction.empty()) return {};
+    if(!work_limit) return {std::nullopt, true};
     ++space.witness_calls;
     space.scratch.reuse_between_points = true;
     space.scratch.count_matching = true;
@@ -739,7 +759,7 @@ std::optional<point> HC_info::find_witness(
     // timelines. Like local_search(), its other completions need only checks.
     // The shared forest excludes only illegal points, so a legal class member
     // can be returned without traversing that index again.
-    if(space.reuse_local)
+    if(!bounded && space.reuse_local)
     {
         const auto try_class = [&](const std::shared_ptr<local_space> &local) -> std::optional<point> {
             auto candidate = local_witness(*local, local->representative, restriction, order);
@@ -754,19 +774,18 @@ std::optional<point> HC_info::find_witness(
             return candidate;
         };
         if(query && query->local)
-            if(auto candidate = try_class(query->local)) return candidate;
+            if(auto candidate = try_class(query->local)) return {std::move(candidate)};
         if(space.local && (!query || query->local != space.local))
-            if(auto candidate = try_class(space.local)) return candidate;
+            if(auto candidate = try_class(space.local)) return {std::move(candidate)};
         for(auto it = space.local_cache.rbegin(); it != space.local_cache.rend(); ++it)
         {
             if(query && query->local == *it) continue;
-            if(auto candidate = try_class(*it)) return candidate;
+            if(auto candidate = try_class(*it)) return {std::move(candidate)};
         }
     }
     HC selection = restriction;
-    if(!constrain_domain(selection, &space.propagation)) return std::nullopt;
+    if(!constrain_domain(selection, &space.propagation)) return {};
     trace_structural_query(space, selection);
-    using clock = std::chrono::steady_clock;
     const auto started = metrics ? clock::now() : clock::time_point{};
     std::size_t work = 0, temporary_regions = 0;
     constexpr std::size_t matching_probe_threshold = 1024;
@@ -920,7 +939,8 @@ std::optional<point> HC_info::find_witness(
                 if(temporary_regions >= matching_probe_threshold && !dependency_checked)
                 {
                     dependency_checked = true;
-                    if(has_forced_departure_cycle(selection) || run_structural_probe(space, selection))
+                    if(has_forced_departure_cycle(selection)
+                       || (!bounded && run_structural_probe(space, selection)))
                         return outcome::whole_failure;
                 }
                 if(temporary_regions >= matching_probe_threshold && !part.probed)
@@ -1064,22 +1084,24 @@ std::optional<point> HC_info::find_witness(
         }
         return status;
     };
+    const auto quantum = std::max<std::size_t>(1, space.turn_budget);
     ++space.forest_searches;
     std::size_t round = 0;
     while(!discovery.empty() || !active.empty())
     {
+        if(work == work_limit) return {std::nullopt, true, work};
         ++round;
         const auto older = active.size();
         const bool discovering = !discovery.empty();
         if(discovering)
         {
-            auto credit = std::max<std::size_t>(1, space.turn_budget);
+            auto credit = std::min(quantum, work_limit - work);
             const auto discover_started = metrics ? clock::now() : clock::time_point{};
             std::size_t visits = 0;
             auto leaf = space.cells.advance(discovery, selection, credit, visits);
-            while(!leaf && !discovery.empty() && active.empty())
+            while(!leaf && !discovery.empty() && active.empty() && visits < work_limit - work)
             {
-                credit = std::max<std::size_t>(1, space.turn_budget);
+                credit = std::min(quantum, work_limit - work - visits);
                 leaf = space.cells.advance(discovery, selection, credit, visits);
             }
             work += visits;
@@ -1106,7 +1128,8 @@ std::optional<point> HC_info::find_witness(
                 record_storage();
                 auto status = turn(cursor, credit);
                 admitting = nullptr;
-                if(status == outcome::witness || status == outcome::whole_failure) return result;
+                if(status == outcome::witness || status == outcome::whole_failure)
+                    return {std::move(result), false, work};
                 if(status != outcome::exhausted) active.push_back(std::move(cursor));
             }
         }
@@ -1115,14 +1138,16 @@ std::optional<point> HC_info::find_witness(
         if(round >= 3 || !discovering)
             for(std::size_t i = older; i > 0; --i)
             {
-                auto credit = discovery.empty() && active.size() == 1
-                    ? std::numeric_limits<std::size_t>::max() : std::max<std::size_t>(1, space.turn_budget);
+                if(work == work_limit) return {std::nullopt, true, work};
+                auto credit = work_limit - work;
+                if(!discovery.empty() || active.size() != 1) credit = std::min(credit, quantum);
                 auto status = turn(active[i - 1], credit);
-                if(status == outcome::witness || status == outcome::whole_failure) return result;
+                if(status == outcome::witness || status == outcome::whole_failure)
+                    return {std::move(result), false, work};
                 if(status == outcome::exhausted) active.erase(active.begin() + (i - 1));
                 record_storage();
             }
     }
     space.cells.exhausted(frontier, selection, work);
-    return std::nullopt;
+    return {std::nullopt, false, work};
 }

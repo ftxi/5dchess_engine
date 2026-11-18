@@ -30,6 +30,7 @@ struct fine_search_options
     hc_cell_options cells;
     bool reuse_local_classes = true;
     std::size_t local_class_capacity = 8; // Additional validated classes retained beside the current class.
+    std::size_t prefix_budget = 0; // Work per ranked group. Zero keeps strict ordering.
 };
 
 /*
@@ -124,7 +125,7 @@ class fine_node
     void ignite_impl(const state &s, fine_search_options options);
     fine_node<T> *add_child(index_t n, index_t i);
     template<HCOrdering Order>
-    fine_node<T> *expand_one(const Order &order);
+    fine_node<T> *expand_one(const Order &order, std::shared_ptr<const completion_record> &finish);
 
 public:
     // copying/moving a fine_node needs to explicitly set the parent pointer of its children
