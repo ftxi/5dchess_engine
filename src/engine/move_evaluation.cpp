@@ -47,7 +47,10 @@ inline constexpr float mvvlva_material_scale = 1.0f / 16.0f;
 // The entire LVA bonus is strictly below the smallest scaled victim-value gap.
 inline constexpr float mvvlva_lva_scale
     = mvvlva_material_scale * lva_ranks.minimum_gap / lva_ranks.royal_rank;
+inline constexpr float solid_material_scale = 1.0f / 4.0f;
 inline constexpr float optional_move_penalty = 1024.0f;
+inline constexpr float optional_departure_penalty = 480.0f;
+inline constexpr float branch_arrival_penalty = 280.0f;
 inline constexpr float maximum_exposure_penalty = 128.0f;
 inline constexpr float maximum_promotion_bonus = 48.0f;
 inline constexpr float exposure_material_scale = 1.0f / 10.0f;
@@ -58,7 +61,7 @@ inline constexpr float maximum_capture_score
         + mvvlva_lva_scale * (lva_ranks.royal_rank - 1);
 inline constexpr float check_bonus = capture_check_weights.values[move_evaluation_weights::CHECK];
 static_assert(lva_ranks.minimum_value > 0.0f && lva_ranks.minimum_gap > 0.0f);
-// Preserve checking captures > other captures > checking quiet promotions.
+// Preserve these priority groups for MVV-LVA and MVV-LVA exposure.
 static_assert(minimum_capture_score - maximum_exposure_penalty
     > check_bonus + maximum_promotion_bonus);
 static_assert(minimum_capture_score - maximum_exposure_penalty + check_bonus
@@ -84,8 +87,24 @@ move_evaluator::move_evaluator(const HC_info &info,
 
 float move_evaluator::score(index_t axis, index_t coordinate)
 {
+    const bool solid_ordering = captures == capture_ordering::solid;
+    const bool score_exposure = solid_ordering || captures == capture_ordering::mvvlva_exposure;
+    const auto optional = [&](int line) {
+        return std::find(optional_lines.begin(), optional_lines.end(), line)
+            != optional_lines.end();
+    };
     const auto boards = info.get_move_boards(axis, coordinate);
-    if(!boards) return 0.0f;
+    if(!boards)
+    {
+        if(solid_ordering)
+        {
+            const auto move = info.get_semimove(axis, coordinate);
+            if(const auto *departure = move.get_if<departing_move>();
+               departure && optional(departure->from.l()))
+                return -optional_departure_penalty;
+        }
+        return 0.0f;
+    }
 
     using enum move_evaluation_weights::indices;
     const auto &w = weights.values;
@@ -124,20 +143,22 @@ float move_evaluator::score(index_t axis, index_t coordinate)
         const float victim_value = capture_piece_value(victim);
         if(victim_value > 0.0f && victim != KING_W && victim != ROYAL_QUEEN_W)
         {
-            // Numerical MVV with a bounded ordinal LVA tie-breaker. The base
-            // keeps capture/check priority groups separate from quiet moves.
-            float capture_score = mvvlva_capture_base + mvvlva_material_scale * victim_value
+            const float material_scale = solid_ordering ? solid_material_scale : mvvlva_material_scale;
+            float capture_score = material_scale * victim_value
                 + mvvlva_lva_scale * (lva_ranks.royal_rank
                     - lva_rank(move.moved_piece(info.get_state())));
-            if((captures == capture_ordering::mvvlva_exposure || captures == capture_ordering::solid))
+            if(!solid_ordering) capture_score += mvvlva_capture_base;
+            if(score_exposure)
             {
                 // The cached result contains the arriving (possibly promoted)
                 // piece and the changed occupancy, including en passant.
                 const auto &arrival = *boards->result;
-                const float loss = std::max(0.0f,
-                    capture_piece_value(arrival.get_piece(move.to.xy()))
-                    - capture_piece_value(victim));
-                if(loss > 0.0f)
+                const float arriving_value = capture_piece_value(arrival.get_piece(move.to.xy()));
+                const float penalty = solid_ordering
+                    ? solid_material_scale * arriving_value
+                    : std::clamp((arriving_value - victim_value) * exposure_material_scale,
+                        0.0f, maximum_exposure_penalty);
+                if(penalty > 0.0f)
                 {
                     const bool player = info.get_state().get_present().c();
                     const auto attackers = arrival.attacks_to(move.to.xy());
@@ -146,8 +167,7 @@ float move_evaluator::score(index_t axis, index_t coordinate)
                     // A geometric defender suppresses this conservative penalty;
                     // it does not establish a legal or available recapture.
                     if((attackers & hostile) && !(attackers & friendly))
-                        capture_score -= std::min(maximum_exposure_penalty,
-                            loss * exposure_material_scale);
+                        capture_score -= penalty;
                 }
             }
             result += capture_score;
@@ -186,7 +206,7 @@ float move_evaluator::score(index_t axis, index_t coordinate)
         }
     }
 
-    if((captures == capture_ordering::mvvlva_exposure || captures == capture_ordering::solid))
+    if(score_exposure)
     {
         const piece_t moved = to_white(piece_name(move.moved_piece(info.get_state())));
         const piece_t arriving = to_white(piece_name(
@@ -195,7 +215,6 @@ float move_evaluator::score(index_t axis, index_t coordinate)
         {
             const float gain = std::max(0.0f,
                 capture_piece_value(arriving) - capture_piece_value(moved));
-            // The separate bound preserves the capture/check priority groups.
             result += std::min(maximum_promotion_bonus, gain * exposure_material_scale);
         }
     }
@@ -207,18 +226,11 @@ float move_evaluator::score(index_t axis, index_t coordinate)
        && static_cast<bool>(move_type & special_move_t::SUPERPHYSICAL))
         result += w[SUPERPHYSICAL];
 
-    if(captures == capture_ordering::solid)
+    if(solid_ordering)
     {
-        const auto optional = [&](int line) {
-            return std::find(optional_lines.begin(), optional_lines.end(), line)
-                != optional_lines.end();
-        };
-        const bool physical = move.from.tl() == move.to.tl();
-        const bool optional_arrival = axis < info.first_branch_axis()
-            && optional(move.to.l());
-        // Score the arrival once. Departures and nulls have already returned.
-        // Prospective branch arrivals retain their normal MVV-LVA scores.
-        if(optional(move.from.l()) && (physical || optional_arrival))
+        if(axis >= info.first_branch_axis())
+            result -= branch_arrival_penalty;
+        else if(optional(move.from.l()) && optional(move.to.l()))
             result -= optional_move_penalty;
     }
     return result;

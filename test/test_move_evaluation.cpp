@@ -415,6 +415,26 @@ void test_latent_threat_weight_dependencies()
 }
 }
 
+void test_solid_capture_ordering()
+{
+    const auto score = [](const char *fen, const char *notation) {
+        const auto before = state::from_pgn<true>(
+            "[Board \"custom\"]\n[" + std::string(fen) + ":0:1:w]\n");
+        auto [info, space] = HC_info::build_HC(before);
+        const auto coordinate = coordinate_for(info, full_move(notation));
+        return move_evaluator(info, capture_check_weights, capture_ordering::solid)
+            .score(0, coordinate);
+    };
+
+    assert(score("6k1/8/8/8/8/8/1p6/1Q5K", "(0T1)b1b2") == 25.1875f);
+    assert(score("6k1/8/8/8/1r6/8/1p6/PQ5K", "(0T1)b1b2") == 25.1875f);
+    assert(score("6k1/8/8/8/1r6/8/1p6/1Q5K", "(0T1)b1b2") == -334.8125f);
+    assert(score("8/8/7K/8/1r6/8/1p5k/1Q6", "(0T1)b1b2") == -34.8125f);
+    assert(score("7k/8/8/8/1r6/3N4/1p6/7K", "(0T1)d3b2") == -61.9375f);
+    assert(score("7k/8/8/8/1r6/8/1w6/1R5K", "(0T1)b1b2") == -36.75f);
+    assert(score("7k/8/8/8/1r6/8/1r6/1R5K", "(0T1)b1b2") == 0.75f);
+}
+
 void test_solid_ordering()
 {
     const auto s = state::from_pgn<true>(
@@ -424,32 +444,51 @@ void test_solid_ordering()
     auto [info, space] = HC_info::build_HC(s, {.remove_check = true});
     move_evaluator baseline(info, capture_check_weights, capture_ordering::mvvlva_exposure);
     move_evaluator solid(info, capture_check_weights, capture_ordering::solid);
-    bool physical = false, arrival = false, branch = false;
+    bool physical = false, arrival = false, branch = false, branch_null = false;
+    bool optional_departure = false, mandatory_departure = false;
     for(index_t axis = 0; axis < info.dimension(); ++axis)
         for(index_t coordinate : info.get_universe()[axis])
         {
             const auto boards = info.get_move_boards(axis, coordinate);
+            const bool branch_axis = axis >= info.first_branch_axis();
             float penalty = 0;
             if(boards)
             {
                 const auto &m = boards->move;
-                if(m.from.l() != 0 && m.from.tl() == m.to.tl())
+                if(branch_axis)
+                {
+                    penalty = 280;
+                    branch = true;
+                }
+                else if(m.from.l() != 0 && m.from.tl() == m.to.tl())
                 {
                     penalty = 1024;
                     physical = true;
                 }
-                else if(m.from.l() != 0 && m.to.l() != 0
-                        && axis < info.first_branch_axis())
+                else if(m.from.l() != 0 && m.to.l() != 0)
                 {
                     penalty = 1024;
                     arrival = true;
                 }
-                if(axis >= info.first_branch_axis()) branch = true;
+            }
+            else if(branch_axis)
+                branch_null = true;
+            else if(info.is_departure(axis, coordinate))
+            {
+                const auto move = info.get_semimove(axis, coordinate);
+                if(move.get<departing_move>().from.l() != 0)
+                {
+                    penalty = 480;
+                    optional_departure = true;
+                }
+                else
+                    mandatory_departure = true;
             }
             assert(std::abs(solid.score(axis, coordinate)
                 - (baseline.score(axis, coordinate) - penalty)) < 0.001f);
         }
-    assert(physical && arrival && branch);
+    assert(physical && arrival && branch && branch_null);
+    assert(optional_departure && mandatory_departure);
     auto table = solid.build_score_table();
     assert(table);
     std::mt19937 rng(42);
@@ -467,6 +506,7 @@ int run()
     test_capture_groups();
     test_check_and_combined_scoring();
     test_mvvlva_capture_ordering();
+    test_solid_capture_ordering();
     test_solid_ordering();
     test_local_capture_exposure();
     test_king_branch_scoring();

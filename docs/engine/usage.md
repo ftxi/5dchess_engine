@@ -69,7 +69,7 @@ The material values used by MVV, exposure, and promotion gain are:
 | Unicorn | 60 |
 | Dragon | 30 |
 
-For a nonroyal victim, the capture score is
+In `mvvlva` and its exposure variants, the capture score for a nonroyal victim is
 `480 + alpha * victim_value + beta * (maximum_attacker_rank - attacker_rank)`,
 where `alpha` is `1/16` and
 `beta = alpha * minimum_material_value_gap / maximum_attacker_rank`.
@@ -84,12 +84,18 @@ captures, and captures over checking quiet promotions. Other weighted
 engines retain their grouped capture features.
 
 `solid` retains the complete legal-action space and pre-removes unavoidable
-royal checks. It uses MVV-LVA exposure ordering with a 1024-point penalty for
-physical moves on initially optional timelines and nonbranching jumps between
-two initially optional timelines. The arrival receives the jump penalty once.
-Branch arrivals retain their normal scores. The penalty affects expansion order,
-while search rewards and UCT selection use the usual outcomes. Progressive
-widening can delay low-priority moves at finite search budgets.
+royal checks. A capture scores one quarter of the victim's material value plus
+the same small attacker tie-breaker. If the resulting destination square has
+an enemy attacker and no friendly defender, it subtracts one quarter of the
+arriving piece's value. Check still adds 300, and promotion gain adds up to 48.
+
+Physical moves on initially optional timelines and nonbranching arrivals
+between two initially optional timelines receive a 1024-point penalty.
+Departures from initially optional timelines receive a 480-point penalty.
+An arrival that creates a new timeline receives a 280-point penalty on the new
+timeline's axis. A null choice on that axis scores zero. These penalties affect
+expansion order. Progressive widening can delay low-priority moves at finite
+search budgets.
 
 Fine-tree expansion in `zero` and the progressive widening engines first
 searches for a legal continuation of the highest-ranked unexpanded semimove.
