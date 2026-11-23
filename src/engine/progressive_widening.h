@@ -10,6 +10,7 @@
 #include <random>
 #include <stdexcept>
 #include <utility>
+#include <variant>
 
 #include "uct.h"
 
@@ -17,8 +18,8 @@ inline constexpr double default_progressive_widening_constant = 2.0;
 inline constexpr double default_progressive_widening_alpha = 0.5;
 inline constexpr std::size_t default_fine_prefix_budget = 256;
 
-template<HCOrdering Order>
-struct progressive_widening_node_data
+template<HCOrdering Order, class SelectionData = std::monostate>
+struct progressive_widening_node_data : SelectionData
 {
     bool all_children_included = false;
     bool fully_expanded = false;
@@ -32,12 +33,12 @@ struct progressive_widening_node_data
 };
 
 template<HCOrdering Order = random_HC_ordering,
-         class ChildSelection = uct_child_selection>
+         class ChildSelection = uct_child_selection, class SelectionData = std::monostate>
 class progressive_widening_tree_policy
 {
 public:
-    using node_data = progressive_widening_node_data<Order>;
-    using node_t = tree_node_t<progressive_widening_tree_policy<Order, ChildSelection>>;
+    using node_data = progressive_widening_node_data<Order, SelectionData>;
+    using node_t = tree_node_t<progressive_widening_tree_policy>;
 
 private:
     std::optional<std::mt19937> rng;

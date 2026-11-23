@@ -12,6 +12,7 @@
 #include <string_view>
 
 #include "mcts_engines.h"
+#include "solid_amaf.h"
 #include "linear.h"
 #include "monkey.h"
 #include "flat_ucb.h"
@@ -35,10 +36,19 @@ bool is_weighted_engine(std::string_view name)
         || name == "flat-ucb-weighted";
 }
 
+std::optional<solid_amaf_blend> amaf_blend_for(std::string_view name)
+{
+    if(name == "solid-amaf") return solid_amaf_blend::pooled;
+    if(name == "solid-amaf1") return solid_amaf_blend::half_pooled;
+    if(name == "solid-amaf2") return solid_amaf_blend::half_outside;
+    return std::nullopt;
+}
+
 bool is_mvvlva_engine(std::string_view name)
 {
     return name == "mvvlva" || name == "mvvlva-exposure"
-        || name == "mvvlva-pruned" || name == "mvvlva-solid" || name == "solid";
+        || name == "mvvlva-pruned" || name == "mvvlva-solid" || name == "solid"
+        || amaf_blend_for(name).has_value();
 }
 
 bool supports_rollout_limit(std::string_view name)
@@ -60,7 +70,10 @@ void print_usage(std::ostream &out)
         << "  mvvlva-exposure    MVV-LVA with local exposure and promotion scoring\n"
         << "  mvvlva-pruned      exposure with optional timeline move pruning\n"
         << "  mvvlva-solid       legacy optional-move pruning experiment\n"
-        << "  solid              exposure with low-priority optional moves and check pre-pruning\n"
+        << "  solid              score-weighted UCT with optional-move penalties and check pre-pruning\n"
+        << "  solid-amaf         solid with action-local AMAF for semimove revisits\n"
+        << "  solid-amaf1        half-strength AMAF using the pooled mean\n"
+        << "  solid-amaf2        half-strength AMAF weighted by visits from other prefixes\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
         << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
@@ -281,12 +294,22 @@ int main(int argc, const char *argv[])
                 std::make_unique<stdio_handler>(), options.seed,
                 options.progressive_widening_constant, options.progressive_widening_alpha,
                 HC_build_options{}, options.fine_prefix_budget);
+        else if(const auto blend = amaf_blend_for(engine_name))
+            selected_engine = std::make_unique<solid_amaf_engine>(
+                std::make_unique<stdio_handler>(), options.seed,
+                options.progressive_widening_constant, options.progressive_widening_alpha,
+                options.fine_prefix_budget, *blend);
+        else if(engine_name == "solid")
+            selected_engine = std::make_unique<solid_engine>(
+                std::make_unique<stdio_handler>(), options.seed,
+                options.progressive_widening_constant, options.progressive_widening_alpha,
+                options.fine_prefix_budget);
         else
             selected_engine = std::make_unique<mvvlva_exposure_engine>(
                 std::make_unique<stdio_handler>(), options.seed,
                 options.progressive_widening_constant, options.progressive_widening_alpha,
                 HC_build_options{
-                    .remove_check = engine_name == "mvvlva-solid" || engine_name == "solid",
+                    .remove_check = engine_name == "mvvlva-solid",
                     .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"},
                 capture_ordering::solid,
                 options.fine_prefix_budget);

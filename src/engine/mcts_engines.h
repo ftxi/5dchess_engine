@@ -173,6 +173,11 @@ public:
             {}, {}, {}, std::move(io)) {}
 };
 
+inline std::optional<move_score_table> solid_scores(const HC_info &info, std::stop_token stop)
+{
+    return move_evaluator(info, capture_check_weights, capture_ordering::solid).build_score_table(stop);
+}
+
 class mvvlva_exposure_engine final : public zero_capture_pw_mcts_engine
 {
 public:
@@ -187,10 +192,7 @@ public:
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
                 captures == capture_ordering::solid
-                    ? +[](const HC_info &info, std::stop_token stop) {
-                        return move_evaluator(info, capture_check_weights,
-                            capture_ordering::solid).build_score_table(stop);
-                    }
+                    ? solid_scores
                     : +[](const HC_info &info, std::stop_token stop) {
                         return move_evaluator(info, capture_check_weights,
                             capture_ordering::mvvlva_exposure).build_score_table(stop);

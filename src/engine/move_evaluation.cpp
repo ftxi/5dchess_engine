@@ -80,29 +80,19 @@ move_evaluator::move_evaluator(const HC_info &info,
       evaluate_captures(std::any_of(
           weights.values.begin() + move_evaluation_weights::QUEEN_CAPTURE,
           weights.values.begin() + move_evaluation_weights::PAWN_CAPTURE + 1,
-          [](float weight) { return weight != 0.0f; })), captures(captures),
-      optional_lines(captures == capture_ordering::solid
-          ? std::get<1>(info.get_state().get_timeline_status()) : std::vector<int>{})
+          [](float weight) { return weight != 0.0f; })), captures(captures)
 {}
 
 float move_evaluator::score(index_t axis, index_t coordinate)
 {
     const bool solid_ordering = captures == capture_ordering::solid;
     const bool score_exposure = solid_ordering || captures == capture_ordering::mvvlva_exposure;
-    const auto optional = [&](int line) {
-        return std::find(optional_lines.begin(), optional_lines.end(), line)
-            != optional_lines.end();
-    };
     const auto boards = info.get_move_boards(axis, coordinate);
     if(!boards)
     {
-        if(solid_ordering)
-        {
-            const auto move = info.get_semimove(axis, coordinate);
-            if(const auto *departure = move.get_if<departing_move>();
-               departure && optional(departure->from.l()))
-                return -optional_departure_penalty;
-        }
+        if(solid_ordering && info.is_optional_axis(axis)
+           && info.get_semimove(axis, coordinate).is<departing_move>())
+            return -optional_departure_penalty;
         return 0.0f;
     }
 
@@ -230,7 +220,7 @@ float move_evaluator::score(index_t axis, index_t coordinate)
     {
         if(axis >= info.first_branch_axis())
             result -= branch_arrival_penalty;
-        else if(optional(move.from.l()) && optional(move.to.l()))
+        else if(info.is_optional_move(axis, coordinate))
             result -= optional_move_penalty;
     }
     return result;

@@ -243,6 +243,17 @@ public:
     index_t dimension() const noexcept { return static_cast<index_t>(axis_coords.size()); }
     index_t first_branch_axis() const noexcept { return new_axis; }
     bool has_optional_timelines() const noexcept { return new_axis > mandatory_lines.size(); }
+    bool is_optional_axis(index_t axis) const noexcept {
+        return mandatory_lines.size() <= axis && axis < new_axis;
+    }
+    // Physical moves on optional timelines and nonbranching arrivals between them.
+    bool is_optional_move(index_t axis, index_t coordinate) const {
+        if(!is_optional_axis(axis)) return false;
+        const auto &entry = axis_coords[axis].at(coordinate);
+        if(const auto *arrival = std::get_if<arriving_entry>(&entry))
+            return is_optional_axis(line_to_axis_unsafe(arrival->m.from.l()));
+        return std::holds_alternative<physical_entry>(entry);
+    }
     // Includes prospective branching lines; absent timelines have no axis.
     std::optional<index_t> line_to_axis(int line) const noexcept {
         if(line < l0_offset) return std::nullopt;

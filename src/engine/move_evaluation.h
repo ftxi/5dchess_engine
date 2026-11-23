@@ -23,7 +23,6 @@ class move_evaluator
     semimove_feature features;
     bool evaluate_captures;
     capture_ordering captures;
-    std::vector<int> optional_lines;
 
 public:
     // MVV-LVA uses scaled numerical victim values and a bounded attacker-rank
@@ -36,7 +35,7 @@ public:
     move_evaluator(const HC_info &info, move_evaluation_weights weights,
                    capture_ordering captures = capture_ordering::weighted);
 
-    // Solid applies finite expansion-order penalties to optional moves and branch arrivals.
+    // Solid applies finite score penalties to optional moves and branch arrivals.
     // Reuses lazily initialized check metadata across coordinates.
     float score(index_t axis, index_t coordinate);
 

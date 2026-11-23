@@ -19,7 +19,7 @@ constexpr float exploration_constant = 1.4142135623730951f;
 
 // Adversarial UCT score using rewards from White's fixed perspective.
 float uct(float sum_reward, std::size_t visits,
-          std::size_t parent_visits, bool maximizing_player);
+          std::size_t parent_visits, bool maximizing_player, float exploration_weight = 1.0f);
 
 namespace uct_detail
 {
@@ -43,8 +43,13 @@ Node *action_root(Node *node)
     return node;
 }
 
-template<class Node>
-Node *best_uct_child(Node *node)
+struct no_value_adjustment
+{
+    float operator()(const auto *) const { return 0.0f; }
+};
+
+template<class Node, class Weight, class Adjustment = no_value_adjustment>
+Node *best_uct_child(Node *node, Weight weight, Adjustment adjustment = {})
 {
     Node *best = nullptr;
     const bool maximizing = !node->get_player();
@@ -55,7 +60,7 @@ Node *best_uct_child(Node *node)
         const auto &info = child->get_info();
         if(!info.registered || info.visits == 0) continue;
         const float score = uct(info.sum_reward, info.visits,
-                                node->get_info().visits, maximizing);
+                                node->get_info().visits, maximizing, weight(child)) + adjustment(child);
         if(!best || (maximizing ? score > best_score : score < best_score))
         {
             best = child;
@@ -63,6 +68,12 @@ Node *best_uct_child(Node *node)
         }
     }
     return best;
+}
+
+template<class Node>
+Node *best_uct_child(Node *node)
+{
+    return best_uct_child(node, [](const Node *) { return 1.0f; });
 }
 
 template<class Node, HCOrdering Order>
@@ -134,7 +145,7 @@ std::optional<Order> construct_hc_ordering(
         if(!score) return std::nullopt;
         auto values = score(info, stop);
         if(!values || stop.stop_requested()) return std::nullopt;
-        return Order(info.get_universe(), *values, rng);
+        return Order(info.get_universe(), std::move(*values), rng);
     }
     else if constexpr(std::constructible_from<Order, const HC &, std::mt19937 &>)
         return Order(info.get_universe(), rng);

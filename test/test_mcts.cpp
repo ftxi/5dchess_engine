@@ -5,6 +5,7 @@
 #include <tuple>
 #include <type_traits>
 #include "mcts_engines.h"
+#include "solid_amaf.h"
 #include <algorithm>
 #include <set>
 #include "move_evaluation.h"
@@ -322,6 +323,78 @@ void test_capture_ordering()
         == 480.0f);
 }
 
+void test_solid_amaf_blends()
+{
+    const solid_amaf_child_selection pooled{solid_amaf_blend::half_pooled};
+    const solid_amaf_child_selection outside{solid_amaf_blend::half_outside};
+    for(auto policy : {pooled, outside})
+        assert(policy.value_adjustment(1, 1, {1, 1}) == 0.0f);
+
+    // One local win and one outside loss. The pooled mean is zero.
+    assert(std::abs(pooled.value_adjustment(1, 1, {0, 2}) + 16.0f / 33) < 1e-6f);
+    assert(std::abs(outside.value_adjustment(1, 1, {0, 2}) + 32.0f / 297) < 1e-6f);
+    // At n=32 and m=8 each factor in the outside blend is one half.
+    assert(outside.value_adjustment(-32, 32, {-24, 40}) == 0.25f);
+}
+
+void test_solid_amaf_shared_coordinate()
+{
+    for(bool black : {false, true})
+    {
+        const state position(multiverse(timeline_layout::odd,
+            {{0, 1, black, "3k/4/4/K3"}, {1, 1, black, "3k/4/4/K3"}}, 4, 4));
+        using node_t = solid_amaf_tree_policy::node_t;
+        auto root = node_t::make_root(position);
+        const auto &hc = root->get_hc_info();
+        auto physical_children = [&](node_t *parent) {
+            std::vector<node_t *> moves;
+            while(parent->expand_next(natural_HC_ordering{})) {}
+            for(auto *child : parent->get_children())
+                if(hc.get_semimove(child->get_n(), child->get_i()).is<physical_move>())
+                    moves.push_back(child);
+            return moves;
+        };
+        const auto prefixes = physical_children(root.get());
+        assert(prefixes.size() >= 2);
+        const auto moves = physical_children(prefixes[0]);
+        assert(moves.size() >= 2);
+        physical_children(prefixes[1]);
+
+        auto scores = solid_scores(hc, {}).value();
+        for(auto &axis : scores) std::fill(axis.begin(), axis.end(), 0.0f);
+        std::mt19937 rng(42);
+        solid_amaf_tree_policy::set_ordering(root.get(),
+            solid_HC_ordering(hc.get_universe(), std::move(scores), rng));
+        observer obs;
+        solid_amaf_backpropagation backup;
+        for(auto *child : {moves[0], moves[1]})
+        {
+            child->get_info().registered = true;
+            backup.backpropagate(finetree_nearby_ceiling(child), reward_t<>{0.0f, {}}, obs);
+        }
+        auto *baseline = solid_child_selection{}(prefixes[0]);
+        assert(solid_amaf_child_selection{}(prefixes[0]) == baseline);
+        auto *alternative = baseline == moves[0] ? moves[1] : moves[0];
+        auto *other_prefix = prefixes[1]->get_child(alternative->get_i());
+        assert(other_prefix);
+        auto *ceiling = finetree_nearby_ceiling(other_prefix);
+        const reward_t<> win{black ? -1.0f : 1.0f, {}};
+        backup.backpropagate(ceiling, win, obs);
+        assert(alternative->get_info().sum_reward == 0.0f);
+        assert(solid_child_selection{}(prefixes[0]) == baseline);
+        assert(solid_amaf_child_selection{}(prefixes[0]) == alternative);
+
+        ceiling->ignite();
+        assert(!ceiling->get_info().tree_policy_data.amaf);
+        assert(ceiling->expand_next(natural_HC_ordering{}));
+        backup.backpropagate(finetree_nearby_ceiling(ceiling->get_children().front()), win, obs);
+        const auto &table = *root->get_info().tree_policy_data.amaf;
+        const auto &shared = table.at({alternative->get_n(), alternative->get_i()});
+        assert(shared.visits == 3 && shared.sum_reward == 2 * win.score);
+        assert(ceiling->get_info().tree_policy_data.amaf);
+    }
+}
+
 void test_capture_check_progressive_widening()
 {
     // Rxb2 captures without check; Rd1 checks without capture.
@@ -616,6 +689,8 @@ int run()
     test_promotion_paths();
     test_completion();
     test_capture_ordering();
+    test_solid_amaf_blends();
+    test_solid_amaf_shared_coordinate();
     test_capture_check_progressive_widening();
     test_score_table_and_generic_policies();
     test_multiple_semimoves();

@@ -2,7 +2,7 @@
 
 Available engines include `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
 `zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-pruned`,
-`mvvlva-solid`, `solid`, `linear`, `linear-trained`, `linear-weighted`,
+`mvvlva-solid`, `solid`, `solid-amaf`, `solid-amaf1`, `solid-amaf2`, `linear`, `linear-trained`, `linear-weighted`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
 
@@ -93,6 +93,30 @@ An arrival that creates a new timeline receives a 280-point penalty on the new
 timeline's axis. A null choice on that axis scores zero. These penalties affect
 expansion order. Progressive widening can delay low-priority moves at finite
 search budgets.
+
+When revisiting admitted semimoves, `solid` also weights the UCT exploration
+bonus using the same scores. Each 256 points below the best visited,
+registered sibling halves the base weight. A quiet optional move 1024 points
+behind a null choice thus starts with weight 1/16.
+Among those siblings, let `k` count semimoves receiving the 1024-point
+penalty and `m` count the rest. When `k > m > 0`, `solid` multiplies each
+penalized sibling's weight by `sqrt(m/k)`. UCT scales its exploration bonus by the square root of the
+resulting weight. The `mvvlva-*` variants use ordinary UCT for revisits.
+
+The three AMAF variants share semimove rewards across prefixes of one action
+root. During a UCT revisit, let `n` count visits through the current prefix
+and `m` count visits to the same coordinate through other prefixes. When
+`m > 0`, selection blends the local mean with the estimate below.
+At `m = 0`, all three use the local mean.
+
+| Engine | Shared estimate | Weight of shared estimate |
+|---|---|---|
+| `solid-amaf` | Mean over all `n + m` visits | `32 / (32 + n)` |
+| `solid-amaf1` | Mean over all `n + m` visits | `0.5 * 32 / (32 + n)` |
+| `solid-amaf2` | Mean over the `m` outside visits | `0.5 * m / (m + 8) * 32 / (32 + n)` |
+
+All three use `solid`'s exploration weights and expansion order. Final move
+selection follows the most locally visited child at each prefix.
 
 Fine-tree expansion in `zero` and the progressive widening engines first
 searches for a legal continuation of the highest-ranked unexpanded semimove.
