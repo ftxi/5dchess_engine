@@ -2,7 +2,7 @@
 
 See README.md beside this file for what passing each group means and excludes.
 Run: python -m unittest discover -s scripts/test -v
-test.py is an ad hoc demonstration and is deliberately excluded.
+support/test.py is an ad hoc demonstration and is deliberately excluded.
 
 CLI checks launch real scripts and read public output, never database tables
 or script helpers. This file also acts as a scripted 5DUCI engine subprocess:
@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +31,8 @@ BUILD = ROOT / "build"
 THIS_FILE = Path(__file__).resolve()
 STANDARD_GAME = '[Board "Standard - Turn Zero"]'
 SMALL_GAME = '[Size "4x4"]\n[Board "Custom"]\n[Mode "5D"]\n[nbrk/3p*/P*3/KRBN:0:1:w]'
+CHECKMATE_GAME = STANDARD_GAME + '\n1. f3 / e5 2. g4 / Qh4'
+STALEMATE_GAME = '[Size "4x4"]\n[Board "Custom"]\n[k*3/4/1q2/3K*:0:1:w]'
 
 
 def scripted_engine(arguments):
@@ -47,7 +50,7 @@ def scripted_engine(arguments):
         return 2
     sys.path.insert(0, str(SCRIPTS))
     try:
-        import cpu_affinity
+        import support.cpu_affinity as cpu_affinity
     except ModuleNotFoundError:
         # The cwd/path contract also runs a standalone copy of this fixture.
         cpu_affinity = None
@@ -82,6 +85,8 @@ def scripted_engine(arguments):
             print("info mcts_score average=0.5 detailed=0.5", flush=True)
             if mode == "nobestmove":
                 print("nobestmove", flush=True)
+            elif mode == "empty-bestmove":
+                print("bestmove", flush=True)
             elif mode == "illegal" or (mode == "illegal-depth" and "depth" in tokens):
                 print("bestmove (0T1)d2d8", flush=True)
             else:
@@ -159,6 +164,18 @@ class CLIContracts(ContractCase):
                 with self.subTest(cwd=cwd, script=script):
                     self.assertIn("usage:", self.command(script, "--help", cwd=cwd).stdout)
 
+    def test_elo_help_describes_all_commands(self):
+        output = self.elo("-h").stdout
+        for command in (
+            "register", "clone", "update", "rename", "enable", "disable", "list",
+            "leaderboard", "matrix", "suggest", "schedule", "report", "finalize",
+            "history", "pending", "reset-running", "abort",
+        ):
+            with self.subTest(command=command):
+                self.assertRegex(output, rf"(?m)^[ \t]+{command}[ \t]+\S")
+        self.assertIn("path to the SQLite Elo database", output)
+        self.assertIn("include disabled engines in both tables", self.elo("matrix", "-h").stdout)
+
     def test_invalid_arguments(self):
         for script, arguments in (
             ("autoplay.py", ("--games", "0")),
@@ -234,6 +251,68 @@ class EloContracts(ContractCase):
         self.assertEqual(self.elo_json("pending", "--json"), [])
         self.assertTrue(all(row["games"] == 0 for row in self.elo_json("leaderboard", "--json")))
 
+    def test_matrix_combines_colors_and_fits_narrow_terminal(self):
+        self.register_pair()
+        self.assertIn("No scored games.", self.elo("matrix").stdout)
+        self.elo("disable", "beta")
+        self.assertIn("beta (disabled)", self.elo("matrix").stdout)
+        self.elo("enable", "beta")
+        long_name = "Alpha tuned for many branching timelines"
+        self.elo("update", "alpha", "--name", long_name)
+        matches = self.elo_json("schedule", "4", "--format", "json")
+        results = (
+            (next(match for match in matches if match["white_id"] == "alpha"), "white"),
+            (next(match for match in matches if match["black_id"] == "alpha"), "black"),
+        )
+        for match, winner in results:
+            self.elo("report", match["match_id"], winner)
+        remaining = [match for match in matches if all(match != picked for picked, _ in results)]
+        self.elo("report", remaining[0]["match_id"], "draw")
+        self.elo("report", remaining[1]["match_id"], "void")
+
+        self.elo("disable", "beta")
+        self.elo("register", "gamma", "--command", "unused-gamma")
+        games = self.elo_json("schedule", "2", "--unrated", "--format", "json")
+        self.elo("report", games[0]["match_id"], "draw")
+        with patch.dict(os.environ, {"COLUMNS": "18"}):
+            default_output = self.elo("matrix").stdout
+            output = self.elo("matrix", "--display-disabled").stdout
+        tables, _, default_key = default_output.partition("\nEngines\n")
+        self.assertNotIn("#3", tables)
+        self.assertIn("#3", default_key)
+        self.assertIn("beta (disabled)", " ".join(default_key.split()))
+        self.assertIn("0/1", tables)
+        self.assertIn("0.0%", tables)
+        self.assertTrue(all(len(line) <= 18 for line in output.splitlines()))
+        _, counts, more_counts, rates, more_rates, key = output.strip().split("\n\n")
+        self.assertEqual([line.split() for line in counts.splitlines()], [
+            ["Wins", "/", "total"],
+            ["vs", "#1", "#2"],
+            ["#1", "-", "0/1"],
+            ["#2", "0/1", "-"],
+            ["#3", "0/3", "-"],
+        ])
+        self.assertEqual([line.split() for line in more_counts.splitlines()], [
+            ["vs", "#3"], ["#1", "2/3"], ["#2", "-"], ["#3", "-"],
+        ])
+        self.assertEqual([line.split() for line in rates.splitlines()], [
+            ["Win", "rate"],
+            ["vs", "#1", "#2"],
+            ["#1", "-", "0.0%"],
+            ["#2", "0.0%", "-"],
+            ["#3", "0.0%", "-"],
+        ])
+        self.assertEqual([line.split() for line in more_rates.splitlines()], [
+            ["vs", "#3"], ["#1", "66.7%"], ["#2", "-"], ["#3", "-"],
+        ])
+        ranked = self.elo_json("leaderboard", "--json")
+        names = (f"{long_name} [alpha]", "gamma", "beta (disabled)")
+        self.assertEqual([engine["id"] for engine in ranked], ["alpha", "gamma", "beta"])
+        expected_key = " ".join(f"#{i} {engine['rating']:.1f} Elo {name}"
+                                for i, (engine, name) in enumerate(zip(ranked, names), start=1))
+        self.assertEqual(" ".join(key.split()), f"Engines {expected_key}")
+        self.assertEqual(" ".join(default_key.split()), expected_key)
+
 
 class AutoplayContracts(ContractCase):
     """Protocol/history, PGN, metrics, path semantics, and fault reporting."""
@@ -256,6 +335,7 @@ class AutoplayContracts(ContractCase):
             self.assertIn(header, result.stdout)
         self.assertIn("1/1 games completed", result.stdout)
         self.assertIn("Protocol failures: 0", result.stdout)
+        self.assertRegex(result.stdout, r"(?m)d6 \{action cap reached\}$")
         rows = self.csv_rows(self.work / "logs/autoplay-go-metrics.csv")
         self.assertEqual([row["color"] for row in rows], ["white", "black"])
         self.assertTrue(all(row["iterations"] == "100" and row["status"] == "bestmove" for row in rows))
@@ -277,11 +357,16 @@ class AutoplayContracts(ContractCase):
         self.assertTrue((self.work / "logs/autoplay-go-metrics.csv").is_file())
 
     def test_illegal_move_and_no_move_forfeit(self):
-        for mode in ("illegal", "nobestmove"):
+        for mode, comment in (
+            ("illegal", "black attempts to play an illegal action"),
+            ("nobestmove", "black forfeits"),
+        ):
             with self.subTest(mode=mode):
-                result = self.play(mode)
-                self.assertIn("Black wins: 1", result.stdout)
-                self.assertIn('[Result "0-1"]', result.stdout)
+                opening = STANDARD_GAME + "\n1. d3 {opening annotation}"
+                result = self.play("legal", "-m", opening, "--black", self.peer("black", mode))
+                self.assertIn("White wins: 1", result.stdout)
+                self.assertIn('[Result "1-0"]', result.stdout)
+                self.assertIn(f"d3 {{{comment}}} {{opening annotation}}\n", result.stdout)
                 if mode == "illegal":
                     diagnostics = list((self.work / "logs").glob("illegal-action-*.txt"))
                     self.assertTrue(diagnostics)
@@ -290,12 +375,18 @@ class AutoplayContracts(ContractCase):
                     self.assertTrue(list((self.work / "logs").glob("adjudication-*.5dpgn")))
 
     def test_protocol_exit_error_and_timeout_keep_diagnostics(self):
-        for mode in ("exit", "error", "timeout"):
+        for mode, comment in (
+            ("exit", "white exited with code 7"),
+            ("error", "white reported a protocol error ['scripted failure']"),
+            ("timeout", "white timed out waiting for bestmove or nobestmove"),
+            ("empty-bestmove", "white had a protocol failure [malformed bestmove reply]"),
+        ):
             with self.subTest(mode=mode):
                 result = self.play(mode)
                 self.assertIn("Protocol failures: 1", result.stdout)
                 self.assertIn('[Result "*"]', result.stdout)
                 self.assertIn("protocol failure", result.stdout + result.stderr)
+                self.assertIn(f"\n{{{comment}}}\n", result.stdout)
                 rows = self.csv_rows(self.work / "logs/autoplay-go-metrics.csv")
                 self.assertEqual(rows[0]["status"], "protocol_error")
                 diagnostics = list((self.work / "logs").glob("protocol-failure-*.txt"))
@@ -326,10 +417,38 @@ class MatchmakerContracts(ContractCase):
         # Matchmaker's visible policy records action-capped games as draws.
         self.assertTrue(all(row["result"] == "draw" for row in history))
         for row in history:
+            self.assertEqual(row["termination"], "action-cap")
             self.assertIn('[Result "1/2-1/2"]', row["pgn"])
+            self.assertRegex(row["pgn"], r"(?m)d6 \{action cap reached\}$")
             self.assertTrue(Path(row["output_log"]).is_file())
             self.assertEqual(len(self.csv_rows(Path(row["metrics_csv"]))), 2)
         self.assertEqual({row["draws"] for row in self.elo_json("leaderboard", "--json")}, {3})
+        filtered = self.elo_json("history", "--termination", "non-checkmate", "--json")
+        self.assertEqual(filtered, history)
+        self.assertIn(history[0]["output_log"], self.elo("history", "--termination", "action-cap").stdout)
+
+    def test_confirmed_checkmate_and_stalemate_are_recorded_without_comments(self):
+        self.require_bindings()
+        self.register_pair(self.peer("alpha", "nobestmove"), self.peer("beta", "nobestmove"))
+        for opening, ending, result in (
+            (CHECKMATE_GAME, "checkmate", "black"),
+            (STALEMATE_GAME, "stalemate", "draw"),
+        ):
+            with self.subTest(ending=ending):
+                self.run_queue("run", "--games", "1", "--opening-text", opening)
+                row, = self.elo_json("history", "--termination", ending, "--json")
+                self.assertEqual(row["result"], result)
+                self.assertNotIn("{", row["pgn"])
+                if ending == "checkmate":
+                    self.assertTrue(row["summary"].endswith("wins by checkmate"))
+        self.elo("schedule", "1")
+        non_mates = self.elo_json("history", "--termination", "non-checkmate", "--json")
+        self.assertEqual([row["termination"] for row in non_mates], ["stalemate"])
+        self.assertEqual(self.elo_json("history", "--termination", "unknown", "--json"), [])
+        pending, = self.elo_json("pending", "--json")
+        self.elo("report", pending["id"], "white")
+        unknown, = self.elo_json("history", "--termination", "unknown", "--json")
+        self.assertIsNone(unknown["termination"])
 
     def test_default_pinning_unique_seeds_opening_and_exact_output_directory(self):
         self.require_bindings()
@@ -369,6 +488,8 @@ class MatchmakerContracts(ContractCase):
         self.assertEqual(len(history), 2)
         self.assertTrue(any(row["result"] == "void" for row in history))
         self.assertTrue(any(row["status"] == "aborted" for row in history))
+        failure, = self.elo_json("history", "--termination", "protocol-failure", "--json")
+        self.assertRegex(failure["pgn"], r"(?m)^\{white reported a protocol error .*\}$")
 
     def test_rejected_fixed_seed_queue_can_be_recovered_by_disabling_engine(self):
         self.require_bindings()
@@ -407,18 +528,20 @@ class RatioContracts(ContractCase):
                     self.assertIn("expected '5duciok'", result.stderr)
                 self.assertEqual(self.csv_rows(self.work / f"startup-{label}" / "searches.csv"), [])
 
-    def run_ratio(self, mode="legal", method="anytime"):
+    def run_ratio(self, mode="legal", method="anytime", *, baseline_mode="legal", opening=None):
         self.require_bindings()
         shutil.rmtree(self.work / "ratio-output", ignore_errors=True)
         for label in ("target", "baseline"):
             (self.work / f"{label}.jsonl").unlink(missing_ok=True)
+        opening_option = ["--opening-text", opening] if opening else []
         return self.command(
             "ratio_matchmaker.py", "--target", self.peer("target", mode, 200, "{seed}"),
-            "--baseline", self.peer("baseline", "legal", 100, "{seed}"),
+            "--baseline", self.peer("baseline", baseline_mode, 100, "{seed}"),
             "--ratios", ".5", "--max-pairs", "1", "--jobs", "2",
             "--baseline-movetime", "40", "--max-target-movetime", "200",
             "--max-actions", "2", "--output-dir", "ratio-output",
             "--stat-method", method, "--look-pairs", "1", "--event", "Ratio contract",
+            *opening_option,
         )
 
     def test_budgets_color_reversal_and_output_files(self):
@@ -440,6 +563,7 @@ class RatioContracts(ContractCase):
                 self.assertEqual({row["target_color"] for row in games}, {"white", "black"})
                 self.assertEqual(len({row["cpu"] for row in games}), 1)
                 self.assertEqual({row["outcome"] for row in games}, {"draw"})
+                self.assertEqual({row["termination"] for row in games}, {"action-cap"})
                 self.assertTrue(all(row["reason"] == "action limit reached" for row in games))
                 for row in games:
                     self.assertIn('[Result "1/2-1/2"]', (self.work / row["pgn_path"]).read_text())
@@ -498,9 +622,41 @@ class RatioContracts(ContractCase):
         games = self.csv_rows(self.work / "ratio-output/games.csv")
         self.assertEqual(len(games), 2)
         self.assertEqual({row["outcome"] for row in games}, {"loss"})
+        self.assertEqual({row["termination"] for row in games}, {"illegal-action"})
         self.assertTrue(all("target illegal action" in row["reason"] for row in games))
+        for row in games:
+            self.assertIn(
+                f'{{{row["target_color"]} attempts to play an illegal action}}',
+                Path(row["pgn_path"]).read_text(),
+            )
         self.assertIn("games=2 W:D:L=0:0:2 (void 0)", result.stdout)
         self.assertIn("score=0.0%", result.stdout)
+
+    def test_adjudicated_endings_have_no_ratio_pgn_comment(self):
+        for opening, ending in ((CHECKMATE_GAME, "checkmate"), (STALEMATE_GAME, "stalemate")):
+            with self.subTest(ending=ending):
+                self.run_ratio("nobestmove", baseline_mode="nobestmove", opening=opening)
+                games = self.csv_rows(self.work / "ratio-output/games.csv")
+                self.assertEqual(len(games), 2)
+                self.assertEqual({row["termination"] for row in games}, {ending})
+                for row in games:
+                    self.assertNotIn("{", Path(row["pgn_path"]).read_text())
+
+    def test_ratio_no_move_distinguishes_player_forfeit_from_meter_failure(self):
+        self.run_ratio("nobestmove")
+        games = self.csv_rows(self.work / "ratio-output/games.csv")
+        self.assertEqual([row["termination"] for row in games], ["forfeit", "forfeit"])
+        for row in games:
+            self.assertIn(f'{{{row["target_color"]} forfeits}}', Path(row["pgn_path"]).read_text())
+
+        self.run_ratio(baseline_mode="nobestmove", opening=STANDARD_GAME + "\n1. d3")
+        games = self.csv_rows(self.work / "ratio-output/games.csv")
+        void, = (row for row in games if row["outcome"] == "void")
+        self.assertEqual(void["target_color"], "black")
+        self.assertEqual(void["termination"], "")
+        pgn = Path(void["pgn_path"]).read_text()
+        self.assertIn('[Result "*"]', pgn)
+        self.assertIn("d3 {baseline meter returned no move in a nonterminal position}", pgn)
 
 
 class BindingContracts(ContractCase):

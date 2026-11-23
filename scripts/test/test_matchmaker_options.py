@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import elo_matchmaker
-import matchmaker_options as common
 import ratio_matchmaker
+from support import matchmaker_options as common
 
 
 class ExecutionOptionsTests(unittest.TestCase):
@@ -30,6 +30,18 @@ class ExecutionOptionsTests(unittest.TestCase):
             common.configure_cpus(parser, args)
         self.assertEqual(args.core_slots, [(0, "P"), (2, "E")])
         self.assertEqual(args.controller_cpus, [1, 3])
+
+    def test_automatic_workers_use_cpu_zero_only_as_fallback(self):
+        for available, options, expected in (
+            ({0, 1, 2}, ["-j", "3"], [1, 2, 0]),
+            ({0}, [], [0]),
+            ({0, 1, 2}, ["--core", "0"], [0]),
+        ):
+            with self.subTest(available=available, options=options):
+                parser, args = self.elo_args(*options)
+                with patch.object(common.cpu_affinity, "available_cpus", return_value=available):
+                    common.configure_cpus(parser, args)
+                self.assertEqual(args.worker_cores, expected)
 
     def test_group_coverage_and_oversubscription_fail_explicitly(self):
         for options in (("-j", "1", "--core-group", "P=0,1", "--core-group", "E=2,3"),

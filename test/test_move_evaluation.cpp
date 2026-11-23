@@ -9,6 +9,7 @@
 #include "pgnparser.h"
 #include <cstddef>
 #include <iostream>
+#include <set>
 
 namespace move_evaluation_tests
 {
@@ -198,9 +199,9 @@ void test_local_capture_exposure()
         (void)space;
         const full_move wanted(notation);
         move_evaluator baseline(info, capture_weights, capture_ordering::mvvlva);
-        move_evaluator exposure(info, capture_weights, capture_ordering::mvvlva_exposure);
+        move_evaluator exposure(info, capture_weights, capture_ordering::solid);
         move_evaluator checking(info, capture_check_weights,
-                                capture_ordering::mvvlva_exposure);
+                                capture_ordering::solid);
         semimove_feature features(info);
         const auto table = checking.build_score_table();
         assert(table);
@@ -216,15 +217,18 @@ void test_local_capture_exposure()
                 }
                 if(boards->move != wanted) continue;
                 const float score = exposure.score(axis, coordinate);
-                assert(std::abs(baseline.score(axis, coordinate) - score
-                                - penalty + promotion_bonus) < 0.001f);
+                float expected = baseline.score(axis, coordinate);
+                if(axis >= info.first_branch_axis()) expected -= 280.0f;
+                const auto victim = to_white(piece_name(wanted.captured_piece(before)));
+                const float value = capture_piece_value(victim);
+                if(value > 0.0f && victim != KING_W && victim != ROYAL_QUEEN_W)
+                    expected += value * (3.0f / 16.0f) - 480.0f;
+                if(std::abs(expected - score - penalty + promotion_bonus) >= 0.001f)
+                    std::cerr << notation << ": expected " << expected - penalty + promotion_bonus
+                              << ", scored " << score << '\n';
+                assert(std::abs(expected - score - penalty + promotion_bonus) < 0.001f);
                 assert((*table)[axis][coordinate]
                     == score + (features.is_check(axis, coordinate) ? 300.0f : 0.0f));
-                if(wanted.captured_piece(before) != NO_PIECE)
-                {
-                    assert(score > 348.0f && score <= 631.0f);
-                    assert(score + 300.0f > 631.0f);
-                }
                 found = true;
             }
         assert(found);
@@ -239,45 +243,45 @@ void test_local_capture_exposure()
     // An unprotected victim, a friendly rook, and a hostile rook respectively.
     verify(setup("7k/8/8/8/8/8/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
     verify(setup("7k/8/8/8/1R6/8/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
-    verify(setup("7k/8/8/8/1r6/8/1p6/1Q5K"), "(0T1)b1b2", 128.0f);
+    verify(setup("7k/8/8/8/1r6/8/1p6/1Q5K"), "(0T1)b1b2", 360.0f);
     // Local pawn and rook defenders suppress the penalty, without simulating exchanges.
     verify(setup("7k/8/8/8/1r6/8/1p6/PQ5K"), "(0T1)b1b2", 0.0f);
     verify(setup("7k/8/8/8/1R6/2p5/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
-    verify(setup("1q5k/1P6/8/1R6/8/8/8/7K", true), "(0T1)b8b7", 128.0f);
+    verify(setup("1q5k/1P6/8/1R6/8/8/8/7K", true), "(0T1)b8b7", 360.0f);
     verify(setup("1qp4k/1P6/8/1R6/8/8/8/7K", true), "(0T1)b8b7", 0.0f);
 
     // Vacating the source reveals a new sliding attack on the destination.
     const state xray = setup("7k/8/8/8/1r6/1Q6/1p6/7K");
     assert(!xray.get_board_ptr(0, 1, false)->is_under_attack(ppos(1,1), false));
-    verify(xray, "(0T1)b3b2", 128.0f);
-    // Smaller potential losses get smaller penalties; equal/favorable trades get none.
-    verify(setup("7k/8/8/8/1r6/8/1p6/1R5K"), "(0T1)b1b2", 20.0f);
-    verify(setup("7k/8/8/8/1r6/8/1r6/1R5K"), "(0T1)b1b2", 0.0f);
-    verify(setup("7k/8/8/8/2r5/8/2q5/1P5K"), "(0T1)b1c2", 0.0f);
+    verify(xray, "(0T1)b3b2", 360.0f);
+    // An undefended piece pays its material cost even on an equal or favorable trade.
+    verify(setup("7k/8/8/8/1r6/8/1p6/1R5K"), "(0T1)b1b2", 75.0f);
+    verify(setup("7k/8/8/8/1r6/8/1r6/1R5K"), "(0T1)b1b2", 75.0f);
+    verify(setup("7k/8/8/8/2r5/8/2q5/1P5K"), "(0T1)b1c2", 25.0f);
     verify(setup("7k/8/8/8/1r6/8/8/1Q5K"), "(0T1)b1b2", 0.0f);
     // Pawn direction is evaluated for the arriving piece's color.
-    verify(setup("7k/8/8/8/8/2p5/1p6/1Q5K"), "(0T1)b1b2", 128.0f);
+    verify(setup("7k/8/8/8/8/2p5/1p6/1Q5K"), "(0T1)b1b2", 360.0f);
     verify(setup("7k/8/8/8/8/2P5/1p6/1Q5K"), "(0T1)b1b2", 0.0f);
     // Exposure uses the promoted queen value, rather than the departing pawn.
-    verify(setup("1r5k/P7/1r6/8/8/8/8/7K"), "(0T1)a7b8", 114.0f, 48.0f);
+    verify(setup("1r5k/P7/1r6/8/8/8/8/7K"), "(0T1)a7b8", 360.0f, 48.0f);
     verify(setup("1r5k/P7/8/8/8/8/8/7K"), "(0T1)a7b8", 0.0f, 48.0f);
     verify(setup("7k/P7/8/8/8/8/8/7K"), "(0T1)a7a8", 0.0f, 48.0f);
-    verify(setup("7k/8/8/8/8/1R6/p7/1R5K", true), "(0T1)a2b1", 114.0f, 48.0f);
+    verify(setup("7k/8/8/8/8/1R6/p7/1R5K", true), "(0T1)a2b1", 360.0f, 48.0f);
     multiverse underpromotion(timeline_layout::odd, {
         {0, 1, false, "1r5k/P7/1r6/8/8/8/8/7K"},
     });
-    verify(state(underpromotion, promotion_options::KNIGHT), "(0T1)a7b8", 5.0f, 25.0f);
+    verify(state(underpromotion, promotion_options::KNIGHT), "(0T1)a7b8", 87.5f, 25.0f);
 
     multiverse brawn_promotion(timeline_layout::odd, {
         {0, 1, false, "1r5k/W7/1r6/8/8/8/8/7K"},
     });
-    verify(state(brawn_promotion, promotion_options::KNIGHT), "(0T1)a7b8", 5.0f, 20.0f);
+    verify(state(brawn_promotion, promotion_options::KNIGHT), "(0T1)a7b8", 87.5f, 20.0f);
 
     multiverse jumps(timeline_layout::odd, {
         {-1, 1, false, "7k/8/8/8/1r6/8/8/1p5K"},
         {0, 1, false, "7k/8/8/8/8/8/8/1Q5K"},
     });
-    verify(state(jumps), "(0T1)b1(-1T1)b1", 128.0f);
+    verify(state(jumps), "(0T1)b1(-1T1)b1", 360.0f);
 
     // No local attack on arrival: another timeline's rook is outside this feature.
     multiverse remote(timeline_layout::odd, {
@@ -414,6 +418,90 @@ void test_latent_threat_weight_dependencies()
 }
 }
 
+void test_solid_capture_ordering()
+{
+    const auto score = [](const char *fen, const char *notation) {
+        const auto before = state::from_pgn<true>(
+            "[Board \"custom\"]\n[" + std::string(fen) + ":0:1:w]\n");
+        auto [info, space] = HC_info::build_HC(before);
+        const auto coordinate = coordinate_for(info, full_move(notation));
+        return move_evaluator(info, capture_check_weights, capture_ordering::solid)
+            .score(0, coordinate);
+    };
+
+    assert(score("6k1/8/8/8/8/8/1p6/1Q5K", "(0T1)b1b2") == 25.1875f);
+    assert(score("6k1/8/8/8/1r6/8/1p6/PQ5K", "(0T1)b1b2") == 25.1875f);
+    assert(score("6k1/8/8/8/1r6/8/1p6/1Q5K", "(0T1)b1b2") == -334.8125f);
+    assert(score("8/8/7K/8/1r6/8/1p5k/1Q6", "(0T1)b1b2") == -34.8125f);
+    assert(score("7k/8/8/8/1r6/3N4/1p6/7K", "(0T1)d3b2") == -61.9375f);
+    assert(score("7k/8/8/8/1r6/8/1w6/1R5K", "(0T1)b1b2") == -36.75f);
+    assert(score("7k/8/8/8/1r6/8/1r6/1R5K", "(0T1)b1b2") == 0.75f);
+}
+
+void test_solid_ordering()
+{
+    const auto s = state::from_pgn<true>(
+        "[Size \"4x4\"]\n[Board \"custom\"]\n"
+        "[3k/4/4/KN2:0:1:w]\n[3k/4/4/KN2:1:2:w]\n"
+        "[3k/4/4/KN2:2:2:w]\n");
+    auto [info, space] = HC_info::build_HC(s, {.remove_check = true});
+    move_evaluator baseline(info, capture_check_weights, capture_ordering::mvvlva);
+    move_evaluator solid(info, capture_check_weights, capture_ordering::solid);
+    bool physical = false, arrival = false, branch = false, branch_null = false;
+    bool optional_departure = false, mandatory_departure = false;
+    for(index_t axis = 0; axis < info.dimension(); ++axis)
+        for(index_t coordinate : info.get_universe()[axis])
+        {
+            const auto boards = info.get_move_boards(axis, coordinate);
+            const bool branch_axis = axis >= info.first_branch_axis();
+            float penalty = 0;
+            if(boards)
+            {
+                const auto &m = boards->move;
+                if(branch_axis)
+                {
+                    penalty = 280;
+                    branch = true;
+                }
+                else if(m.from.l() != 0 && m.from.tl() == m.to.tl())
+                {
+                    penalty = 1024;
+                    physical = true;
+                }
+                else if(m.from.l() != 0 && m.to.l() != 0)
+                {
+                    penalty = 1024;
+                    arrival = true;
+                }
+            }
+            else if(branch_axis)
+                branch_null = true;
+            else if(info.is_departure(axis, coordinate))
+            {
+                const auto move = info.get_semimove(axis, coordinate);
+                if(move.get<departing_move>().from.l() != 0)
+                {
+                    penalty = 480;
+                    optional_departure = true;
+                }
+                else
+                    mandatory_departure = true;
+            }
+            assert(std::abs(solid.score(axis, coordinate)
+                - (baseline.score(axis, coordinate) - penalty)) < 0.001f);
+        }
+    assert(physical && arrival && branch && branch_null);
+    assert(optional_departure && mandatory_departure);
+    auto table = solid.build_score_table();
+    assert(table);
+    std::mt19937 rng(42);
+    scored_HC_ordering order(info.get_universe(), *table, rng);
+    std::set<moveseq> expected, actual;
+    for(auto moves : info.search(space)) expected.insert(moves);
+    for(auto moves : info.search(space, order)) actual.insert(moves);
+    assert(!expected.empty() && actual == expected);
+}
+
 int run()
 {
     test_weight_layout_and_profiles();
@@ -421,6 +509,8 @@ int run()
     test_capture_groups();
     test_check_and_combined_scoring();
     test_mvvlva_capture_ordering();
+    test_solid_capture_ordering();
+    test_solid_ordering();
     test_local_capture_exposure();
     test_king_branch_scoring();
     test_score_table_and_cancellation();

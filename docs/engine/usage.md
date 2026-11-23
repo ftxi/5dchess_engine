@@ -4,9 +4,8 @@ For reproducible engine experiments, use the fixed human-position suite and
 the [canonical testing workflow](testing.md).
 
 Available engines include `mcts`, `mcts-weighted`, `zero`, `zero-capture`,
-`zero-capture-check-pw`, `mvvlva`, `mvvlva-exposure`, `mvvlva-exposure-pn`,
-`mvvlva-pruned`, `mvvlva-solid-only`, `mvvlva-solid`,
-`linear`, `linear-trained`, `linear-weighted`,
+`mvvlva`, `mvvlva-exposure`, `mvvlva-pruned`, `solid`, `solid-amaf`, `solid-amaf1`, `solid-amaf2`,
+`mvvlva-exposure-pn`, `linear`, `linear-trained`, `linear-weighted`,
 `linear-pw`, `linear-safety-pw`, `linear-trained-pw`, `neural-pw`, `amaf-pw`,
 `flat-ucb`, `flat-ucb-weighted`, and `monkey`. They communicate using the
 [5DUCI protocol](../5duci.md).
@@ -32,25 +31,12 @@ progressive widening as `zero-capture-check-pw`, including both widening
 options (defaults: constant 2, exponent 0.5). It refines capture ordering with
 MVV-LVA: prefer the most valuable victim, then the least valuable attacker.
 It uses numerical material values and a bounded attacker-rank tie-breaker,
-as described under [MVV-LVA experiments](#mvv-lva-experiments). All MVV-LVA
-engines use this scoring; the former grouped victim-rank formula is removed.
-This is a move-ordering heuristic rather than a static exchange evaluation
-and does not use rollouts.
+as described under [MVV-LVA scoring](#mvv-lva-scoring). It uses zero leaf
+evaluation.
 
-`mvvlva-exposure` adds defence-aware local exposure and promotion gain to
-`mvvlva`. For captures whose arriving piece is physically attacked and has
-no friendly geometric defender on the resulting destination board, it
-subtracts `min(128, max(0, arriving_value - victim_value) / 10)`. Equal/favorable
-material exchanges and quiet moves receive no exposure penalty. Promotions,
-including non-capturing promotions, add
-`min(48, max(0, promoted_value - pawn_or_brawn_value) / 10)`.
-Both features use the existing 5D material values and cached result boards.
-Their bounds preserve capture/check priority groups; the check bonus stays
-+300, and widening options and the zero default policy are unchanged. Attacks
-and defenders are geometric, including potentially pinned pieces; a defender
-does not establish a legal or available recapture. Cross-timeline exposure
-and subsequent exchanges are not measured. The existing `mvvlva` remains
-available for comparison.
+`mvvlva-exposure` uses [Solid scoring](#mvv-lva-scoring) with ordinary UCT.
+`mvvlva-pruned` adds optional-timeline pruning. `solid` uses check pre-pruning
+and score-weighted UCT exploration.
 
 `mvvlva-exposure-pn` adds the PN-MCTS tree policy to `mvvlva-exposure`.
 It keeps the same move ordering, zero leaf evaluation, progressive widening,
@@ -84,9 +70,8 @@ while replacing its nonterminal zero evaluation. `linear-safety-pw` enables six
 additional king-safety features; the other two retain zero coefficients for
 those features. These engines do not accept rollout options.
 
-`neural-pw` uses `mvvlva-solid` move ordering and HC construction: numerical
-MVV-LVA with exposure and promotion scoring, solid-check pre-pruning, and
-optional-timeline move pruning. It uses progressive widening with no rollouts.
+`neural-pw` uses Solid move ordering with check pre-pruning and optional-timeline
+move pruning. It uses progressive widening with no rollouts.
 Optional-timeline pruning can reduce the legal action set, as described below.
 It evaluates only nonterminal positions through a 70-input network with hidden
 layers of 32 and 16 ReLU units and a final
@@ -196,11 +181,11 @@ solid-schema features through `game.get_neural_features()`. The legacy linear
 inputs remain available through `game.get_evaluation_features()`, and native model
 inference through `neural_model.load(path).evaluate_features(features)`.
 
-`amaf-pw` adds action-local AMAF credit sharing to the MVV-LVA exposure/PW
+`amaf-pw` adds action-local AMAF credit sharing to the Solid-scored progressive-widening
 search, without rollouts. Semimoves under different partial-action prefixes
 share reward/count statistics only when they belong to the same completed
 action's HC context. By default, shared estimates influence UCT selection among admitted
-children; admission and action completion retain MVV-LVA exposure ordering.
+children; admission and action completion retain Solid ordering.
 They never establish legality or prune a continuation.
 
 ```sh
@@ -219,14 +204,15 @@ prefix within the action, so they need no shared estimate.
 
 `--amaf-credit blend` mixes the shared mean into the direct child value.
 `--amaf-credit centered` keeps the direct value and adds a decaying shared
-advantage relative to that action's average reward. Both retain the UCT
-exploration term; the default is `blend`.
+advantage relative to that action's average reward. `--amaf-credit outside`
+blends in the mean from other prefixes, with an additional confidence factor
+of `m / (m + 8)` for `m` outside observations. All three retain the UCT
+exploration term. The default is `blend`.
 
-`--amaf-application admission` uses ordinary UCT selection and applies shared
-credit when admitting children or completing a partial action.
+`--amaf-application admission` applies shared credit when admitting children or completing a partial action.
 `--amaf-application both` applies credit at both stages; `selection` is the
 default. Admission adds a bounded, mover-relative shared advantage to the
-existing MVV-LVA exposure score. Its decay uses shared coordinate visits,
+existing Solid score. Its decay uses shared coordinate visits,
 since a new prefix has no direct child history. It keeps every allowed
 coordinate and passes the resulting action through normal legality checks.
 With absent or all-zero shared evidence, ordering is exactly the original
@@ -234,8 +220,7 @@ seeded ordering. Cached rankings update between completed MCTS iterations.
 
 `--amaf-application children` applies shared credit only when choosing among
 children already discovered through completed legal actions. New-action
-discovery retains the original MVV-LVA exposure ordering, and ordinary UCT
-selection is unchanged. Shared marginal credit therefore cannot reorder the
+discovery retains the original Solid ordering, and UCT revisits use their usual exploration weights. Shared marginal credit therefore cannot reorder the
 legality search for previously unexamined combinations of semimoves.
 
 `--amaf-evidence unique-leaves` counts each completed leaf node once in shared
@@ -287,11 +272,12 @@ The rollout action limit can be changed through 5DUCI with
 is scored as a draw by MCTS and flat-UCB; Linear evaluates the final rollout
 position instead. Setting the limit to zero disables rollout entirely.
 
-## MVV-LVA experiments
+## MVV-LVA scoring
 
 `mvvlva` uses numerical victim values with preference for lower-valued attackers,
-check ordering, zero rollout evaluation, and progressive widening. `mvvlva-exposure`
-also penalizes locally attacked, undefended captures and rewards promotion gain.
+check ordering, zero rollout evaluation, and progressive widening. The
+`mvvlva-*` variants, rollout-free linear presets, `neural-pw`, and AMAF presets
+use the same scoring as `solid`.
 These geometric exposure scores do not establish whether a recapture is legal.
 
 The material values used by MVV, exposure, and promotion gain are:
@@ -308,7 +294,7 @@ The material values used by MVV, exposure, and promotion gain are:
 | Unicorn | 60 |
 | Dragon | 30 |
 
-For a nonroyal victim, the capture score is
+In `mvvlva`, the capture score for a nonroyal victim is
 `480 + alpha * victim_value + beta * (maximum_attacker_rank - attacker_rank)`,
 where `alpha` is `1/16` and
 `beta = alpha * minimum_material_value_gap / maximum_attacker_rank`.
@@ -317,32 +303,77 @@ Attacker ranks are generated at compile time from distinct material values;
 equal values share a rank. Both royals receive the highest attacker rank and
 are excluded from victim scoring. The derived LVA step remains a tie-breaker
 when the values change.
-Checking adds 300. Exposure subtracts up to 128, and promotion gain adds up to
-48. These bounds preserve the priority of checking captures over other
-captures, and captures over checking quiet promotions. Other weighted
-engines retain their grouped capture features.
+Checking adds 300. Other weighted engines retain their grouped capture features.
 
-`mvvlva-solid` adds two HC construction changes to `mvvlva-exposure`:
+`solid` retains the complete legal-action space and pre-removes unavoidable
+royal checks. In `solid` and the `mvvlva-*` variants, a capture scores one quarter of the victim's material value plus
+the same small attacker tie-breaker. If the resulting destination square has
+an enemy attacker and no friendly defender, it subtracts one quarter of the
+arriving piece's value. Check still adds 300, and promotion gain adds up to 48.
 
-- Omit physical moves on optional timelines and arrivals onto existing optional
-  timelines whose source timeline is also optional. Arrivals from mandatory
-  timelines and moves creating new branches remain available.
-- Pre-prune coordinates that unavoidably expose a friendly royal. Both options
-  use the regular HC builder and its partitions by branch count.
+Physical moves on initially optional timelines and nonbranching arrivals
+between two initially optional timelines receive a 1024-point penalty.
+Departures from initially optional timelines receive a 480-point penalty.
+An arrival that creates a new timeline receives a 280-point penalty on the new
+timeline's axis. A null choice on that axis scores zero. These penalties affect
+expansion order. Progressive widening can delay low-priority moves at finite
+search budgets.
 
-Optional-timeline pruning may reduce the number of legal actions generated.
-Check pre-pruning preserves the legal-action set.
+When revisiting admitted semimoves, `solid` also weights the UCT exploration
+bonus using the same scores. Each 256 points below the best visited,
+registered sibling halves the base weight. A quiet optional move 1024 points
+behind a null choice thus starts with weight 1/16.
+Among those siblings, let `k` count semimoves receiving the 1024-point
+penalty and `m` count the rest. When `k > m > 0`, `solid` multiplies each
+penalized sibling's weight by `sqrt(m/k)`. UCT scales its exploration bonus by the square root of the
+resulting weight. Pass `--ordinary-uct` to use unweighted exploration on
+`solid` or a Solid AMAF preset.
 
-If the optional-timeline restriction leaves no legal action, search falls back
-to unrestricted move generation for that position. Rules and terminal
-adjudication continue to use the complete legal-action space.
+The three AMAF variants share semimove rewards across prefixes of one action
+root. During a UCT revisit, let `n` count visits through the current prefix
+and `m` count visits to the same coordinate through other prefixes. When
+`m > 0`, selection blends the local mean with the estimate below.
+At `m = 0`, all three use the local mean.
 
-For comparisons, `mvvlva-pruned` enables only optional-timeline pruning, and
-`mvvlva-solid-only` enables only check pre-pruning. All five engines accept
-`--seed`, `--pw-constant` (default 2), and `--pw-alpha` (default 0.5).
+| Engine | Shared estimate | Weight of shared estimate |
+|---|---|---|
+| `solid-amaf` | Mean over all `n + m` visits | `32 / (32 + n)` |
+| `solid-amaf1` | Mean over all `n + m` visits | `0.5 * 32 / (32 + n)` |
+| `solid-amaf2` | Mean over the `m` outside visits | `0.5 * m / (m + 8) * 32 / (32 + n)` |
+
+All three use `solid`'s exploration weights and expansion order. Final move
+selection follows the most locally visited child at each prefix.
+
+Fine-tree expansion in `zero` and the progressive widening engines first
+searches for a legal continuation of the highest-ranked unexpanded semimove.
+When a probe uses up its work budget, the next probe includes one more ranked
+semimove.
+Each probe shares the learned exclusions with the other probes. A legal
+continuation found after widening completes the action immediately. At full
+width, expansion can use a retained legal continuation or ordinary Deferred
+hypercuboid search with the earlier semimoves still fixed.
+
+`--fine-prefix-budget <n>` sets the work budget per ranked group. It counts
+tree visits, temporary search steps, matching, and legality checks. The
+default is 256. Use 0 to compare against strict semimove ordering.
 
 ```sh
-./build/5dchess mvvlva-solid --seed 42 --pw-constant 2 --pw-alpha 0.5
+./build/5dchess solid --seed 42 --fine-prefix-budget 128
+```
+
+Use `solid --prune-optional-moves` to omit physical moves on optional
+timelines and arrivals between existing optional timelines. Arrivals from
+mandatory timelines and moves creating new branches remain available.
+Optional-timeline pruning may reduce the legal actions generated. If the
+restriction leaves no legal action, the search retries with optional-move
+pruning disabled. Check pre-pruning preserves the legal-action set.
+
+`mvvlva-solid-only` and `mvvlva-solid` are compatibility aliases for
+`solid --ordinary-uct` and `solid --ordinary-uct --prune-optional-moves`,
+respectively. The aliases use the current Solid scoring.
+
+```sh
+./build/5dchess solid --seed 42 --prune-optional-moves --pw-constant 2 --pw-alpha 0.5
 ```
 
 ## Search limits and stopping

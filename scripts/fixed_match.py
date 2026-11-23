@@ -326,7 +326,7 @@ class Experiment:
             autoplay.set_pgn_result(game, 'draw' if outcome == 'draw' else
                 ('white' if (outcome == 'win') == target_white else 'black')
                 if outcome in ('win', 'loss') else 'protocol')
-            autoplay.append_termination_comment(game, reason)
+            autoplay.add_termination_comment(game, reason)
             path = args.output/f'pair-{pair:04d}-target-{"white" if target_white else "black"}.5dpgn'
             path.write_text(game.show_pgn(rules.SHOW_CAPTURE | rules.SHOW_PROMOTION | rules.SHOW_SHORT))
             result = GameResult(pair, row['id'], number, 'white' if target_white else 'black',

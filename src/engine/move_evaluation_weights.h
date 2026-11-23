@@ -79,7 +79,7 @@ inline constexpr move_evaluation_weights default_move_evaluation_weights = [] {
     return weights;
 }();
 
-// Non-negative profiles for candidate ordering; they do not affect UCT values.
+// Non-negative capture and check coefficients for semimove scoring.
 inline constexpr move_evaluation_weights capture_weights = [] {
     move_evaluation_weights weights{};
     for(std::size_t i = move_evaluation_weights::QUEEN_CAPTURE;

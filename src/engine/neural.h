@@ -109,6 +109,43 @@ struct neural_observer : mcts_observer
     }
 };
 
+namespace neural_detail
+{
+inline std::optional<reward_t<rollout_details>> evaluate_position(
+    const neural_model *model, float scale, state position, std::stop_token stop)
+{
+    if(!model || scale == 0.0f) return evaluate_zero_position(std::move(position), stop);
+    auto result = model->evaluate_position(std::move(position), stop);
+    if(result && result->data.end == rollout_details::termination::ACTION_LIMIT)
+        result->score *= scale;
+    return result;
+}
+
+template<class Node, class Diagnostics>
+std::optional<reward_t<rollout_details>> evaluate_ceiling(
+    Node &node, const neural_model *model, float scale, bool use_cache,
+    std::stop_token stop, Diagnostics *diagnostics)
+{
+    if(stop.stop_requested()) return std::nullopt;
+    auto &cached = node.get_info().tree_policy_data.cached_evaluation;
+    if(use_cache && cached)
+    {
+        search_trace_phase phase("evaluation_cache", &node.get_hc_info().get_state());
+        if(diagnostics) ++diagnostics->cache_hits;
+        return cached;
+    }
+    if(diagnostics) ++diagnostics->cache_misses;
+    state position = [&] {
+        search_trace_phase phase("state_at_ceiling", &node.get_hc_info().get_state());
+        return detail::state_at_ceiling(node);
+    }();
+    search_trace_phase phase("evaluation", &position);
+    auto result = evaluate_position(model, scale, std::move(position), stop);
+    if(use_cache && result) cached = result;
+    return result;
+}
+} /* namespace neural_detail */
+
 class neural_leaf_policy
 {
     std::shared_ptr<const neural_model> model;
@@ -126,28 +163,15 @@ public:
     template<class Observer>
     std::optional<result_type> evaluate(state position, std::stop_token stop, Observer &)
     {
-        if(options.value_scale == 0) return evaluate_zero_position(std::move(position), stop);
-        auto outcome = model->evaluate_position(std::move(position), stop);
-        if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
-            return outcome;
-        outcome->score *= options.value_scale;
-        return outcome;
+        return neural_detail::evaluate_position(model.get(), options.value_scale,
+            std::move(position), stop);
     }
 
     template<class Node, class Observer>
-    std::optional<result_type> evaluate_ceiling(Node &node, std::stop_token stop, Observer &observer)
+    std::optional<result_type> evaluate_ceiling(Node &node, std::stop_token stop, Observer &)
     {
-        if(stop.stop_requested()) return std::nullopt;
-        auto &cached = node.get_info().tree_policy_data.cached_evaluation;
-        if(options.cache_evaluations && cached)
-        {
-            if(diagnostics) ++diagnostics->cache_hits;
-            return cached;
-        }
-        if(diagnostics) ++diagnostics->cache_misses;
-        auto result = evaluate(detail::state_at_ceiling(node), stop, observer);
-        if(options.cache_evaluations && result) cached = result;
-        return result;
+        return neural_detail::evaluate_ceiling(node, model.get(), options.value_scale,
+            options.cache_evaluations, stop, diagnostics.get());
     }
 };
 
@@ -163,25 +187,13 @@ struct neural_child_selection
         const auto &parent = node->get_info();
         const auto &prior = parent.tree_policy_data;
         const double center = prior.prior_count ? prior.prior_sum / prior.prior_count : 0;
-        Node *best = nullptr;
-        const bool maximizing = !node->get_player();
-        double best_score = maximizing ? -std::numeric_limits<double>::infinity()
-                                       : std::numeric_limits<double>::infinity();
-        for(auto *child : node->get_children())
-        {
-            const auto &info = child->get_info();
-            if(!info.registered || info.visits == 0) continue;
-            double score = uct(info.sum_reward, info.visits, parent.visits, maximizing);
-            const auto &data = info.tree_policy_data;
-            if(data.prior_count)
-                score += options.weight(info.visits)
-                    * (data.prior_sum / data.prior_count - center);
-            if(!best || (maximizing ? score > best_score : score < best_score))
-            {
-                best = child;
-                best_score = score;
-            }
-        }
+        auto *best = uct_detail::best_uct_child(node, [](const Node *) { return 1.0f; },
+            [&](const Node *child) {
+                const auto &info = child->get_info();
+                const auto &data = info.tree_policy_data;
+                return data.prior_count ? options.weight(info.visits)
+                    * (data.prior_sum / data.prior_count - center) : 0.0;
+            });
         if(diagnostics)
         {
             ++diagnostics->prior_choices;
@@ -239,20 +251,19 @@ class neural_pw_engine final : public neural_pw_mcts_engine
     neural_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed, double constant, double alpha,
         std::shared_ptr<const neural_model> model, neural_guidance_options options,
-        std::shared_ptr<neural_diagnostics> diagnostics)
+        std::size_t prefix_budget, std::shared_ptr<neural_diagnostics> diagnostics)
         : neural_pw_mcts_engine(neural_leaf_policy{std::move(model), options, diagnostics},
             neural_tree_policy{seed, constant, alpha,
-                [](const HC_info &info, std::stop_token stop) {
-                    return move_evaluator(info, capture_check_weights,
-                        capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }, neural_child_selection{options, diagnostics},
-                HC_build_options{.remove_check = true, .prune_optional_moves = true}},
+                solid_scores, neural_child_selection{options, diagnostics},
+                HC_build_options{.remove_check = true, .prune_optional_moves = true},
+                prefix_budget},
             neural_backpropagation{options, diagnostics}, {}, neural_observer{diagnostics}, std::move(io)) {}
 public:
     neural_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed, double constant, double alpha,
-        std::shared_ptr<const neural_model> model, neural_guidance_options options = {})
-        : neural_pw_engine(std::move(io), seed, constant, alpha, std::move(model), options,
+        std::shared_ptr<const neural_model> model, neural_guidance_options options = {},
+        std::size_t prefix_budget = default_fine_prefix_budget)
+        : neural_pw_engine(std::move(io), seed, constant, alpha, std::move(model), options, prefix_budget,
             std::make_shared<neural_diagnostics>()) {}
 };
 

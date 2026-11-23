@@ -118,8 +118,10 @@ class zero_engine final : public zero_mcts_engine
 public:
     zero_engine(std::unique_ptr<io_handler> io,
                 std::optional<std::uint32_t> seed = std::nullopt,
-                int = default_mcts_rollout_max_actions)
-        : zero_mcts_engine({}, uct_tree_policy<>{seed}, {}, {}, {}, std::move(io)) {}
+                int = default_mcts_rollout_max_actions,
+                std::size_t prefix_budget = default_fine_prefix_budget)
+        : zero_mcts_engine({}, uct_tree_policy<>{seed, nullptr, prefix_budget},
+            {}, {}, {}, std::move(io)) {}
 };
 
 class zero_capture_engine final : public zero_capture_mcts_engine
@@ -142,13 +144,14 @@ public:
     zero_capture_check_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
-        double widening_alpha = default_progressive_widening_alpha)
+        double widening_alpha = default_progressive_widening_alpha,
+        std::size_t prefix_budget = default_fine_prefix_budget)
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
                 [](const HC_info &info, std::stop_token stop) {
                     return move_evaluator(info, capture_check_weights).build_score_table(stop);
-                }},
+                }, {}, {}, prefix_budget},
             {}, {}, {}, std::move(io)) {}
 };
 
@@ -159,16 +162,22 @@ public:
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
         double widening_alpha = default_progressive_widening_alpha,
-        HC_build_options options = {})
+        HC_build_options options = {},
+        std::size_t prefix_budget = default_fine_prefix_budget)
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
                 [](const HC_info &info, std::stop_token stop) {
                     return move_evaluator(info, capture_check_weights,
                         capture_ordering::mvvlva).build_score_table(stop);
-                }, {}, options},
+                }, {}, options, prefix_budget},
             {}, {}, {}, std::move(io)) {}
 };
+
+inline std::optional<move_score_table> solid_scores(const HC_info &info, std::stop_token stop)
+{
+    return move_evaluator(info, capture_check_weights, capture_ordering::solid).build_score_table(stop);
+}
 
 class mvvlva_exposure_engine final : public zero_capture_pw_mcts_engine
 {
@@ -177,14 +186,12 @@ public:
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
         double widening_alpha = default_progressive_widening_alpha,
-        HC_build_options options = {})
+        HC_build_options options = {},
+        std::size_t prefix_budget = default_fine_prefix_budget)
         : zero_capture_pw_mcts_engine(
             {}, progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
-                [](const HC_info &info, std::stop_token stop) {
-                    return move_evaluator(info, capture_check_weights,
-                        capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }, {}, options},
+                solid_scores, {}, options, prefix_budget},
             {}, {}, {}, std::move(io)) {}
 };
 
@@ -203,14 +210,12 @@ public:
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant = default_progressive_widening_constant,
         double widening_alpha = default_progressive_widening_alpha,
-        double pn_constant = default_pn_mcts_constant)
+        double pn_constant = default_pn_mcts_constant,
+        std::size_t prefix_budget = default_fine_prefix_budget)
         : pn_mvvlva_exposure_mcts_engine(
             {}, pn_mcts_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
-                [](const HC_info &info, std::stop_token stop) {
-                    return move_evaluator(info, capture_check_weights,
-                        capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }, pn_child_selection{pn_constant}},
+                solid_scores, pn_child_selection{pn_constant}, {}, prefix_budget},
             {}, {}, {}, std::move(io)) {}
 };
 

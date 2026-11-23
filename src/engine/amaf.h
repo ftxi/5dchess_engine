@@ -15,9 +15,10 @@
 #include <vector>
 
 #include "neural.h"
+#include "solid.h"
 
 enum class amaf_decay { inverse, square_root, exponential };
-enum class amaf_credit { blend, centered };
+enum class amaf_credit { blend, centered, outside };
 enum class amaf_application { selection, admission, both, children };
 
 struct amaf_options
@@ -41,7 +42,8 @@ struct amaf_options
         if(decay != amaf_decay::inverse && decay != amaf_decay::square_root
             && decay != amaf_decay::exponential)
             throw std::invalid_argument("unknown AMAF decay");
-        if(credit != amaf_credit::blend && credit != amaf_credit::centered)
+        if(credit != amaf_credit::blend && credit != amaf_credit::centered
+            && credit != amaf_credit::outside)
             throw std::invalid_argument("unknown AMAF credit");
         if(application != amaf_application::selection && application != amaf_application::admission
             && application != amaf_application::both && application != amaf_application::children)
@@ -73,7 +75,7 @@ struct amaf_diagnostics
     std::size_t coordinate_updates = 0, action_updates = 0;
     std::size_t nonzero_coordinate_updates = 0, tables = 0;
     std::size_t ordering_rebuilds = 0, ordering_changed_axes = 0;
-    std::size_t evaluation_cache_hits = 0, evaluation_cache_misses = 0;
+    std::size_t cache_hits = 0, cache_misses = 0;
     std::size_t child_choices = 0, changed_child_choices = 0;
     std::size_t unique_evidence_updates = 0, repeated_evidence_skips = 0;
 };
@@ -98,10 +100,8 @@ struct coordinate_hash
 
 struct statistic
 {
-    float sum_reward = 0.0f;
-    double centered_sum_reward = 0.0;
+    double sum_reward = 0.0;
     std::size_t visits = 0;
-    std::uint64_t last_iteration = 0;
 };
 
 struct table
@@ -156,6 +156,11 @@ public:
         }
     }
 
+    float weight(index_t axis, index_t coordinate) const
+    {
+        return solid_exploration_weight(state->scores[axis][coordinate]);
+    }
+
     void bind(const amaf_detail::table *table, amaf_options options,
         bool black, std::shared_ptr<amaf_diagnostics> diagnostics)
     {
@@ -184,7 +189,7 @@ public:
                 {
                     const auto &shared = found->second;
                     bonus = state->options.weight(shared.visits)
-                        * (shared.centered_sum_reward / static_cast<double>(shared.visits) - mean);
+                        * (shared.sum_reward / static_cast<double>(shared.visits) - mean);
                     if(state->black) bonus = -bonus;
                 }
                 adjusted[i] = state->scores[axis][i] + bonus;
@@ -236,93 +241,96 @@ struct amaf_node_data
     // Roots are rebuilt for every search, so this never crosses searches.
     std::optional<reward_t<rollout_details>> cached_evaluation;
     bool shared_evidence_recorded = false;
+    // Evidence through this incoming edge, using the same samples and values
+    // as the pooled table even when ordinary UCT backs up different rewards.
+    double local_evidence_sum = 0.0;
+    std::size_t local_evidence_visits = 0;
 };
 
 class amaf_child_selection
 {
     amaf_options options;
     std::shared_ptr<amaf_diagnostics> diagnostics;
+    bool weighted_exploration;
 
 public:
     explicit amaf_child_selection(amaf_options options_ = {},
-        std::shared_ptr<amaf_diagnostics> diagnostics_ = nullptr)
-        : options(options_), diagnostics(std::move(diagnostics_))
+        std::shared_ptr<amaf_diagnostics> diagnostics_ = nullptr,
+        bool weighted_exploration_ = false)
+        : options(options_), diagnostics(std::move(diagnostics_)),
+          weighted_exploration(weighted_exploration_)
     {
         options.validate();
+    }
+
+    double value_adjustment(double local_sum, std::size_t visits,
+        const amaf_detail::statistic &shared, const amaf_node_data &data,
+        const amaf_detail::table &table) const
+    {
+        if(!visits) return 0.0;
+        const bool outside = options.credit == amaf_credit::outside;
+        const auto local_visits = outside ? data.local_evidence_visits : visits;
+        if(shared.visits <= local_visits) return 0.0;
+        const double local_mean = local_sum / static_cast<double>(visits);
+        double adjustment;
+        if(outside)
+        {
+            const double m = static_cast<double>(shared.visits - local_visits);
+            const double outside_mean = (shared.sum_reward - data.local_evidence_sum) / m;
+            adjustment = m / (m + 8.0) * (outside_mean - local_mean);
+        }
+        else
+        {
+            const double shared_mean = shared.sum_reward / static_cast<double>(shared.visits);
+            adjustment = options.credit == amaf_credit::centered
+                ? shared_mean - table.sum_reward / static_cast<double>(table.visits)
+                : shared_mean - local_mean;
+        }
+        if(diagnostics)
+        {
+            ++diagnostics->shared_uses;
+            diagnostics->changed_values += adjustment != 0.0;
+        }
+        return options.weight(visits) * adjustment;
     }
 
     template<class Node>
     Node *operator()(Node *node) const
     {
-        if(!options.enabled() || options.application == amaf_application::admission
-            || options.application == amaf_application::children)
-            return uct_detail::best_uct_child(node);
         const auto &data = node->get_info().tree_policy_data;
         const auto *table = node->is_nodal() ? data.amaf_table.get() : data.amaf_context;
-        if(!table) return uct_detail::best_uct_child(node);
-
-        Node *best = nullptr;
-        const bool maximizing = !node->get_player();
-        double best_score = maximizing ? -std::numeric_limits<double>::infinity()
-                                       : std::numeric_limits<double>::infinity();
-        for(auto *child : node->get_children())
-        {
+        const auto adjustment = [&](const Node *child) {
+            // Axis zero has only one prefix in each action.
+            if(!table || child->get_n() == 0 || !options.enabled()
+                || options.application == amaf_application::admission
+                || options.application == amaf_application::children)
+                return 0.0;
+            if(diagnostics) ++diagnostics->lookups;
+            const auto found = table->entries.find({child->get_n(), child->get_i()});
+            if(found == table->entries.end()) return 0.0;
             const auto &info = child->get_info();
-            if(!info.registered || !info.visits) continue;
-            double score = uct(info.sum_reward, info.visits,
-                node->get_info().visits, maximizing);
-            // Axis zero has no different prefix within this action, so it
-            // cannot supply additional AMAF evidence and needs no lookup.
-            if(child->get_n() != 0)
-            {
-                if(diagnostics) ++diagnostics->lookups;
-                const auto found = table->entries.find({child->get_n(), child->get_i()});
-                if(found != table->entries.end() && found->second.visits > info.visits)
-                {
-                    const auto &shared = found->second;
-                    const float local_mean = info.sum_reward / static_cast<float>(info.visits);
-                    const float shared_mean = shared.sum_reward / static_cast<float>(shared.visits);
-                    const double adjustment = options.credit == amaf_credit::centered
-                        ? shared.centered_sum_reward / static_cast<double>(shared.visits)
-                            - table->sum_reward / static_cast<double>(table->visits)
-                        : static_cast<double>(shared_mean - local_mean);
-                    score += options.weight(info.visits) * adjustment;
-                    if(diagnostics)
-                    {
-                        ++diagnostics->shared_uses;
-                        diagnostics->changed_values += adjustment != 0.0;
-                    }
-                }
-            }
-            if(!best || (maximizing ? score > best_score : score < best_score))
-            {
-                best = child;
-                best_score = score;
-            }
-        }
-        return best;
+            return value_adjustment(info.sum_reward, info.visits, found->second,
+                info.tree_policy_data, *table);
+        };
+        if(weighted_exploration) return solid_child_selection{}(node, adjustment);
+        return uct_detail::best_uct_child(node, [](const Node *) { return 1.0f; }, adjustment);
     }
 };
 
 class amaf_backpropagation
 {
-    bool enabled;
     amaf_options options;
-    bool neural_prior_only;
     std::shared_ptr<amaf_diagnostics> diagnostics;
-    std::uint64_t iteration = 0;
 
 public:
-    explicit amaf_backpropagation(bool enabled_ = true,
-        std::shared_ptr<amaf_diagnostics> diagnostics_ = nullptr,
-        bool neural_prior_only_ = false, amaf_options options_ = {})
-        : enabled(enabled_), options(options_), neural_prior_only(neural_prior_only_),
-          diagnostics(std::move(diagnostics_)) {}
+    explicit amaf_backpropagation(amaf_options options_ = {},
+        std::shared_ptr<amaf_diagnostics> diagnostics_ = nullptr)
+        : options(options_), diagnostics(std::move(diagnostics_)) {}
 
     template<class Node, class Result, class Observer>
     void backpropagate(Node *node, const Result &reward, Observer &observer)
     {
-        if(neural_prior_only)
+        if(options.neural_prior_only)
         {
             auto direct = reward;
             if constexpr(requires { direct.data.end; })
@@ -331,7 +339,7 @@ public:
             sum_backpropagation{}.backpropagate(node, direct, observer);
         }
         else sum_backpropagation{}.backpropagate(node, reward, observer);
-        if(!enabled) return;
+        if(!options.enabled()) return;
         if(options.unique_leaf_evidence)
         {
             auto &leaf = node->get_info().tree_policy_data;
@@ -343,7 +351,6 @@ public:
             leaf.shared_evidence_recorded = true;
             if(diagnostics) ++diagnostics->unique_evidence_updates;
         }
-        const auto stamp = ++iteration;
 
         // Each segment is one submitted action. Walk from the completed
         // ceiling, including completion edges which PW has not registered.
@@ -373,20 +380,22 @@ public:
                         edge->get_info().tree_policy_data.amaf_context = table;
                     if(edge->get_n() == 0) continue;
                     auto &shared = table->entries[{edge->get_n(), edge->get_i()}];
-                    if(shared.last_iteration == stamp) continue;
-                    shared.last_iteration = stamp;
                     shared.sum_reward += reward.score;
-                    shared.centered_sum_reward += reward.score;
                     ++shared.visits;
+                    if(options.credit == amaf_credit::outside)
+                    {
+                        auto &edge_data = edge->get_info().tree_policy_data;
+                        edge_data.local_evidence_sum += reward.score;
+                        ++edge_data.local_evidence_visits;
+                    }
                     if(diagnostics)
                     {
                         ++diagnostics->coordinate_updates;
                         diagnostics->nonzero_coordinate_updates += reward.score != 0.0f;
                     }
                 }
-                if constexpr(requires { data.ordering; })
-                    if(data.ordering)
-                        data.ordering->bind(table, options, owner->get_player(), diagnostics);
+                if(data.ordering)
+                    data.ordering->bind(table, options, owner->get_player(), diagnostics);
             }
             node = owner;
         }
@@ -417,8 +426,8 @@ struct amaf_observer : mcts_observer
                 << " tables=" << diagnostics->tables
                 << " ordering_rebuilds=" << diagnostics->ordering_rebuilds
                 << " ordering_changed_axes=" << diagnostics->ordering_changed_axes
-                << " evaluation_cache_hits=" << diagnostics->evaluation_cache_hits
-                << " evaluation_cache_misses=" << diagnostics->evaluation_cache_misses
+                << " evaluation_cache_hits=" << diagnostics->cache_hits
+                << " evaluation_cache_misses=" << diagnostics->cache_misses
                 << " child_choices=" << diagnostics->child_choices
                 << " changed_child_choices=" << diagnostics->changed_child_choices
                 << " unique_evidence_updates=" << diagnostics->unique_evidence_updates
@@ -448,41 +457,15 @@ public:
     template<class Observer>
     std::optional<result_type> evaluate(state position, std::stop_token stop, Observer &)
     {
-        auto outcome = model && value_scale != 0.0f
-            ? model->evaluate_position(std::move(position), stop)
-            : evaluate_zero_position(std::move(position), stop);
-        if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
-            return outcome;
-        if(model && value_scale != 0.0f)
-        {
-            outcome->score *= value_scale;
-        }
-        return outcome;
+        return neural_detail::evaluate_position(model.get(), value_scale,
+            std::move(position), stop);
     }
 
     template<class Node, class Observer>
-    std::optional<result_type> evaluate_ceiling(
-        Node &node, std::stop_token stop, Observer &observer)
+    std::optional<result_type> evaluate_ceiling(Node &node, std::stop_token stop, Observer &)
     {
-        if(stop.stop_requested()) return std::nullopt;
-        auto &cached = node.get_info().tree_policy_data.cached_evaluation;
-        if(cache_evaluations && cached)
-        {
-            search_trace_phase phase("evaluation_cache", &node.get_hc_info().get_state());
-            if(diagnostics) ++diagnostics->evaluation_cache_hits;
-            return cached;
-        }
-        if(cache_evaluations && diagnostics) ++diagnostics->evaluation_cache_misses;
-        state position = [&] {
-            search_trace_phase phase("state_at_ceiling", &node.get_hc_info().get_state());
-            return detail::state_at_ceiling(node);
-        }();
-        search_trace_phase phase("evaluation", &position);
-        auto result = evaluate(std::move(position), stop, observer);
-        // Interrupted evaluations never populate the cache. No random rollout
-        // or changing model is involved in this policy.
-        if(cache_evaluations && result) cached = result;
-        return result;
+        return neural_detail::evaluate_ceiling(node, model.get(), value_scale,
+            cache_evaluations, stop, cache_evaluations ? diagnostics.get() : nullptr);
     }
 };
 
@@ -497,14 +480,14 @@ class amaf_pw_engine final : public amaf_mcts_engine
     amaf_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed, double constant, double alpha,
         amaf_options options, std::shared_ptr<const neural_model> model,
-        float value_scale, bool cache_evaluations, std::shared_ptr<amaf_diagnostics> diagnostics)
+        float value_scale, bool cache_evaluations, HC_build_options build_options,
+        std::size_t prefix_budget, bool weighted_exploration,
+        std::shared_ptr<amaf_diagnostics> diagnostics)
         : amaf_mcts_engine(amaf_leaf_policy{std::move(model), value_scale, cache_evaluations, diagnostics},
             amaf_tree_policy{seed, constant, alpha,
-                [](const HC_info &info, std::stop_token stop) {
-                    return move_evaluator(info, capture_check_weights,
-                        capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }, amaf_child_selection{options, diagnostics}},
-            amaf_backpropagation{options.enabled(), diagnostics, options.neural_prior_only, options}, {},
+                solid_scores, amaf_child_selection{options, diagnostics, weighted_exploration},
+                build_options, prefix_budget},
+            amaf_backpropagation{options, diagnostics}, {},
             amaf_observer{diagnostics}, std::move(io)) {}
 
 public:
@@ -512,9 +495,12 @@ public:
         std::optional<std::uint32_t> seed, double constant, double alpha,
         amaf_options options,
         std::shared_ptr<const neural_model> model = nullptr,
-        float value_scale = 1.0f, bool cache_evaluations = false)
+        float value_scale = 1.0f, bool cache_evaluations = false,
+        HC_build_options build_options = {},
+        std::size_t prefix_budget = default_fine_prefix_budget, bool weighted_exploration = false)
         : amaf_pw_engine(std::move(io), seed, constant, alpha, options,
-            std::move(model), value_scale, cache_evaluations, std::make_shared<amaf_diagnostics>()) {}
+            std::move(model), value_scale, cache_evaluations, build_options, prefix_budget,
+            weighted_exploration, std::make_shared<amaf_diagnostics>()) {}
 };
 
 static_assert(DefaultPolicy<amaf_leaf_policy, amaf_observer>);

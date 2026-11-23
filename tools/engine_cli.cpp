@@ -1,5 +1,6 @@
 // Accessing the 5dchess engines
 
+#include <charconv>
 #include <cstdint>
 #include <cmath>
 #include <iostream>
@@ -33,6 +34,9 @@ struct command_line_options
         = default_progressive_widening_constant;
     double progressive_widening_alpha = default_progressive_widening_alpha;
     double pn_constant = default_pn_mcts_constant;
+    std::size_t fine_prefix_budget = default_fine_prefix_budget;
+    bool weighted_exploration = false;
+    bool prune_optional_moves = false;
     amaf_options amaf;
     neural_guidance_options neural;
     float value_scale = 1.0f;
@@ -45,10 +49,19 @@ bool is_weighted_engine(std::string_view name)
         || name == "flat-ucb-weighted";
 }
 
-bool is_hc_pruned_mvvlva_engine(std::string_view name)
+bool is_solid_alias(std::string_view name)
 {
-    return name == "mvvlva-pruned" || name == "mvvlva-solid-only"
-        || name == "mvvlva-solid";
+    return name == "mvvlva-solid-only" || name == "mvvlva-solid";
+}
+
+bool is_solid_amaf_engine(std::string_view name)
+{
+    return name == "solid-amaf" || name == "solid-amaf1" || name == "solid-amaf2";
+}
+
+bool is_amaf_engine(std::string_view name)
+{
+    return name == "amaf-pw" || is_solid_amaf_engine(name);
 }
 
 bool supports_rollout_limit(std::string_view name)
@@ -59,12 +72,12 @@ bool supports_rollout_limit(std::string_view name)
 
 bool supports_progressive_widening(std::string_view name)
 {
-    return is_hc_pruned_mvvlva_engine(name)
+    return name == "mvvlva-pruned" || name == "solid" || is_solid_alias(name)
         || name == "zero-capture-check-pw" || name == "mvvlva"
         || name == "mvvlva-exposure" || name == "linear-pw"
         || name == "linear-safety-pw" || name == "linear-trained-pw"
         || name == "neural-pw" || name == "mvvlva-exposure-pn"
-        || name == "amaf-pw";
+        || is_amaf_engine(name);
 }
 
 bool supports_evaluation_features(std::string_view name)
@@ -83,15 +96,17 @@ void print_usage(std::ostream &out)
         << "  zero-capture       zero with capture-biased tree expansion\n"
         << "  zero-capture-check-pw  capture/check ordering with progressive widening\n"
         << "  mvvlva             MVV-LVA/check ordering with progressive widening\n"
-        << "  mvvlva-exposure    MVV-LVA with local capture-exposure penalties\n"
-        << "  mvvlva-pruned      exposure with optional timeline move pruning\n"
-        << "  mvvlva-solid-only  exposure with solid-check pre-pruning\n"
-        << "  mvvlva-solid       exposure with both HC pruning changes\n"
-        << "  mvvlva-exposure-pn MVV-LVA exposure/PW with PN-MCTS tree selection\n"
+        << "  mvvlva-exposure    Solid scoring with ordinary UCT\n"
+        << "  mvvlva-pruned      Solid scoring with optional timeline move pruning\n"
+        << "  solid             Solid scoring, check pruning and weighted UCT\n"
+        << "  solid-amaf        Solid with pooled AMAF credit\n"
+        << "  solid-amaf1       Solid with half-strength pooled AMAF credit\n"
+        << "  solid-amaf2       Solid with half-strength outside-prefix AMAF credit\n"
+        << "  mvvlva-exposure-pn Solid scoring with PN-MCTS tree selection\n"
         << "  linear             MCTS with random rollouts and linear cutoff evaluation\n"
         << "  linear-trained     linear with a frozen experimental cutoff profile\n"
         << "  linear-weighted    MCTS with weighted rollouts and linear cutoff evaluation\n"
-        << "  linear-pw          MVV-LVA exposure/PW with 64-feature leaf evaluation\n"
+        << "  linear-pw          Solid scoring with linear leaf evaluation\n"
         << "  linear-safety-pw   linear-pw with six additional royal-safety features\n"
         << "  linear-trained-pw  linear-pw with the frozen experimental weights\n"
         << "  neural-pw          MVV-LVA solid/PW with a two-hidden-layer model\n"
@@ -109,6 +124,10 @@ void print_usage(std::ostream &out)
            " (default 2)\n"
         << "  --pw-alpha <n>                  widening exponent in (0, 1] for"
            " progressive widening engines (default 0.5)\n"
+        << "  --fine-prefix-budget <n>       fine-tree work budget (default "
+        << default_fine_prefix_budget << ", 0 for strict ordering)\n"
+        << "  --ordinary-uct                solid: use unweighted exploration\n"
+        << "  --prune-optional-moves         solid: prune optional timeline moves\n"
         << "  --evaluation-features <subset> linear PW leaf features (default all):\n"
         << "      all, none, mandatory-material, material, material-timeline,\n"
         << "      material-volume, material-safety, safety, timeline, volume, timeline-volume\n"
@@ -117,7 +136,7 @@ void print_usage(std::ostream &out)
         << "  --amaf-strength <n>             AMAF mixing strength in [0,1] (default 1)\n"
         << "  --amaf-horizon <n>              AMAF decay visit scale (default 32)\n"
         << "  --amaf-decay <name>             inverse, sqrt, exponential (default inverse)\n"
-        << "  --amaf-credit <name>            blend or centered (default blend)\n"
+        << "  --amaf-credit <name>            blend, centered or outside (default blend)\n"
         << "  --amaf-application <name>       selection, admission, children, both\n"
         << "                                  (default selection)\n"
         << "  --amaf-evidence <name>          visits (default) or unique-leaves\n"
@@ -159,6 +178,11 @@ command_line_options parse_options(
     int argc, const char *argv[], const std::string &engine_name)
 {
     command_line_options options;
+    options.weighted_exploration = engine_name == "solid" || is_solid_amaf_engine(engine_name);
+    options.prune_optional_moves = engine_name == "mvvlva-solid" || engine_name == "mvvlva-pruned";
+    if(engine_name == "solid-amaf1" || engine_name == "solid-amaf2") options.amaf.strength = 0.5;
+    if(engine_name == "solid-amaf2") options.amaf.credit = amaf_credit::outside;
+    bool fine_prefix_budget_seen = false;
     bool seed_seen = false;
     bool rollout_limit_seen = false;
     bool weight_temperature_seen = false;
@@ -264,7 +288,7 @@ command_line_options parse_options(
         }
         else if(option == "--cache-evaluations")
         {
-            if(engine_name != "amaf-pw" || options.cache_evaluations)
+            if(!is_amaf_engine(engine_name) || options.cache_evaluations)
                 throw std::invalid_argument("invalid evaluation cache option");
             options.cache_evaluations = true;
         }
@@ -273,7 +297,7 @@ command_line_options parse_options(
         {
             bool &seen = option == "--amaf-strength" ? amaf_strength_seen
                 : option == "--amaf-horizon" ? amaf_horizon_seen : value_scale_seen;
-            if((engine_name != "amaf-pw" && !(engine_name == "neural-pw" && option == "--value-scale"))
+            if((!is_amaf_engine(engine_name) && !(engine_name == "neural-pw" && option == "--value-scale"))
                 || seen || ++i >= argc)
                 throw std::invalid_argument("invalid AMAF numeric option");
             std::size_t consumed = 0;
@@ -293,7 +317,7 @@ command_line_options parse_options(
         }
         else if(option == "--amaf-evidence")
         {
-            if(engine_name != "amaf-pw" || amaf_evidence_seen || ++i >= argc)
+            if(!is_amaf_engine(engine_name) || amaf_evidence_seen || ++i >= argc)
                 throw std::invalid_argument("invalid AMAF evidence option");
             const std::string value = argv[i];
             if(value == "unique-leaves") options.amaf.unique_leaf_evidence = true;
@@ -302,7 +326,7 @@ command_line_options parse_options(
         }
         else if(option == "--amaf-application")
         {
-            if(engine_name != "amaf-pw" || amaf_application_seen || ++i >= argc)
+            if(!is_amaf_engine(engine_name) || amaf_application_seen || ++i >= argc)
                 throw std::invalid_argument("invalid AMAF application option");
             const std::string value = argv[i];
             if(value == "selection") options.amaf.application = amaf_application::selection;
@@ -314,17 +338,18 @@ command_line_options parse_options(
         }
         else if(option == "--amaf-credit")
         {
-            if(engine_name != "amaf-pw" || amaf_credit_seen || ++i >= argc)
+            if(!is_amaf_engine(engine_name) || amaf_credit_seen || ++i >= argc)
                 throw std::invalid_argument("invalid AMAF credit option");
             const std::string value = argv[i];
             if(value == "blend") options.amaf.credit = amaf_credit::blend;
             else if(value == "centered") options.amaf.credit = amaf_credit::centered;
+            else if(value == "outside") options.amaf.credit = amaf_credit::outside;
             else throw std::invalid_argument("unknown AMAF credit");
             amaf_credit_seen = true;
         }
         else if(option == "--neural-usage")
         {
-            if((engine_name != "amaf-pw" && engine_name != "neural-pw")
+            if((!is_amaf_engine(engine_name) && engine_name != "neural-pw")
                 || neural_usage_seen || ++i >= argc)
                 throw std::invalid_argument("invalid neural usage option");
             const std::string value = argv[i];
@@ -336,7 +361,7 @@ command_line_options parse_options(
         }
         else if(option == "--amaf-decay")
         {
-            if(engine_name != "amaf-pw" || amaf_decay_seen || ++i >= argc)
+            if(!is_amaf_engine(engine_name) || amaf_decay_seen || ++i >= argc)
                 throw std::invalid_argument("invalid AMAF decay option");
             const std::string value = argv[i];
             if(value == "inverse") options.amaf.decay = amaf_decay::inverse;
@@ -347,7 +372,7 @@ command_line_options parse_options(
         }
         else if(option == "--model")
         {
-            if((engine_name != "neural-pw" && engine_name != "amaf-pw")
+            if((engine_name != "neural-pw" && !is_amaf_engine(engine_name))
                 || !options.model_path.empty() || ++i >= argc)
                 throw std::invalid_argument("invalid model option");
             options.model_path = argv[i];
@@ -360,6 +385,31 @@ command_line_options parse_options(
                 throw std::invalid_argument("invalid evaluation features option");
             options.evaluation_features = argv[i];
             evaluation_features_seen = true;
+        }
+        else if(option == "--fine-prefix-budget")
+        {
+            if((engine_name != "zero" && !supports_progressive_widening(engine_name))
+                || fine_prefix_budget_seen || ++i >= argc)
+                throw std::invalid_argument("invalid fine prefix budget option");
+            const std::string_view value = argv[i];
+            const auto *end = value.data() + value.size();
+            const auto [parsed, error] = std::from_chars(value.data(), end, options.fine_prefix_budget);
+            if(error != std::errc{} || parsed != end)
+                throw std::invalid_argument("invalid fine prefix budget");
+            fine_prefix_budget_seen = true;
+        }
+        else if(option == "--ordinary-uct")
+        {
+            if(!options.weighted_exploration)
+                throw std::invalid_argument("invalid ordinary UCT option");
+            options.weighted_exploration = false;
+        }
+        else if(option == "--prune-optional-moves")
+        {
+            if((engine_name != "solid" && !is_solid_alias(engine_name)
+                && !is_solid_amaf_engine(engine_name)) || options.prune_optional_moves)
+                throw std::invalid_argument("invalid optional move pruning option");
+            options.prune_optional_moves = true;
         }
         else if(option == "--pw-constant")
         {
@@ -418,7 +468,8 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
     else if(engine_name == "zero")
     {
         selected_engine = std::make_unique<zero_engine>(
-            std::move(io), options.seed);
+            std::move(io), options.seed, default_mcts_rollout_max_actions,
+            options.fine_prefix_budget);
     }
     else if(engine_name == "zero-capture")
     {
@@ -429,31 +480,42 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
     {
         selected_engine = std::make_unique<zero_capture_check_pw_engine>(
             std::move(io), options.seed,
-            options.progressive_widening_constant, options.progressive_widening_alpha);
+            options.progressive_widening_constant, options.progressive_widening_alpha,
+            options.fine_prefix_budget);
     }
     else if(engine_name == "mvvlva")
     {
         selected_engine = std::make_unique<mvvlva_engine>(
             std::move(io), options.seed,
-            options.progressive_widening_constant, options.progressive_widening_alpha);
+            options.progressive_widening_constant, options.progressive_widening_alpha,
+            HC_build_options{}, options.fine_prefix_budget);
     }
-    else if(engine_name == "mvvlva-exposure" || is_hc_pruned_mvvlva_engine(engine_name))
+    else if(engine_name == "mvvlva-exposure" || engine_name == "mvvlva-pruned")
     {
         selected_engine = std::make_unique<mvvlva_exposure_engine>(
             std::move(io), options.seed,
             options.progressive_widening_constant, options.progressive_widening_alpha,
-            HC_build_options{
-                .remove_check = engine_name == "mvvlva-solid-only" || engine_name == "mvvlva-solid",
-                .prune_optional_moves = engine_name == "mvvlva-pruned" || engine_name == "mvvlva-solid"});
+            HC_build_options{.prune_optional_moves = options.prune_optional_moves},
+            options.fine_prefix_budget);
+    }
+    else if(engine_name == "solid" || is_solid_alias(engine_name))
+    {
+        selected_engine = std::make_unique<solid_mcts_engine>(
+            zero_default_policy{}, solid_tree_policy{options.seed,
+                options.progressive_widening_constant, options.progressive_widening_alpha,
+                solid_scores, solid_child_selection{options.weighted_exploration},
+                HC_build_options{.remove_check = true, .prune_optional_moves = options.prune_optional_moves},
+                options.fine_prefix_budget}, sum_backpropagation{}, most_visited_selection{},
+            mcts_observer{}, std::move(io));
     }
     else if(engine_name == "mvvlva-exposure-pn")
     {
         selected_engine = std::make_unique<mvvlva_exposure_pn_engine>(
             std::move(io), options.seed,
             options.progressive_widening_constant, options.progressive_widening_alpha,
-            options.pn_constant);
+            options.pn_constant, options.fine_prefix_budget);
     }
-    else if(engine_name == "amaf-pw")
+    else if(is_amaf_engine(engine_name))
     {
         std::shared_ptr<const neural_model> model;
         if(!options.model_path.empty())
@@ -461,7 +523,10 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
         selected_engine = std::make_unique<amaf_pw_engine>(
             std::move(io), options.seed, options.progressive_widening_constant,
             options.progressive_widening_alpha, options.amaf,
-            std::move(model), options.value_scale, options.cache_evaluations);
+            std::move(model), options.value_scale, options.cache_evaluations,
+            HC_build_options{.remove_check = is_solid_amaf_engine(engine_name),
+                .prune_optional_moves = options.prune_optional_moves},
+            options.fine_prefix_budget, options.weighted_exploration);
     }
     else if(engine_name == "neural-pw")
     {
@@ -469,7 +534,7 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
         selected_engine = std::make_unique<neural_pw_engine>(
             std::move(io), options.seed, options.progressive_widening_constant,
             options.progressive_widening_alpha,
-            std::make_shared<const neural_model>(neural_model::load(options.model_path)), options.neural);
+            std::make_shared<const neural_model>(neural_model::load(options.model_path)), options.neural, options.fine_prefix_budget);
     }
     else if(engine_name == "linear-pw" || engine_name == "linear-safety-pw"
             || engine_name == "linear-trained-pw")
@@ -482,7 +547,8 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
         selected_engine = std::make_unique<linear_pw_engine>(
             std::move(io), options.seed, options.progressive_widening_constant,
             options.progressive_widening_alpha,
-            linear_cutoff_evaluation::select_features(weights, options.evaluation_features));
+            linear_cutoff_evaluation::select_features(weights, options.evaluation_features),
+            options.fine_prefix_budget);
     }
     else if(engine_name == "linear" || engine_name == "linear-trained"
             || engine_name == "linear-weighted")

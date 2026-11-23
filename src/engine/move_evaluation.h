@@ -12,10 +12,10 @@ class HC_info;
 
 using move_score_table = std::vector<std::vector<float>>;
 
-enum class capture_ordering { weighted, mvvlva, mvvlva_exposure };
+enum class capture_ordering { weighted, mvvlva, solid };
 
-// Scores physical and arriving HC coordinates; departing and null coordinates
-// score zero. The HC must outlive the evaluator and remain unchanged during use.
+// Scores physical and arriving HC coordinates. Solid also scores optional
+// departures. The HC must outlive the evaluator and remain unchanged during use.
 class move_evaluator
 {
     const HC_info &info;
@@ -29,11 +29,12 @@ public:
     // tie-breaker derived from those values at compile time. Royals are only
     // attackers. This replaces the capture-weight contribution; other weights
     // apply normally, including the same check feature and coefficient.
-    // The exposure variant penalizes locally attacked, undefended captures and
-    // rewards promotion gain, with bounded contributions to keep priority groups.
+    // Solid scores the victim and potential recapture at quarter material value
+    // and adds a bounded promotion bonus.
     move_evaluator(const HC_info &info, move_evaluation_weights weights,
                    capture_ordering captures = capture_ordering::weighted);
 
+    // Solid applies finite score penalties to optional moves and branch arrivals.
     // Reuses lazily initialized check metadata across coordinates.
     float score(index_t axis, index_t coordinate);
 

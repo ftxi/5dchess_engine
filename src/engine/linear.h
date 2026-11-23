@@ -185,15 +185,13 @@ public:
     linear_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed,
         double widening_constant, double widening_alpha,
-        linear_cutoff_evaluation::weight_vector_t weights)
+        linear_cutoff_evaluation::weight_vector_t weights,
+        std::size_t prefix_budget = default_fine_prefix_budget)
         : linear_pw_mcts_engine(
             linear_leaf_policy{std::move(weights)},
             progressive_widening_tree_policy<scored_HC_ordering>{
                 seed, widening_constant, widening_alpha,
-                [](const HC_info &info, std::stop_token stop) {
-                    return move_evaluator(info, capture_check_weights,
-                        capture_ordering::mvvlva_exposure).build_score_table(stop);
-                }},
+                solid_scores, {}, {}, prefix_budget},
             {}, {}, {}, std::move(io)) {}
 };
 

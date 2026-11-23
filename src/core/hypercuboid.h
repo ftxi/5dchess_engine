@@ -18,6 +18,9 @@
 #include <functional>
 #include <span>
 #include "geometry.h"
+#include "hc_tree.h"
+#include "hc_cell_tree.h"
+#include <type_traits>
 #include "graph.h"
 #include "state.h"
 #include "vec4.h"
@@ -108,6 +111,8 @@
    every remaining hypercuboid with intersection-aware removal.
  - `hc_policy::balanced` uses HC-local problems and adaptive propagation for the first
    100 problems, then falls back to stable search with the same ordering.
+ - `hc_policy::tree` uses Deferred rules with a persistent positive-region tree.
+   Internal bounds index disjoint leaves; depleted and unary cells are reclaimed.
  - `hc_policy::deferred` (the default) retains global problem slices as negative constraints.
    Unary problems are removed immediately; otherwise, when retained slices
    outnumber HCs, the slice of smallest global codimension is removed globally.
@@ -117,7 +122,7 @@
    slices are applied temporarily only when they exclude the matching point.
 */
 
-enum class hc_policy { iterative, stable, balanced, deferred };
+enum class hc_policy { iterative, stable, balanced, deferred, tree };
 
 // Search-specific construction; rules callers retain the complete action space.
 struct HC_build_options
@@ -129,6 +134,8 @@ struct HC_build_options
     // This heuristic may reduce the number of legal actions generated.
     bool prune_optional_moves = false;
 };
+
+namespace structural_probe { class model; struct coordinate; }
 
 class HC_info
 {
@@ -169,19 +176,47 @@ class HC_info
     index_t new_axis;
     std::vector<int> mandatory_lines;
 
+    struct constraint_index
+    {
+        struct arrival { index_t source = no_axis, departure = 0, slot = 0; };
+        struct destination
+        {
+            std::vector<arrival> entries;
+            std::vector<index_t> sources;
+        };
+        std::vector<destination> destinations;
+        std::vector<std::vector<index_t>> targets;
+        std::vector<std::map<index_t, std::vector<std::pair<index_t, integer_set>>>> departures;
+    };
+    mutable std::shared_ptr<const constraint_index> constraints;
+    std::shared_ptr<const constraint_index> build_constraint_index() const;
+
     static bool prune_retained_slices(HC &hc, std::span<const slice> negative);
 
     struct local_space
     {
+        struct layout
+        {
+            std::vector<index_t> variables, departures, sources;
+            std::vector<std::map<index_t, integer_set>> partners;
+        };
         std::vector<index_t> axes;
         HC universe{};
         point seed;
+        point representative; // Fine's shared full seed; Tree keeps its seed on the coroutine frame.
         slice outer_region;
         std::vector<slice> problems;
+        std::unique_ptr<hc_cell_tree> candidates;
+        std::unique_ptr<layout> projection;
     };
     std::unique_ptr<local_space> build_local_space(const HC &hc, const point &seed) const;
-    template<HCOrdering Ordering, hc_policy Policy>
-    generator<moveseq> local_search(
+    std::optional<slice> project_local_problem(
+        const local_space &local, const point &seed, const slice &problem) const;
+    template<HCOrdering Ordering>
+    std::optional<point> local_witness(
+        local_space &local, const point &seed, const HC &restriction, const Ordering &order) const;
+    template<class Result, HCOrdering Ordering, hc_policy Policy>
+    generator<Result> local_search(
         const HC &outer_hc, local_space &local, const point &seed, const Ordering &order,
         bool seed_already_yielded,
         std::span<const slice> negative = {}
@@ -208,6 +243,17 @@ public:
     index_t dimension() const noexcept { return static_cast<index_t>(axis_coords.size()); }
     index_t first_branch_axis() const noexcept { return new_axis; }
     bool has_optional_timelines() const noexcept { return new_axis > mandatory_lines.size(); }
+    bool is_optional_axis(index_t axis) const noexcept {
+        return mandatory_lines.size() <= axis && axis < new_axis;
+    }
+    // Physical moves on optional timelines and nonbranching arrivals between them.
+    bool is_optional_move(index_t axis, index_t coordinate) const {
+        if(!is_optional_axis(axis)) return false;
+        const auto &entry = axis_coords[axis].at(coordinate);
+        if(const auto *arrival = std::get_if<arriving_entry>(&entry))
+            return is_optional_axis(line_to_axis_unsafe(arrival->m.from.l()));
+        return std::holds_alternative<physical_entry>(entry);
+    }
     // Includes prospective branching lines; absent timelines have no axis.
     std::optional<index_t> line_to_axis(int line) const noexcept {
         if(line < l0_offset) return std::nullopt;
@@ -221,6 +267,54 @@ public:
     }
 
     semimove get_semimove(index_t n, index_t i) const;
+    struct constraint_workspace
+    {
+        explicit constraint_workspace(bool retain_domains = true) : retain_domains(retain_domains) {}
+        std::vector<index_t> paired;
+        std::vector<integer_set> supported_departures;
+        std::vector<int> minimum, maximum;
+    private:
+        friend class HC_info;
+        bool retain_domains;
+        std::size_t calls = 0;
+        std::shared_ptr<const constraint_index> index;
+        HC support_domain{}, bound_domain{};
+        std::vector<index_t> support_pairs;
+        std::vector<std::vector<integer_set>> supports;
+        std::vector<std::vector<index_t>> active_supports;
+        std::vector<bool> dirty;
+        int lower = 0, upper = 0;
+    };
+    // Query-local propagation of forced jump pairs and occupied branch prefixes.
+    // Removes only coordinates unsupported by this domain; does not mutate the
+    // shared candidate forest or the universe. True is a necessary domain
+    // consistency result, not a proof that a legal completion exists.
+    bool constrain_domain(HC &domain, constraint_workspace *scratch = nullptr) const;
+    // The seed must be legal. Replace one physical move, or an arrival in the
+    // same local matching class, without changing an already fixed prefix.
+    // A changed completion is returned only after checking its legality.
+    std::optional<point> try_local_completion(const point &seed, index_t axis, index_t coordinate) const;
+    std::optional<point> try_physical_completion(const point &seed, index_t axis, index_t coordinate) const;
+    std::optional<std::pair<index_t, index_t>> arrival_partner(index_t axis, index_t coordinate) const
+    {
+        if(const auto *arrival = std::get_if<arriving_entry>(&axis_coords[axis][coordinate]))
+            return std::pair{line_to_axis_unsafe(arrival->m.from.l()), arrival->idx};
+        return std::nullopt;
+    }
+    bool is_departure(index_t axis, index_t coordinate) const noexcept
+    { return departing_entries[axis].contains(coordinate); }
+    integer_set same_move_kind(index_t axis, index_t coordinate, const integer_set &allowed) const;
+
+    struct local_cursor
+    {
+    private:
+        friend class HC_info;
+        std::shared_ptr<local_space> local;
+        HC domain{};
+        hc_cell_tree::frontier candidates;
+        index_t prefix_length = 0;
+        bool frontier_ready = false;
+    };
 
     struct move_boards {
         full_move move;
@@ -252,7 +346,11 @@ public:
         std::vector<std::pair<index_t, index_t>> matching_seed;
         // Deferred keeps matching hints between HCs; other policies start cold.
         bool reuse_between_points = false;
+        bool count_matching = false;
+        std::size_t matching_calls = 0;
         integer_set ghost_arrive_indices;
+    public:
+        std::size_t matching_work() const noexcept { return matching_calls; }
     };
 
     // Negative slices are explored in temporary regions. Only the empty-span
@@ -268,6 +366,158 @@ private:
         HC &hc, const Ordering &order, workspace &ws, bool reuse_matching) const;
 
 public:
+    // Persistent candidate space for independent restricted queries. Witnesses
+    // are not consumed; only universe-valid learned conflicts modify the space.
+    // Keep this state with its originating HC_info; it is not thread-safe.
+    template<hc_policy Policy>
+        requires (Policy == hc_policy::deferred || Policy == hc_policy::tree)
+    struct witness_space
+    {
+        using positive_space = std::conditional_t<Policy == hc_policy::tree,
+                                                  hc_tree, search_space>;
+        positive_space positive;
+        std::vector<slice> negative;
+        workspace scratch;
+        explicit witness_space(search_space space) : positive(std::move(space)) {}
+    };
+
+    template<hc_policy Policy, HCOrdering Ordering = natural_HC_ordering>
+    std::optional<point> find_witness(witness_space<Policy> &space,
+                                    const HC &restriction,
+                                    const Ordering &order = {}) const;
+
+    // Mutable, shared cell forest for fine-node restrictions. Legal witnesses
+    // are retained; coordinate admission belongs to the requesting fine-node.
+    struct completion_metrics
+    {
+        std::size_t tree_visits = 0, leaves = 0, temporary_pops = 0;
+        std::size_t matching_calls = 0, legality_calls = 0, exclusions = 0;
+        std::size_t refresh_visits = 0, repeated_regions = 0, winning_rank = 0;
+        std::size_t peak_cursors = 0, peak_regions = 0, peak_storage = 0;
+        std::size_t first_admission_work = 0, second_admission_work = 0;
+        double first_admission_seconds = 0, second_admission_seconds = 0;
+        double discovery_seconds = 0, refresh_seconds = 0, computation_seconds = 0;
+        double matching_seconds = 0, legality_seconds = 0, subtraction_seconds = 0;
+        std::vector<std::size_t> turns;
+    };
+    struct completion_space
+    {
+        hc_cell_tree cells;
+        workspace scratch;
+        constraint_workspace propagation{false};
+        constraint_workspace incremental;
+        bool reuse_local = true;
+        std::size_t local_capacity = 8;
+        std::size_t witness_calls = 0, local_hits = 0, forest_searches = 0;
+        std::size_t local_resumes = 0, local_resume_hits = 0;
+        // Internal experimental controls; no protocol option or logging cost.
+        std::size_t turn_budget = 64;
+        completion_metrics *diagnostics = nullptr;
+    private:
+        friend class HC_info;
+        std::shared_ptr<local_space> local;
+        std::vector<std::shared_ptr<local_space>> local_cache;
+        std::shared_ptr<structural_probe::model> structural_model;
+        std::size_t structural_trace_id = 0;
+    public:
+        explicit completion_space(search_space initial, hc_cell_options options = {})
+            : cells(std::move(initial), options) {}
+    };
+
+    struct completion_query
+    {
+        // Descendants inherit the immutable base. Only the owner's active
+        // choices shrink when coordinates are admitted or proved impossible.
+        HC domain;
+        hc_cell_tree::frontier candidates;
+        HC active;
+        hc_cell_tree::frontier choices;
+        index_t prefix_length = 0;
+    private:
+        friend class HC_info;
+        std::shared_ptr<local_space> local;
+    public:
+        completion_query(HC domain, hc_cell_tree::frontier candidates)
+            : domain(std::move(domain)), candidates(std::move(candidates)),
+              active(this->domain), choices(this->candidates) {}
+    };
+    completion_query restrict_completion(completion_space &space, HC domain,
+                                        index_t axis, const completion_query *parent = nullptr) const;
+
+    // The cursor retains only class coordinates. Failure is scoped to that
+    // class; the caller must still use the complete solver before rejecting a
+    // coordinate. Parent geometry is immutable and can be inherited by siblings.
+    template<HCOrdering Ordering>
+    std::optional<point> resume_local(completion_space &space,
+        std::unique_ptr<local_cursor> &cursor, const local_cursor *parent,
+        const point &seed, index_t axis, index_t coordinate, const Ordering &order) const;
+
+    template<HCOrdering Ordering = natural_HC_ordering>
+    std::optional<point> find_witness(completion_space &space, const HC &restriction,
+                                    const Ordering &order = {}, completion_query *query = nullptr) const;
+
+    struct bounded_witness
+    {
+        std::optional<point> witness;
+        bool budget_exhausted = false;
+        std::size_t work = 0;
+    };
+    template<HCOrdering Ordering = natural_HC_ordering>
+    bounded_witness find_witness_with_budget(completion_space &space, const HC &restriction,
+        const Ordering &order, completion_query *query, std::optional<std::size_t> limit) const;
+
+private:
+    std::vector<std::vector<structural_probe::coordinate>> structural_coordinates() const;
+    bool run_structural_probe(completion_space &space, const HC &domain) const;
+    void trace_structural_query(completion_space &space, const HC &domain) const;
+    enum class completion_stage { initial_local, initial_global, selected,
+                                  pop, subtract, probe_local, probe_global, validate };
+    struct completion_region
+    {
+        hc_cell_tree::handle owner;
+        HC domain{};
+        std::shared_ptr<const std::vector<slice>> negative;
+        std::size_t revision = 0, next = 0;
+        completion_stage stage = completion_stage::initial_local;
+        bool probed = false;
+        std::optional<point> candidate;
+        // Preserve the checks-only proof across suspension and cache changes.
+        std::shared_ptr<local_space> matching_class;
+        std::optional<hc_cell_tree::discovery> refresh;
+    };
+    struct completion_cursor
+    {
+        hc_cell_tree::handle owner;
+        // The common first-leaf success needs no region-stack allocation.
+        std::optional<completion_region> current;
+        std::vector<completion_region> pending;
+        std::size_t rank = 0, work = 0;
+        bool empty() const noexcept { return !current; }
+        completion_region &back() { return *current; }
+        void push(completion_region region)
+        {
+            if(current) pending.push_back(std::move(*current));
+            current = std::move(region);
+        }
+        void pop()
+        {
+            current.reset();
+            if(pending.empty()) return;
+            current = std::move(pending.back());
+            pending.pop_back();
+        }
+    };
+    static bool local_contains(const local_space &local, const point &p);
+    void prepare_local_layout(local_space &local, const point &seed) const;
+    bool restrict_local_axis(HC &projected, const local_space &local,
+                             index_t axis, index_t coordinate) const;
+    bool prepare_local_cursor(completion_space &space, std::unique_ptr<local_cursor> &cursor,
+        const local_cursor *parent, const point &seed, index_t axis, index_t coordinate) const;
+    static bool prune_slice_refs(HC &domain, std::span<const slice *const> negative);
+    template<HCOrdering Ordering>
+    std::optional<point> take_local_point(const local_space &local, const point &seed,
+                                        const HC &region, const Ordering &order) const;
+public:
     /*
      find_problem(p, hc): find any problem about p and returns the problem 
      slice containing p or std::nullopt if the point is okay. Each fixed
@@ -277,21 +527,37 @@ public:
      + test_present: then the point actually pushes the Present foward, but may still contain checks
      + find_checks: then the point is all good for a valid action
      */
-    std::optional<slice> find_problem(const point &p, const HC &hc) const;
-    std::optional<slice> jump_order_consistent(const point &p, const HC &hc) const;
+    // When requested, additional_problems receives exclusions for the same
+    // jump conflict on other branch axes. They need not contain p. The primary
+    // returned problem still contains p; all exclusions use coordinates in hc.
+    std::optional<slice> find_problem(
+        const point &p, const HC &hc, std::vector<slice> *additional_problems = nullptr) const;
+    std::optional<slice> jump_order_consistent(
+        const point &p, const HC &hc, std::vector<slice> *additional_problems = nullptr) const;
     std::optional<slice> test_present(const point &p, const HC &hc) const;
     std::optional<slice> find_checks(const point &p, const HC &hc) const;
     moveseq to_action(const point &p) const;
 private:
+    bool has_forced_departure_cycle(const HC &domain) const;
+    static HC_info build_info(const state &s, HC_build_options options);
     void prune_checks();
+    search_space partition_by_branches(const HC &domain) const;
+    template<class Result, HCOrdering Ordering, hc_policy Policy>
+    generator<Result> search_impl(search_space ss, Ordering order) const;
 
 public:
     static std::pair<HC_info, search_space> build_HC(
         const state &s, HC_build_options options = {});
+    // A single domain with explicit constraints forbidding gaps in branch axes.
+    // Every search must honor both the domain and the returned negatives.
+    static std::tuple<HC_info, HC, std::vector<slice>> build_solid_HC(
+        const state &s, HC_build_options options = {.remove_check = true});
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>
     generator<moveseq> search(search_space ss, Ordering order = {}) const &;
     template<HCOrdering Ordering = natural_HC_ordering, hc_policy Policy = hc_policy::deferred>
     generator<moveseq> search(search_space ss, Ordering order = {}) const && = delete;
+    // Ordinary Deferred search with the same branch partitions, under a fine-node restriction.
+    std::optional<point> first_completion(const HC &restriction) const;
     // /* uncomment when debugging */
     //std::vector<moveseq> search1(search_space ss) const;
 };

@@ -86,8 +86,8 @@ Both engines retain the normal rollout option. From the repository root:
 
 ## Position evaluation with fixed move ordering
 
-`linear-pw`, `linear-safety-pw`, and `linear-trained-pw` use the same MVV-LVA
-exposure ordering and progressive widening as `mvvlva-exposure`. They have no
+`linear-pw`, `linear-safety-pw`, and `linear-trained-pw` use the same Solid
+ordering and progressive widening as `mvvlva-exposure`. They have no
 rollouts and accept the same `--pw-constant` and `--pw-alpha` options. Before
 evaluating a leaf, they establish whether a legal action exists, preserving
 terminal win/loss and stalemate scores. Their position features do not affect

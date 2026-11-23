@@ -10,11 +10,13 @@
 #include <random>
 #include <stdexcept>
 #include <utility>
+#include <variant>
 
 #include "uct.h"
 
 inline constexpr double default_progressive_widening_constant = 2.0;
 inline constexpr double default_progressive_widening_alpha = 0.5;
+inline constexpr std::size_t default_fine_prefix_budget = 256;
 
 template<HCOrdering Order, class SelectionData = std::monostate>
 struct progressive_widening_node_data : SelectionData
@@ -37,7 +39,7 @@ class progressive_widening_tree_policy
 {
 public:
     using node_data = progressive_widening_node_data<Order, SelectionData>;
-    using node_t = tree_node_t<progressive_widening_tree_policy<Order, ChildSelection, SelectionData>>;
+    using node_t = tree_node_t<progressive_widening_tree_policy>;
 
 private:
     std::optional<std::mt19937> rng;
@@ -47,6 +49,7 @@ private:
     coordinate_score_function score_function;
     ChildSelection child_selection;
     HC_build_options build_options;
+    std::size_t prefix_budget;
 
     template<class F>
     auto with_order(node_t *node, std::stop_token stop, F &&use)
@@ -150,18 +153,27 @@ private:
     }
 
 public:
+    fine_search_options fine_options() const
+    {
+        fine_search_options options;
+        if(score_function) options.builder = fine_builder::solid;
+        options.prefix_budget = prefix_budget;
+        return options;
+    }
+
     explicit progressive_widening_tree_policy(
         std::optional<std::uint32_t> seed = std::nullopt,
         double widening_constant_ = default_progressive_widening_constant,
         double widening_alpha_ = default_progressive_widening_alpha,
         coordinate_score_function score = nullptr,
         ChildSelection select_child = ChildSelection{},
-        HC_build_options options = {})
+        HC_build_options options = {},
+        std::size_t prefix_work = default_fine_prefix_budget)
         : policy_id(uct_detail::next_policy_id()),
           widening_constant(widening_constant_),
           widening_alpha(widening_alpha_),
           score_function(score),
-          child_selection(std::move(select_child)), build_options(options)
+          child_selection(std::move(select_child)), build_options(options), prefix_budget(prefix_work)
     {
         if(!(widening_constant > 0.0) || !std::isfinite(widening_constant))
             throw std::invalid_argument("invalid progressive widening constant");

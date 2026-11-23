@@ -19,7 +19,7 @@ constexpr float exploration_constant = 1.4142135623730951f;
 
 // Adversarial UCT score using rewards from White's fixed perspective.
 float uct(float sum_reward, std::size_t visits,
-          std::size_t parent_visits, bool maximizing_player);
+          std::size_t parent_visits, bool maximizing_player, float exploration_weight = 1.0f);
 
 namespace uct_detail
 {
@@ -43,19 +43,23 @@ Node *action_root(Node *node)
     return node;
 }
 
-template<class Node>
-Node *best_uct_child(Node *node)
+struct no_value_adjustment
+{
+    float operator()(const auto *) const { return 0.0f; }
+};
+
+template<class Node, class Weight, class Adjustment = no_value_adjustment>
+Node *best_uct_child(Node *node, Weight weight, Adjustment adjustment = {})
 {
     Node *best = nullptr;
     const bool maximizing = !node->get_player();
-    float best_score = maximizing ? -std::numeric_limits<float>::infinity()
-                                  : std::numeric_limits<float>::infinity();
+    decltype(0.0f + adjustment(best)) best_score{};
     for(auto *child : node->get_children())
     {
         const auto &info = child->get_info();
         if(!info.registered || info.visits == 0) continue;
-        const float score = uct(info.sum_reward, info.visits,
-                                node->get_info().visits, maximizing);
+        const auto score = uct(info.sum_reward, info.visits,
+                                node->get_info().visits, maximizing, weight(child)) + adjustment(child);
         if(!best || (maximizing ? score > best_score : score < best_score))
         {
             best = child;
@@ -63,6 +67,12 @@ Node *best_uct_child(Node *node)
         }
     }
     return best;
+}
+
+template<class Node>
+Node *best_uct_child(Node *node)
+{
+    return best_uct_child(node, [](const Node *) { return 1.0f; });
 }
 
 template<class Node, HCOrdering Order>
@@ -90,9 +100,12 @@ std::optional<index_t> ordered_search(
     Node *node, const Order &order, std::stop_token stop)
 {
     if(stop.stop_requested()) return std::nullopt;
-    if constexpr(requires { order.for_search(); })
-        return node->search(order.for_search()).first();
-    else return node->search(order).first();
+    auto *child = [&] {
+        if constexpr(requires { order.for_search(); }) return node->expand_next(order.for_search());
+        else return node->expand_next(order);
+    }();
+    if(child) return child->get_i();
+    return std::nullopt;
 }
 } /* namespace uct_detail */
 
@@ -139,7 +152,7 @@ std::optional<Order> construct_hc_ordering(
         if(!score) return std::nullopt;
         auto values = score(info, stop);
         if(!values || stop.stop_requested()) return std::nullopt;
-        return Order(info.get_universe(), *values, rng);
+        return Order(info.get_universe(), std::move(*values), rng);
     }
     else if constexpr(std::constructible_from<Order, const HC &, std::mt19937 &>)
         return Order(info.get_universe(), rng);
@@ -178,6 +191,7 @@ private:
     std::optional<std::mt19937> rng;
     std::uint64_t policy_id;
     coordinate_score_function score_function;
+    std::size_t prefix_budget;
 
     template<class F>
     auto with_order(node_t *node, std::stop_token stop, F &&use)
@@ -250,10 +264,19 @@ private:
     }
 
 public:
+    fine_search_options fine_options() const
+    {
+        fine_search_options options;
+        if(score_function) options.builder = fine_builder::solid;
+        options.prefix_budget = prefix_budget;
+        return options;
+    }
+
     explicit uct_tree_policy(
         std::optional<std::uint32_t> seed = std::nullopt,
-        coordinate_score_function score = nullptr)
-        : policy_id(uct_detail::next_policy_id()), score_function(score)
+        coordinate_score_function score = nullptr,
+        std::size_t prefix_work = 0)
+        : policy_id(uct_detail::next_policy_id()), score_function(score), prefix_budget(prefix_work)
     {
         if constexpr(std::constructible_from<Order, const HC &,
                      const std::vector<std::vector<float>> &, std::mt19937 &>

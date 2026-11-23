@@ -41,7 +41,7 @@ if(TOOLS)
     set(HC_COUNT_INPUT "${CMAKE_CURRENT_BINARY_DIR}/hc_count.in")
     file(WRITE "${HC_COUNT_INPUT}" "${CMAKE_MATCH_1}\n")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS hc_count.sh)
-    foreach(POLICY balanced stable deferred fine)
+    foreach(POLICY balanced stable deferred tree fine)
         add_test(NAME hc_count_${POLICY}
             COMMAND ${CMAKE_COMMAND}
                 "-DTOOLS=$<TARGET_FILE:5dtools>"

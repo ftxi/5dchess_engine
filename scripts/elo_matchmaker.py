@@ -19,9 +19,9 @@ from types import SimpleNamespace
 from typing import Sequence
 
 import autoplay
-from cpu_affinity import pin_process
-import matchmaker_options as common
 import elo
+from support import matchmaker_options as common
+from support.cpu_affinity import pin_process
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,7 @@ class WorkerResult:
     pgn: str
     output_log: str
     metrics_csv: str
+    termination: str | None = None
 
 
 class WorkerAborted(Exception):
@@ -175,6 +176,7 @@ def _play_worker(job: WorkerJob) -> WorkerResult:
         pgn=pgn,
         output_log=str(output_log),
         metrics_csv=str(metrics_csv),
+        termination=capture.get("termination") or None,
     )
 
 
@@ -229,6 +231,7 @@ def _report_completed(connection, result: WorkerResult) -> bool:
             connection,
             result.match_id,
             reported,
+            termination=result.termination,
             reason=reason,
             summary=result.summary,
             pgn=result.pgn,
