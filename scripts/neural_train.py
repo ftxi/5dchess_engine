@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train, select on validation, freeze and test a 70→32→16→1 position model.
+"""Train, select on validation, freeze and test a position model.
 
 Requires numpy and PyTorch in the chosen Python. Native inference has no such
 runtime dependency. Test metrics are computed only for the selected checkpoint.
@@ -19,13 +19,13 @@ import numpy as np
 import torch
 from torch import nn
 
-from neural_dataset import SCHEMA, digest, save
+from neural_dataset import BASE_SCHEMA, INPUT_COUNTS, digest, save
 
 
 class Network(nn.Module):
-    def __init__(self):
+    def __init__(self, input_count=INPUT_COUNTS[BASE_SCHEMA]):
         super().__init__()
-        self.layers = nn.Sequential(nn.Linear(70, 32), nn.ReLU(),
+        self.layers = nn.Sequential(nn.Linear(input_count, 32), nn.ReLU(),
             nn.Linear(32, 16), nn.ReLU(), nn.Linear(16, 1))
 
     def forward(self, x):
@@ -38,8 +38,8 @@ def mover_label(result, black):
 
 
 def normalization(x, sample_weight=None):
-    if x.ndim != 2 or x.shape[1] != 70 or not np.isfinite(x).all():
-        raise ValueError('normalization requires finite 70-column training data')
+    if x.ndim != 2 or x.shape[1] not in INPUT_COUNTS.values() or not np.isfinite(x).all():
+        raise ValueError('normalization requires finite data with a supported input count')
     values = x.astype(np.float64)
     if sample_weight is None:
         mean = values.mean(axis=0).astype(np.float32)
@@ -52,7 +52,7 @@ def normalization(x, sample_weight=None):
         mean = center.astype(np.float32)
         std = np.sqrt(np.average((values-center)**2, weights=weights, axis=0))
     constant = (x.max(axis=0) == x.min(axis=0))
-    inverse = np.zeros(70, dtype=np.float32)
+    inverse = np.zeros(x.shape[1], dtype=np.float32)
     inverse[~constant] = (1 / std[~constant]).astype(np.float32)
     if not np.isfinite(mean).all() or not np.isfinite(inverse).all():
         raise ValueError('nonfinite normalization statistics')
@@ -65,9 +65,11 @@ def family_weights(rows):
         dtype=np.float32)
 
 
-def feature_columns(name):
+def feature_columns(name, input_count=INPUT_COUNTS[BASE_SCHEMA]):
     if name == 'all':
-        return list(range(70))
+        return list(range(input_count))
+    if name == 'without-rays':
+        return list(range(INPUT_COUNTS[BASE_SCHEMA]))
     relative = list(range(9,17))+list(range(25,33))+list(range(41,49))+[58]+list(range(64,70))
     if name == 'differences':
         return relative
@@ -85,14 +87,15 @@ def normalize(x, mean, inverse):
     return torch.from_numpy(normalized)
 
 
-def export_model(path, model, mean, inverse):
-    values = [mean, inverse]
-    values.extend(p.detach().cpu().numpy() for p in model.parameters())
-    if sum(p.numel() for p in model.parameters()) != 2817:
+def export_model(path, model, mean, inverse, schema=BASE_SCHEMA):
+    input_count = INPUT_COUNTS[schema]
+    parameters = [p.detach().cpu().numpy() for p in model.parameters()]
+    if (mean.shape != (input_count,) or inverse.shape != mean.shape
+            or [p.shape for p in parameters] != [(32, input_count), (32,), (16, 32), (16,), (1, 16), (1,)]):
         raise ValueError('wrong architecture')
     with Path(path).open('w') as output:
-        output.write(f'5DNEURAL 1\n{SCHEMA}\n70 32 16 1\n')
-        for array in values:
+        output.write(f'5DNEURAL 1\n{schema}\n{input_count} 32 16 1\n')
+        for array in [mean, inverse, *parameters]:
             array = np.asarray(array, dtype=np.float32)
             if not np.isfinite(array).all():
                 raise ValueError('nonfinite model')
@@ -135,8 +138,10 @@ def train(args):
     manifest = json.loads((args.dataset/'dataset.json').read_text())
     if digest(args.dataset/'samples.jsonl') != manifest['samples_sha256']:
         raise ValueError('dataset hash mismatch')
-    if manifest['schema'] != SCHEMA:
+    schema = manifest['schema']
+    if schema not in INPUT_COUNTS:
         raise ValueError('feature schema mismatch')
+    input_count = INPUT_COUNTS[schema]
     # Audit provenance and perspective independently of the stored numeric label.
     family_splits, state_splits = {}, {}
     for row in rows:
@@ -150,11 +155,13 @@ def train(args):
     if not all(data.values()):
         raise ValueError('empty supervised partition')
     raw = {s: np.asarray([r['features'] for r in rs],dtype=np.float32) for s,rs in data.items()}
+    if any(array.shape != (len(data[s]), input_count) for s, array in raw.items()):
+        raise ValueError('dataset input count does not match the feature schema')
     weights = {s: torch.from_numpy(family_weights(rows)) for s, rows in data.items()} if args.family_balanced else {}
     mean, inverse, constant = normalization(raw['train'],
         weights['train'].numpy() if args.family_balanced else None)
-    retained = set(feature_columns(args.feature_set))
-    masked = [i for i in range(70) if i not in retained]
+    retained = set(feature_columns(args.feature_set, input_count))
+    masked = [i for i in range(input_count) if i not in retained]
     inverse[masked] = 0
     # The test partition stays untouched by fitting and checkpoint selection.
     x = {s: normalize(raw[s],mean,inverse) for s in ('train','validation')}
@@ -168,7 +175,7 @@ def train(args):
     candidates, curves = [], []
     for seed in args.seeds:
         torch.manual_seed(seed)
-        model = Network()
+        model = Network(input_count)
         optimizer = torch.optim.AdamW(model.parameters(),lr=1e-3,weight_decay=args.weight_decay)
         generator = torch.Generator().manual_seed(seed)
         best, stale, best_state, best_epoch = float('inf'), 0, None, 0
@@ -200,14 +207,14 @@ def train(args):
                 if stale >= 5:
                     break
         model.load_state_dict(best_state)
-        export_model(args.output/f'seed-{seed}.nn',model,mean,inverse)
+        export_model(args.output/f'seed-{seed}.nn',model,mean,inverse,schema)
         candidates.append({'seed':seed,'epoch':best_epoch,'validation_bce':best,
             'epochs_run':epoch,'state':best_state})
     selected = min(candidates,key=lambda c:c['validation_bce'])
-    model = Network()
+    model = Network(input_count)
     model.load_state_dict(selected['state'])
     model.eval()
-    export_model(args.output/'model.nn',model,mean,inverse)
+    export_model(args.output/'model.nn',model,mean,inverse,schema)
     # One post-selection test evaluation; no per-seed test scores are produced.
     evaluated = ('train','validation') if args.defer_test else ('train','validation','test')
     if not args.defer_test:
@@ -229,8 +236,8 @@ def train(args):
     if max_error > 1e-5:
         raise ValueError(f'native parity error {max_error}')
     save(args.output/'learning-curves.json',curves)
-    report = {'feature_schema':SCHEMA,
-        'architecture':[70,32,16,1],'activations':['ReLU','ReLU','tanh'],
+    report = {'feature_schema':schema,
+        'architecture':[input_count,32,16,1],'activations':['ReLU','ReLU','tanh'],
         'parameters':sum(p.numel() for p in model.parameters()),
         'optimizer':{'name':'AdamW','learning_rate':1e-3,'weight_decay':args.weight_decay,'batch_size':256},
         'family_balanced':args.family_balanced,'feature_set':args.feature_set,
@@ -262,7 +269,7 @@ def main():
     parser.add_argument('--epochs',type=int,default=40)
     parser.add_argument('--weight-decay',type=float,default=1e-4)
     parser.add_argument('--family-balanced',action='store_true',help='equal total loss and normalization weight per source-game family')
-    parser.add_argument('--feature-set',choices=('all','differences','relative-volume'),default='all')
+    parser.add_argument('--feature-set',choices=('all','without-rays','differences','relative-volume'),default='all')
     parser.add_argument('--defer-test',action='store_true',help='do not evaluate the test partition during model development')
     args = parser.parse_args()
     if not 1 <= args.epochs <= 40 or len(set(args.seeds)) != len(args.seeds):

@@ -71,6 +71,16 @@ constexpr int lva_rank(piece_t piece)
 }
 } /* anonymous namespace */
 
+float solid_capture_exposure_loss(const board &arrival, int square, bool player)
+{
+    const float value = capture_piece_value(arrival.get_piece(square));
+    if(value <= 0.0f) return 0.0f;
+    const auto attackers = arrival.attacks_to(square);
+    const auto friendly = player ? arrival.black() : arrival.white();
+    const auto hostile = player ? arrival.white() : arrival.black();
+    return (attackers & hostile) && !(attackers & friendly) ? value : 0.0f;
+}
+
 move_evaluator::move_evaluator(const HC_info &info,
                                move_evaluation_weights weights,
                                capture_ordering captures)
@@ -139,20 +149,8 @@ float move_evaluator::score(index_t axis, index_t coordinate)
             {
                 // The cached result contains the arriving (possibly promoted)
                 // piece and the changed occupancy, including en passant.
-                const auto &arrival = *boards->result;
-                const float arriving_value = capture_piece_value(arrival.get_piece(move.to.xy()));
-                const float penalty = solid_material_scale * arriving_value;
-                if(penalty > 0.0f)
-                {
-                    const bool player = info.get_state().get_present().c();
-                    const auto attackers = arrival.attacks_to(move.to.xy());
-                    const auto friendly = player ? arrival.black() : arrival.white();
-                    const auto hostile = player ? arrival.white() : arrival.black();
-                    // A geometric defender suppresses this conservative penalty;
-                    // it does not establish a legal or available recapture.
-                    if((attackers & hostile) && !(attackers & friendly))
-                        capture_score -= penalty;
-                }
+                capture_score -= solid_material_scale * solid_capture_exposure_loss(
+                    *boards->result, move.to.xy(), info.get_state().get_present().c());
             }
             result += capture_score;
         }

@@ -58,6 +58,29 @@ void compare_position(const state &position)
     assert(position.to_string() == before);
 }
 
+void compare_optional_domain(const state &position, bool remove_check)
+{
+    std::optional<HC> pruned;
+    const auto shared = HC_info::build_info(position, {.remove_check = remove_check}, &pruned);
+    assert(pruned.has_value() == shared.has_optional_timelines());
+    const HC &domain = pruned ? *pruned : shared.get_universe();
+    auto [separate, space] = HC_info::build_HC(position,
+        {.remove_check = remove_check, .prune_optional_moves = true});
+    assert(shared.first_branch_axis() == separate.first_branch_axis());
+    assert(domain.dimension() == separate.dimension());
+    for(index_t n = 0; n < domain.dimension(); ++n)
+    {
+        const auto &expected = separate.get_universe()[n];
+        assert(domain[n].size() == expected.size());
+        auto next = expected.begin();
+        for(index_t i : domain[n])
+            assert(shared.get_semimove(n, i).to_string() == separate.get_semimove(n, *next++).to_string());
+    }
+    std::set<moveseq> expected;
+    for(auto moves : separate.search(std::move(space))) expected.insert(std::move(moves));
+    compare_actions(position, expected, shared, shared.partition_by_branches(domain), natural_HC_ordering{});
+}
+
 void branch_partitions_exclude_gaps()
 {
     const auto position = state::from_pgn<true>(
@@ -153,6 +176,7 @@ void optional_move_pruning()
             {{0, 3, player, board_text}, {1, 4, player, board_text}, {2, 4, player, board_text}}, 4, 4));
         const auto [mandatory, optional, unplayable] = position.get_timeline_status();
         assert(!mandatory.empty() && !optional.empty());
+        for(bool remove_check : {false, true}) compare_optional_domain(position, remove_check);
         auto expected = reference_actions(position);
         std::erase_if(expected, [&](const moveseq &moves) {
             state partial = position;
@@ -230,6 +254,7 @@ void pruning_falls_back_when_a_reply_requires_optional_moves()
         "[2N1/4/1rbR/Kk2:0:2:w]\n[2kb/2N1/1K2/2rR:1:3:w]\n");
     auto [pruned, space] = HC_info::build_HC(position, {.prune_optional_moves = true});
     assert(!pruned.search(space).first());
+    compare_optional_domain(position, true);
     const auto expected = reference_actions(position);
     assert(!expected.empty());
     for(bool remove_check : {false, true})
@@ -386,6 +411,7 @@ int main()
     auto [fixed_info, fixed_space] = HC_info::build_HC(fixed_check, {.remove_check = true});
     assert(fixed_info.get_universe().empty());
     compare_position(fixed_check);
+    compare_optional_domain(fixed_check, true);
     for(int turn : {3, 5})
         compare_position(state::from_pgn<true>(
             "[Board \"custom\"]\n[Size \"4x4\"]\n[3k/4/4/KN2:-2:" + std::to_string(turn)

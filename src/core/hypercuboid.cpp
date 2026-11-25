@@ -107,7 +107,8 @@ std::tuple<std::vector<vec4>, int> get_move_path(const check_position &s, full_m
     }
 }
 
-HC_info HC_info::build_info(const state &s, HC_build_options options)
+HC_info HC_info::build_info(const state &s, HC_build_options options,
+    std::optional<HC> *without_optional_moves)
 {
     dprint("HC_info::build_HC()");
     HC_info info(s);
@@ -496,8 +497,47 @@ HC_info HC_info::build_info(const state &s, HC_build_options options)
     }
 #endif
     
-    if(options.remove_check) info.prune_checks();
+    const bool pruned_departures = options.remove_check && info.prune_checks();
+    if(without_optional_moves)
+    {
+        without_optional_moves->reset();
+        if(!options.prune_optional_moves && info.has_optional_timelines())
+            without_optional_moves->emplace(info.optional_pruned_domain(pruned_departures));
+    }
     return info;
+}
+
+HC HC_info::optional_pruned_domain(bool prune_unsupported_departures) const
+{
+    HC domain = universe;
+    // Only arrivals between optional endpoints can lose their departure's
+    // last support. Physical moves have no partner.
+    std::vector<integer_set> lost_support(new_axis);
+    bool removed_arrival = false;
+    for(index_t n = mandatory_lines.size(); n < new_axis; ++n)
+        for(index_t i : universe[n])
+            if(is_optional_move(n, i))
+            {
+                domain[n].erase(i);
+                if(const auto partner = arrival_partner(n, i))
+                {
+                    lost_support[partner->first].insert(partner->second);
+                    removed_arrival = true;
+                }
+            }
+    if(removed_arrival && prune_unsupported_departures)
+    {
+        for(index_t n = 0; n < dimension(); ++n)
+            for(index_t i : arriving_entries[n])
+                if(domain[n].contains(i))
+                {
+                    const auto [source, departure] = *arrival_partner(n, i);
+                    lost_support[source].erase(departure);
+                }
+        for(index_t n = mandatory_lines.size(); n < new_axis; ++n)
+            domain[n].minus(lost_support[n]);
+    }
+    return domain;
 }
 
 std::pair<HC_info, search_space> HC_info::build_HC(const state &s, HC_build_options options)
@@ -529,7 +569,7 @@ std::optional<point> HC_info::first_completion(const HC &restriction) const
 }
 
 
-void HC_info::prune_checks()
+bool HC_info::prune_checks()
 {
     const bool player = s.get_present().c();
     check_position checks(s, l0_offset,
@@ -540,7 +580,7 @@ void HC_info::prune_checks()
     if(checks.first_check(!player, false))
     {
         if(dimension() > 0) universe[0].clear();
-        return;
+        return false; // The independent optional-pruned build also skips departure pruning here.
     }
     std::vector<int> axis_lines(dimension());
     for(std::size_t offset = 0; offset < line_axes.size(); ++offset)
@@ -621,6 +661,7 @@ void HC_info::prune_checks()
         universe[n].minus(unsupported);
         departing_entries[n].minus(unsupported);
     }
+    return true;
 }
 
 std::tuple<HC_info, HC, std::vector<slice>> HC_info::build_solid_HC(const state &s, HC_build_options options)

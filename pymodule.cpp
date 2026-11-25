@@ -226,6 +226,18 @@ PYBIND11_MODULE(engine, m) {
         .def("get_neural_features", [](const game &g) {
             return neural_model::extract_solid_features(g.get_current_state());
         }, "solid70-v2-mover: 70 features with separate solid-pruned playable/new log volumes.")
+        .def("get_neural_ray_features", [](const game &g) {
+            return neural_model::extract_ray_features(g.get_current_state());
+        }, "solid80-rays-v3-mover: solid features plus orthogonal and diagonal royal rays.")
+        .def("get_neural_protection_features", [](const game &g) {
+            return neural_model::extract_protection_features(g.get_current_state());
+        }, "solid83-protection-v4-mover: ray features plus three same-board defender tiers.")
+        .def("get_neural_local_check_features", [](const game &g) {
+            return neural_model::extract_local_check_features(g.get_current_state());
+        }, "solid85-local-checks-v5-mover: protection features plus distinct checking moves and jumps.")
+        .def("get_neural_capture_gain_features", [](const game &g) {
+            return neural_model::extract_capture_gain_features(g.get_current_state());
+        }, "solid87-capture-gain-v6-mover: local-check features plus two best capture gains.")
         .def("get_current_present", &game::get_current_present)
         .def("get_current_boards", &game::get_current_boards)
         .def("get_current_timeline_status", &game::get_current_timeline_status)
@@ -270,7 +282,9 @@ PYBIND11_MODULE(engine, m) {
 
     py::class_<neural_model>(m, "neural_model")
         .def_static("load", [](const std::string &path) { return neural_model::load(path); })
-        .def("evaluate_features", &neural_model::evaluate_features);
+        .def("evaluate_features", [](const neural_model &model, const std::vector<float> &features) {
+            return model.evaluate_features(features);
+        });
 
     m.attr("SHOW_NOTHING") = static_cast<uint16_t>(pgn_options::SHOW_NOTHING);
     m.attr("SHOW_RELATIVE") = static_cast<uint16_t>(pgn_options::SHOW_RELATIVE);

@@ -32,6 +32,7 @@ struct amaf_options
     amaf_credit credit = amaf_credit::blend;
     amaf_application application = amaf_application::selection;
     bool unique_leaf_evidence = false;
+    unsigned quiescence_depth = 0;
 
     void validate() const
     {
@@ -441,15 +442,16 @@ class amaf_leaf_policy
     std::shared_ptr<const neural_model> model;
     float value_scale;
     bool cache_evaluations;
+    unsigned quiescence_depth;
     std::shared_ptr<amaf_diagnostics> diagnostics;
 
 public:
     using result_type = reward_t<rollout_details>;
     explicit amaf_leaf_policy(std::shared_ptr<const neural_model> model_ = nullptr,
         float value_scale_ = 1.0f, bool cache_evaluations_ = false,
-        std::shared_ptr<amaf_diagnostics> diagnostics_ = nullptr)
+        std::shared_ptr<amaf_diagnostics> diagnostics_ = nullptr, unsigned depth = 0)
         : model(std::move(model_)), value_scale(value_scale_),
-          cache_evaluations(cache_evaluations_), diagnostics(std::move(diagnostics_))
+          cache_evaluations(cache_evaluations_), quiescence_depth(depth), diagnostics(std::move(diagnostics_))
     {
         if(!(value_scale >= 0.0f && value_scale <= 1.0f) || !std::isfinite(value_scale))
             throw std::invalid_argument("neural value scale must be in [0, 1]");
@@ -458,22 +460,42 @@ public:
     std::optional<result_type> evaluate(state position, std::stop_token stop, Observer &)
     {
         return neural_detail::evaluate_position(model.get(), value_scale,
-            std::move(position), stop);
+            std::move(position), stop, quiescence_depth);
     }
 
     template<class Node, class Observer>
     std::optional<result_type> evaluate_ceiling(Node &node, std::stop_token stop, Observer &)
     {
+        // Refine completed root actions; the main tree searches their
+        // continuations. Repeating a tactical tournament at every descendant
+        // spends the move budget before UCT can compare enough alternatives.
+        auto *context = node.get_parent();
+        while(context && !context->is_nodal()) context = context->get_parent();
+        const unsigned depth = !context || !context->get_parent() ? quiescence_depth : 0;
         return neural_detail::evaluate_ceiling(node, model.get(), value_scale,
-            cache_evaluations, stop, cache_evaluations ? diagnostics.get() : nullptr);
+            cache_evaluations, stop, cache_evaluations ? diagnostics.get() : nullptr, depth);
     }
 };
 
 using amaf_tree_policy = progressive_widening_tree_policy<
     amaf_HC_ordering, amaf_child_selection, amaf_node_data>;
+struct amaf_final_selection
+{
+    enum class method { most_visited, completion_aware_v0, mean_reward };
+    method policy = method::most_visited;
+
+    template<class Node, class Observer>
+    Node *select_ceiling(Node *node, Observer &observer) const
+    {
+        if(policy == method::mean_reward) return mean_reward_selection{}.select_ceiling(node, observer);
+        if(policy == method::completion_aware_v0) return completion_aware_v0_selection{}.select_ceiling(node, observer);
+        return most_visited_selection{}.select_ceiling(node, observer);
+    }
+};
+
 using amaf_mcts_engine = basic_mcts_engine<
     amaf_tree_policy, amaf_leaf_policy, amaf_backpropagation,
-    most_visited_selection, amaf_observer>;
+    amaf_final_selection, amaf_observer>;
 
 class amaf_pw_engine final : public amaf_mcts_engine
 {
@@ -481,13 +503,13 @@ class amaf_pw_engine final : public amaf_mcts_engine
         std::optional<std::uint32_t> seed, double constant, double alpha,
         amaf_options options, std::shared_ptr<const neural_model> model,
         float value_scale, bool cache_evaluations, HC_build_options build_options,
-        std::size_t prefix_budget, bool weighted_exploration,
+        std::size_t prefix_budget, bool weighted_exploration, amaf_final_selection selection,
         std::shared_ptr<amaf_diagnostics> diagnostics)
-        : amaf_mcts_engine(amaf_leaf_policy{std::move(model), value_scale, cache_evaluations, diagnostics},
+        : amaf_mcts_engine(amaf_leaf_policy{std::move(model), value_scale, cache_evaluations, diagnostics, options.quiescence_depth},
             amaf_tree_policy{seed, constant, alpha,
                 solid_scores, amaf_child_selection{options, diagnostics, weighted_exploration},
                 build_options, prefix_budget},
-            amaf_backpropagation{options, diagnostics}, {},
+            amaf_backpropagation{options, diagnostics}, selection,
             amaf_observer{diagnostics}, std::move(io)) {}
 
 public:
@@ -497,10 +519,11 @@ public:
         std::shared_ptr<const neural_model> model = nullptr,
         float value_scale = 1.0f, bool cache_evaluations = false,
         HC_build_options build_options = {},
-        std::size_t prefix_budget = default_fine_prefix_budget, bool weighted_exploration = false)
+        std::size_t prefix_budget = default_fine_prefix_budget, bool weighted_exploration = false,
+        amaf_final_selection selection = {})
         : amaf_pw_engine(std::move(io), seed, constant, alpha, options,
             std::move(model), value_scale, cache_evaluations, build_options, prefix_budget,
-            weighted_exploration, std::make_shared<amaf_diagnostics>()) {}
+            weighted_exploration, selection, std::make_shared<amaf_diagnostics>()) {}
 };
 
 static_assert(DefaultPolicy<amaf_leaf_policy, amaf_observer>);

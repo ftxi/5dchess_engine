@@ -70,10 +70,10 @@ while replacing its nonterminal zero evaluation. `linear-safety-pw` enables six
 additional king-safety features; the other two retain zero coefficients for
 those features. These engines do not accept rollout options.
 
-`neural-pw` uses Solid move ordering with check pre-pruning and optional-timeline
-move pruning. It uses progressive widening with no rollouts.
-Optional-timeline pruning can reduce the legal action set, as described below.
-It evaluates only nonterminal positions through a 70-input network with hidden
+`neural-pw` uses Solid move ordering, weighted exploration, check pre-pruning and
+progressive widening. Optional-timeline moves are included by default. Use
+`--ordinary-uct` or `--prune-optional-moves` for controlled comparisons.
+It evaluates only nonterminal positions through a position network with hidden
 layers of 32 and 16 ReLU units and a final
 `tanh` value. Terminal wins, losses and stalemates retain their exact values.
 The model predicts the side-to-move value; the search converts it to its
@@ -86,7 +86,7 @@ an unpruned HC; if pruning supplies no witness, the complete action space is
 searched before deciding whether the position is terminal. Use
 `--no-evaluation-cache` to disable the cache for comparisons.
 
-The optional `--neural-usage prior` mode keeps ordinary nonterminal backups at
+The default `--neural-usage prior` mode keeps ordinary nonterminal backups at
 zero and uses the neural value only as a decaying bias in UCT child selection.
 Each completed nonterminal leaf contributes once to that bias. The child mean
 is centred against its parent's mean in White's reward perspective, so a
@@ -96,15 +96,16 @@ values. Semimove ordering and progressive widening are unchanged.
 
 ```sh
 ./build-canonical/5dchess neural-pw --model /absolute/path/to/model.nn \
-  --neural-usage prior --neural-strength 0.3 --neural-horizon 16 \
+  --neural-usage prior --neural-strength 0.3 --neural-horizon 64 \
   --neural-decay inverse --pw-constant 2 --pw-alpha 0.5
 ```
 
 `--neural-decay` accepts `inverse`, `sqrt` or `exponential`. With child visit
 count `n`, horizon `h` and strength `a`, the bias weight is respectively
 `a/(1+n/h)`, `a/sqrt(1+n/h)` or `a*exp(-n/h)`. Strength is in `[0,1]` and
-horizon is nonnegative; zero disables the bias. The default remains `leaf`
-usage. `--value-scale` scales nonterminal neural values in either mode, with
+horizon is nonnegative; zero disables the bias and skips model evaluation. The prior defaults to
+inverse decay with strength 0.3 and horizon 64. Use `--neural-usage leaf`
+for direct value backup. `--value-scale` scales nonterminal neural values in either mode, with
 zero recovering zero nonterminal evaluation at fixed iterations. These controls
 configure evaluation guidance, not rollout or terminal rewards.
 
@@ -115,10 +116,14 @@ configure evaluation guidance, not rollout or terminal rewards.
 
 The model is required and loaded before the protocol handshake. Native
 inference needs no additional library. Version 1 is a whitespace-separated
-text file beginning with `5DNEURAL 1`, feature schema `solid70-v2-mover`,
-and dimensions `70 32 16 1`. It contains 70 training means, 70 inverse
-standard deviations, then row-major weights and biases for each layer
-(2,817 parameters). Constant training columns use inverse scale zero.
+text file beginning with `5DNEURAL 1`, the feature schema, and the network
+dimensions. The capture-gain schema uses `solid87-capture-gain-v6-mover` and
+`87 32 16 1`. The local-check schema uses `solid85-local-checks-v5-mover` and
+`85 32 16 1`. The protection schema uses `solid83-protection-v4-mover` and
+`83 32 16 1`. The ray schema uses `solid80-rays-v3-mover` and `80 32 16 1`.
+The 70-input solid and legacy schemas use `70 32 16 1`. The file contains one
+mean and inverse standard deviation per input, then row-major weights and
+biases for each layer. Constant training columns use inverse scale zero.
 Numbers must be finite; incorrect versions, dimensions, truncated files,
 negative scales and trailing content are rejected.
 
@@ -132,6 +137,51 @@ nonbranching arrivals are omitted. These are candidate factors, not legal-action
 counts. Each factor uses the natural logarithm `log(max(1, volume))`, so an empty factor, a unit factor,
 or an absent group of axes gives zero. Exhaustive terminal detection still uses
 the complete rules action space.
+
+`solid80-rays-v3-mover` appends ten features to the solid 70 inputs. In order,
+columns 70–74 describe orthogonal rays (rank and file combined), and columns
+75–79 describe diagonals. Each group reports empty landing squares up to the
+first blocker, friendly first blockers, undefended friendly first blockers,
+rays with empty landing squares and no friendly first blocker, and total
+material value of friendly first blockers on rays with at least one empty
+landing square. The last value is in pawn units using the engine's capture
+values, with 20 for a royal blocker. An undefended blocker has no geometric
+defender of the same color on that board after excluding the originating royal.
+Each feature takes the maximum over each side's royals on the latest boards of
+mandatory and optional timelines, then subtracts the mover's maximum from the
+opponent's. These are geometric features. Actual jumps and defenses still
+require legal actions.
+
+`solid83-protection-v4-mover` appends three inputs to the ray schema. On the
+latest boards of mandatory and optional timelines, count nonroyal pieces
+geometrically attacked by an enemy on the same board. Assign each target to
+its strongest same-board defender tier, in order:
+
+1. Pawn, brawn or common king.
+2. Bishop, knight or rook.
+3. Princess or queen.
+
+Each target contributes to at most one tier. Royals, unicorns and dragons
+provide no protection credit. Unprotected targets contribute zero. The three
+inputs are mover counts minus opponent counts, summed across those boards.
+
+`solid85-local-checks-v5-mover` appends two mover-relative counts. The first
+counts physical moves that leave an opposing royal under same-board attack on
+the resulting board. The second counts jumps with such an attack on either
+the arrival or departure board. A jump counts once even if both boards
+qualify. The check-pruned hypercuboid includes optional moves for these two
+counts. Each underlying move with its configured promotion counts once,
+including when several branch axes represent it. These are candidate moves
+and can still require compatible moves on other timelines. The earlier volume
+inputs continue to use the optional-pruned hypercuboid.
+
+`solid87-capture-gain-v6-mover` appends the mover's best physical capture
+gain and best jump capture gain, in pawn units. For each candidate capture of
+a nonroyal piece, take the victim's value and apply Solid's exposure penalty
+on the resulting arrival board. The penalty subtracts the arriving piece's
+value when it is geometrically attacked and has no friendly defender. Each
+input takes the maximum in its move group, with zero as the floor. The two
+gains share the local-check feature pass and include optional moves.
 
 Legacy `linear70-v1-mover` models are also accepted and retain their original
 unpruned total/playable volume inputs. A schema tag selects feature extraction;
@@ -147,6 +197,25 @@ python scripts/neural_train.py --build build-canonical \
   --dataset /absolute/path/to/new-dataset --output /absolute/path/to/new-training
 ```
 
+To train on scored sibling actions, use the sibling trainer with one or more
+judged label panels and SciPy installed alongside PyTorch. Each panel contains
+roots, family IDs, successor snapshots, four judge scores per successor, and
+the saved 5,000-iteration pair comparisons.
+
+```sh
+python scripts/neural_sibling_train.py --build build-canonical \
+  --labels /absolute/path/to/first/labels.json /absolute/path/to/second/labels.json \
+  --output /absolute/path/to/new-sibling-training
+```
+
+The trainer replays successor snapshots, checks labels and groups families
+that share positions. It compares an 80-input network with two 87-input
+variants, including one with protection tiers masked. Fold zero supplies
+the validation positions for all three. The lowest validation pair log loss
+selects the exported `model.nn`. The output also contains per-seed models,
+validation curves, linear ranking controls, native parity errors, and
+`splits.json` for reproducing the family assignments.
+
 To regenerate features without changing an existing dataset's source-family
 splits or retained position selection, use `refresh` before training:
 
@@ -157,13 +226,16 @@ python scripts/neural_dataset.py refresh --build build-canonical \
 
 Refresh revalidates source files and position identities. Failed games are
 recorded in `refresh-exclusions.json`; it does not add replacement positions.
+Both `prepare` and `refresh` export the capture-gain schema by default. Use
+`--schema` to select one of the earlier input schemas.
 
 For training experiments, `--family-balanced` gives each source-game family
 equal total loss weight and fits normalization with the same family weights.
 `--weight-decay` sets AdamW weight decay (default `1e-4`). `--feature-set`
-accepts `all` (default), `differences` (24 material differences, timeline
+accepts `all` (default), `without-rays` (the first 70 inputs), `differences`
+(24 material differences, timeline
 advantage and six safety differences), or `relative-volume` (those inputs plus
-both volume features). Ablations keep the 70-input format and zero the masked
+both volume features). Ablations keep the dataset's input count and zero the masked
 normalization scales; distinct piece channels are not merged. Use `--defer-test`
 to omit test-partition evaluation during model development. In family-balanced
 mode, checkpoints are selected using family-weighted validation BCE.
@@ -177,7 +249,11 @@ training data, selects across three seeds using validation loss, evaluates
 the selected checkpoint on the test split once, and checks native output
 agreement. `model.nn`, its normalization, hashes, learning curves and
 metrics are saved in the training output directory. The binding exposes raw
-solid-schema features through `game.get_neural_features()`. The legacy linear
+solid-schema features through `game.get_neural_features()` and ray features
+through `game.get_neural_ray_features()`. The protection schema is available
+through `game.get_neural_protection_features()` and the local-check schema
+through `game.get_neural_local_check_features()`. The capture-gain schema
+is available through `game.get_neural_capture_gain_features()`. The legacy linear
 inputs remain available through `game.get_evaluation_features()`, and native model
 inference through `neural_model.load(path).evaluate_features(features)`.
 
@@ -229,6 +305,10 @@ Ordinary UCT rewards and visits still update every iteration. This option
 requires `admission` or `children` mode; the default `visits` counts every
 completed iteration. All evidence remains scoped to its action context.
 
+AMAF engines also support `--mean-reward-selection`. It follows the visited prefix with the best average direct reward for the player making the turn. Equal averages favor more visits, then existing child order. Choose at most one final move selector.
+
+The AMAF engines accept `--completion-aware-v0` to try an experimental final move selector. At each step it considers prefixes within 5% of the most-visited prefix. It switches when another eligible prefix contains a completed move with at least four more visits than the best-supported completion of the leading prefix. The default follows the most-visited prefix at each step.
+
 Leaves use zero nonterminal values unless `--model /absolute/path/to/model.nn`
 is supplied. `--value-scale` scales only the model's nonterminal output by a
 finite number in `[0,1]` (default 1). Zero skips neural feature extraction.
@@ -237,19 +317,40 @@ protocol information reports sharing activity for diagnostics. The default
 settings are configuration defaults, not a strength recommendation.
 
 `--neural-usage leaf` backs up learned nonterminal values through ordinary UCT
-and AMAF statistics. `--neural-usage amaf-prior` instead backs up zero for
+and AMAF statistics. With a model, AMAF engines default to
+`--neural-usage amaf-prior` without quiescence and `--neural-usage leaf` with
+quiescence. An explicit `--neural-usage` choice applies in either case.
+The `amaf-prior` mode backs up zero for
 nonterminal ordinary UCT rewards while using the learned value only for
 action-local shared estimates. This keeps the network's influence within the
-decaying AMAF term. Exact terminal rewards update both sets of statistics in
+decaying AMAF term. Use `solid-amaf1 --model /absolute/path/to/model.nn`
+for weighted exploration and half-strength pooled credit. Loading a model preserves the preset's AMAF strength and credit formula. Exact terminal rewards update both sets of statistics in
 either mode. With sharing disabled, `amaf-prior` therefore retains zero leaf
 evaluation regardless of model predictions.
 
 `--cache-evaluations` reuses a completed evaluation when the same ceiling node
-is revisited. It is optional and applies only to `amaf-pw`, whose zero and
-neural leaf policies are deterministic. The cache belongs to the current
+is revisited. It is available on all AMAF presets. Both zero and neural leaf policies are deterministic. The cache belongs to the current
 search tree, preserves terminal outcomes, and is discarded before the next
 search. Interrupted evaluations are never cached. `amaf_stats` includes cache
 hit and miss counts; backpropagation still runs once per completed iteration.
+
+With a model, AMAF engines accept `--quiescence-depth 1` through
+`--quiescence-depth 4`. For example, add `--quiescence-depth 4` to
+`solid-amaf1 --model /absolute/path/to/model.nn --value-scale 0.1 --cache-evaluations`.
+Use `--mean-reward-selection` to select the final turn by mean direct reward.
+Quiescence refines completed root actions; deeper MCTS leaves use the static
+evaluator so that tactical refinement does not consume every tree iteration.
+Each tactical ply is one submitted turn. The engine compares captures and checks across
+timelines, including non-capturing defenses when a royal is threatened.
+It also samples complete turns to find checks that emerge only when several
+semimoves are submitted together. This search is selective; budget exhaustion
+does not establish checkmate, and a position with no examined reply retains
+its static evaluation.
+It scores at most 16 additional positions per uncached root action, shares that
+allowance across candidates and replies, and scales the resulting leaf score
+once. If the move deadline interrupts refinement after static evaluation
+finishes, that static score can complete the current iteration; the interrupted
+refinement is not cached. Omit the option for the static neural evaluation.
 
 The two flat-UCB engines evaluate each legal root action with repeated rollouts
 and choose with the adversarial UCB rule, without expanding a search tree.
@@ -327,7 +428,7 @@ Among those siblings, let `k` count semimoves receiving the 1024-point
 penalty and `m` count the rest. When `k > m > 0`, `solid` multiplies each
 penalized sibling's weight by `sqrt(m/k)`. UCT scales its exploration bonus by the square root of the
 resulting weight. Pass `--ordinary-uct` to use unweighted exploration on
-`solid` or a Solid AMAF preset.
+`solid`, `neural-pw` or a Solid AMAF preset.
 
 The three AMAF variants share semimove rewards across prefixes of one action
 root. During a UCT revisit, let `n` count visits through the current prefix

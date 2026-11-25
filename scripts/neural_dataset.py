@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import math
 from pathlib import Path
 import random
 import re
@@ -20,7 +21,26 @@ import sys
 import autoplay
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = 'solid70-v2-mover'
+BASE_SCHEMA = 'solid70-v2-mover'
+RAY_SCHEMA = 'solid80-rays-v3-mover'
+PROTECTION_SCHEMA = 'solid83-protection-v4-mover'
+LOCAL_CHECK_SCHEMA = 'solid85-local-checks-v5-mover'
+SCHEMA = 'solid87-capture-gain-v6-mover'
+INPUT_COUNTS = {BASE_SCHEMA: 70, RAY_SCHEMA: 80, PROTECTION_SCHEMA: 83, LOCAL_CHECK_SCHEMA: 85, SCHEMA: 87}
+FEATURE_GETTERS = {
+    BASE_SCHEMA: 'get_neural_features',
+    RAY_SCHEMA: 'get_neural_ray_features',
+    PROTECTION_SCHEMA: 'get_neural_protection_features',
+    LOCAL_CHECK_SCHEMA: 'get_neural_local_check_features',
+    SCHEMA: 'get_neural_capture_gain_features',
+}
+
+
+def extract_features(game, schema):
+    features = getattr(game, FEATURE_GETTERS[schema])()
+    if len(features) != INPUT_COUNTS[schema] or not all(map(math.isfinite, features)):
+        raise ValueError('nonfinite or wrong-size input')
+    return list(features)
 
 
 def digest(path):
@@ -31,7 +51,7 @@ def save(path, value):
     Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + '\n')
 
 
-def collect(source, build, limit, seed):
+def collect(source, build, limit, seed, schema=SCHEMA):
     rules = autoplay.load_rules(build)
     game = rules.game.from_pgn(source.read_text())
     if game.has_illegal_history():
@@ -84,10 +104,7 @@ def collect(source, build, limit, seed):
     white = {'1-0': 1, '0-1': -1, '1/2-1/2': 0}[result]
     for index in range(total):
         if index in selected:
-            features = list(game.get_neural_features())
-            import math
-            if len(features) != 70 or not all(map(math.isfinite, features)):
-                raise ValueError('nonfinite or wrong-size input')
+            features = extract_features(game, schema)
             row = dict(history[index], action_index=index, total_actions=total,
                 features=features, result=result,
                 y_mover=-white if history[index]['black_to_move'] else white)
@@ -105,7 +122,7 @@ def isolated(source, args):
     try:
         proc = subprocess.run([sys.executable, str(Path(__file__).resolve()), '_collect',
             '--source', str(source), '--build', str(args.build),
-            '--samples', str(args.samples), '--seed', str(args.seed)],
+            '--samples', str(args.samples), '--seed', str(args.seed), '--schema', args.schema],
             capture_output=True, text=True, timeout=args.timeout)
         if proc.returncode:
             return {'source': str(source.relative_to(ROOT)), 'exit_code': proc.returncode,
@@ -115,7 +132,7 @@ def isolated(source, args):
         return {'source': str(source.relative_to(ROOT)), 'error': 'validation/export timeout'}
 
 
-def refresh_game(source, build, existing):
+def refresh_game(source, build, existing, schema=SCHEMA):
     """Revalidate and re-extract exactly the previously retained played states."""
     relative = str(source.relative_to(ROOT))
     rows = [r for line in (existing/'samples.jsonl').read_text().splitlines()
@@ -140,11 +157,7 @@ def refresh_game(source, build, existing):
                     or bool(game.get_current_present()[1]) != row['black_to_move']
                     or result != row['result']):
                 raise ValueError('position identity or result changed')
-            features = list(game.get_neural_features())
-            import math
-            if len(features) != 70 or not all(map(math.isfinite, features)):
-                raise ValueError('nonfinite or wrong-size input')
-            row['features'] = features
+            row['features'] = extract_features(game, schema)
         if index < max(selected) and not game.visit_child(children[0].act):
             raise ValueError('cannot replay validated main line')
     return {'source': relative, 'samples': rows}
@@ -165,7 +178,7 @@ def refresh(args):
         try:
             proc = subprocess.run([sys.executable, str(Path(__file__).resolve()), '_refresh',
                 '--source', str(ROOT/source), '--build', str(args.build),
-                '--existing', str(args.existing)], capture_output=True, text=True,
+                '--existing', str(args.existing), '--schema', args.schema], capture_output=True, text=True,
                 timeout=args.timeout)
             if proc.returncode:
                 return {'source': source, 'exit_code': proc.returncode,
@@ -192,7 +205,7 @@ def refresh(args):
     save(args.output/'exclusions.json', json.loads((args.existing/'exclusions.json').read_text()))
     by_split = {s: [r for r in kept if r['split'] == s] for s in ('train', 'validation', 'test')}
     feature_counts = Counter(tuple(r['features']) for r in kept)
-    summary = dict(previous, schema=SCHEMA,
+    summary = dict(previous, schema=args.schema,
         previous_schema=previous['schema'], previous_dataset=str(args.existing),
         previous_samples_sha256=previous['samples_sha256'],
         splits_sha256=digest(args.output/'splits.json'),
@@ -207,7 +220,14 @@ def refresh(args):
         refresh_policy='revalidate original sources and replay identical full-history states; '
             'preserve source-family assignments and labels; no resampling or added games',
         feature_policy='solid HC remove_check=true, prune_optional_moves=true; '
-            'columns 62/63 log(max(1, product(axis sizes))) for playable/new axes separately')
+            'columns 62/63 log(max(1, product(axis sizes))) for playable/new axes separately'
+            + ('; columns 70–79 orthogonal and diagonal royal rays' if args.schema != BASE_SCHEMA else '')
+            + ('; columns 80–82 same-board protection tiers'
+               if INPUT_COUNTS[args.schema] >= INPUT_COUNTS[PROTECTION_SCHEMA] else '')
+            + ('; columns 83–84 distinct local checking moves with optional moves enabled'
+               if INPUT_COUNTS[args.schema] >= INPUT_COUNTS[LOCAL_CHECK_SCHEMA] else '')
+            + ('; columns 85–86 best physical and jump capture gains'
+               if args.schema == SCHEMA else ''))
     save(args.output/'dataset.json', summary)
     print(json.dumps({k: summary[k] for k in ('schema', 'split_games', 'sample_counts',
         'refresh_excluded_games', 'refresh_excluded_samples', 'duplicate_feature_rate')}, indent=2))
@@ -313,7 +333,7 @@ def prepare(args):
             output.write(json.dumps(row, sort_keys=True) + '\n')
     save(args.output / 'splits.json', assignments)
     feature_counts = Counter(tuple(r['features']) for r in kept)
-    summary = {'schema': SCHEMA, 'seed': args.seed, 'metadata_standard_games': len(paths),
+    summary = {'schema': args.schema, 'seed': args.seed, 'metadata_standard_games': len(paths),
         'metadata_with_result': explicit, 'metadata_without_result': len(paths)-explicit,
         'validated_games': len(records), 'validation_exclusions': len(exclusions),
         'validated_sample_count': sum(len(r['samples']) for r in records),
@@ -354,6 +374,7 @@ def main():
     parser.add_argument('--build', type=Path, default=ROOT/'build-canonical')
     parser.add_argument('--suite', type=Path, default=ROOT/'test/engine_suite/v1/manifest.json')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--schema', choices=INPUT_COUNTS, default=SCHEMA)
     parser.add_argument('--existing', type=Path, help='existing dataset whose splits and samples are preserved')
     parser.add_argument('--samples', type=int, default=20)
     parser.add_argument('--seed', type=int, default=20261106)
@@ -365,10 +386,14 @@ def main():
             setattr(args, key, value.resolve())
     if min(args.samples, args.jobs, args.timeout) <= 0:
         parser.error('samples, jobs and timeout must be positive')
+    if args.action in ('prepare', 'refresh'):
+        rules = autoplay.load_rules(args.build)
+        if not hasattr(rules.game, FEATURE_GETTERS[args.schema]):
+            parser.error(f'the Python binding does not support {args.schema}')
     if args.action == '_collect':
-        print(json.dumps(collect(args.source, args.build, args.samples, args.seed)))
+        print(json.dumps(collect(args.source, args.build, args.samples, args.seed, args.schema)))
     elif args.action == '_refresh':
-        print(json.dumps(refresh_game(args.source, args.build, args.existing)))
+        print(json.dumps(refresh_game(args.source, args.build, args.existing, args.schema)))
     elif args.action == 'refresh':
         if args.output is None or args.existing is None:
             parser.error('refresh requires --output and --existing')

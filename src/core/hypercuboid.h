@@ -539,13 +539,17 @@ public:
     moveseq to_action(const point &p) const;
 private:
     bool has_forced_departure_cycle(const HC &domain) const;
-    static HC_info build_info(const state &s, HC_build_options options);
-    void prune_checks();
-    search_space partition_by_branches(const HC &domain) const;
+    bool prune_checks();
+    HC optional_pruned_domain(bool prune_unsupported_departures) const;
     template<class Result, HCOrdering Ordering, hc_policy Policy>
     generator<Result> search_impl(search_space ss, Ordering order) const;
 
 public:
+    // If requested, also return the optional-pruned domain in this table's
+    // coordinates. A disengaged optional means the existing universe suffices.
+    static HC_info build_info(const state &s, HC_build_options options,
+        std::optional<HC> *without_optional_moves = nullptr);
+    search_space partition_by_branches(const HC &domain) const;
     static std::pair<HC_info, search_space> build_HC(
         const state &s, HC_build_options options = {});
     // A single domain with explicit constraints forbidding gaps in branch axes.

@@ -14,6 +14,10 @@ using move_score_table = std::vector<std::vector<float>>;
 
 enum class capture_ordering { weighted, mvvlva, solid };
 
+// Material lost when the arriving piece is attacked and has no geometric
+// defender on the result board. Uses the capture table's material units.
+float solid_capture_exposure_loss(const board &arrival, int square, bool player);
+
 // Scores physical and arriving HC coordinates. Solid also scores optional
 // departures. The HC must outlive the evaluator and remain unchanged during use.
 class move_evaluator

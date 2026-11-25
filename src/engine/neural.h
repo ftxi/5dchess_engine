@@ -3,8 +3,10 @@
 
 #include <filesystem>
 #include <cmath>
+#include <span>
 #include <string_view>
 #include "linear.h"
+#include "solid.h"
 
 // Text format: 5DNEURAL 1, schema tag, dimensions, means, inverse scales,
 // then row-major weights and biases for each affine layer. All numbers float32.
@@ -14,36 +16,62 @@ public:
     using features_t = linear_cutoff_evaluation::feature_vector_t;
     static constexpr std::size_t input_count = 70;
     static constexpr std::size_t parameter_count = 2817;
+    static constexpr std::size_t ray_input_count = input_count + 10;
+    static constexpr std::size_t protection_input_count = ray_input_count + 3;
+    static constexpr std::size_t local_check_input_count = protection_input_count + 2;
+    static constexpr std::size_t capture_gain_input_count = local_check_input_count + 2;
+    using ray_features_t = std::array<float, ray_input_count>;
+    using protection_features_t = std::array<float, protection_input_count>;
+    using local_check_features_t = std::array<float, local_check_input_count>;
+    using capture_gain_features_t = std::array<float, capture_gain_input_count>;
     static constexpr std::string_view solid_schema = "solid70-v2-mover";
+    static constexpr std::string_view ray_schema = "solid80-rays-v3-mover";
+    static constexpr std::string_view protection_schema = "solid83-protection-v4-mover";
+    static constexpr std::string_view local_check_schema = "solid85-local-checks-v5-mover";
+    static constexpr std::string_view capture_gain_schema = "solid87-capture-gain-v6-mover";
     static constexpr std::size_t log_playable_volume_offset = 62;
     static constexpr std::size_t log_new_volume_offset = 63;
     static neural_model load(const std::filesystem::path &path);
-    float evaluate_features(const features_t &features) const;
+    float evaluate_features(std::span<const float> features) const;
     // The export and inference paths share the same solid-pruned construction.
     static features_t extract_solid_features(const state &position);
     static features_t extract_solid_features(const state &position, const HC_info &info);
+    static ray_features_t extract_ray_features(const state &position);
+    static protection_features_t extract_protection_features(const state &position);
+    static local_check_features_t extract_local_check_features(const state &position);
+    static capture_gain_features_t extract_capture_gain_features(const state &position);
     features_t extract_features(const state &position, const move_space_data &legacy_space) const;
     std::optional<reward_t<rollout_details>> evaluate_position(
         state position, std::stop_token stop) const;
 
 private:
-    features_t mean{}, inverse_scale{};
-    std::array<float, 70 * 32> weights1{};
+    capture_gain_features_t mean{}, inverse_scale{};
+    std::array<float, capture_gain_input_count * 32> weights1{};
     std::array<float, 32> bias1{};
     std::array<float, 32 * 16> weights2{};
     std::array<float, 16> bias2{}, weights3{};
     float bias3 = 0;
     bool uses_solid_features = false;
+    std::size_t model_inputs = input_count;
 };
+
+struct quiescence_stats
+{
+    unsigned successors = 0, queries = 0, work = 0, deepest = 0;
+};
+
+std::optional<reward_t<rollout_details>> evaluate_quiescence(
+    const neural_model &model, state position, unsigned depth, std::stop_token stop,
+    quiescence_stats &stats);
 
 enum class neural_decay { inverse, square_root, exponential };
 
 struct neural_guidance_options
 {
-    bool prior_only = false;
+    bool prior_only = true;
     bool cache_evaluations = true;
     float value_scale = 1.0f;
-    double strength = 0.3, horizon = 32.0;
+    double strength = 0.3, horizon = 64.0;
     neural_decay decay = neural_decay::inverse;
 
     void validate() const
@@ -55,6 +83,10 @@ struct neural_guidance_options
         if(decay != neural_decay::inverse && decay != neural_decay::square_root
             && decay != neural_decay::exponential)
             throw std::invalid_argument("invalid neural decay");
+    }
+    float evaluation_scale() const
+    {
+        return prior_only && (strength == 0 || horizon == 0) ? 0.0f : value_scale;
     }
     double weight(std::size_t visits) const
     {
@@ -112,10 +144,12 @@ struct neural_observer : mcts_observer
 namespace neural_detail
 {
 inline std::optional<reward_t<rollout_details>> evaluate_position(
-    const neural_model *model, float scale, state position, std::stop_token stop)
+    const neural_model *model, float scale, state position, std::stop_token stop, unsigned depth = 0)
 {
     if(!model || scale == 0.0f) return evaluate_zero_position(std::move(position), stop);
-    auto result = model->evaluate_position(std::move(position), stop);
+    quiescence_stats stats;
+    auto result = depth ? evaluate_quiescence(*model, std::move(position), depth, stop, stats)
+                        : model->evaluate_position(std::move(position), stop);
     if(result && result->data.end == rollout_details::termination::ACTION_LIMIT)
         result->score *= scale;
     return result;
@@ -124,7 +158,7 @@ inline std::optional<reward_t<rollout_details>> evaluate_position(
 template<class Node, class Diagnostics>
 std::optional<reward_t<rollout_details>> evaluate_ceiling(
     Node &node, const neural_model *model, float scale, bool use_cache,
-    std::stop_token stop, Diagnostics *diagnostics)
+    std::stop_token stop, Diagnostics *diagnostics, unsigned depth = 0)
 {
     if(stop.stop_requested()) return std::nullopt;
     auto &cached = node.get_info().tree_policy_data.cached_evaluation;
@@ -140,8 +174,8 @@ std::optional<reward_t<rollout_details>> evaluate_ceiling(
         return detail::state_at_ceiling(node);
     }();
     search_trace_phase phase("evaluation", &position);
-    auto result = evaluate_position(model, scale, std::move(position), stop);
-    if(use_cache && result) cached = result;
+    auto result = evaluate_position(model, scale, std::move(position), stop, depth);
+    if(use_cache && result && !stop.stop_requested()) cached = result;
     return result;
 }
 } /* namespace neural_detail */
@@ -163,14 +197,14 @@ public:
     template<class Observer>
     std::optional<result_type> evaluate(state position, std::stop_token stop, Observer &)
     {
-        return neural_detail::evaluate_position(model.get(), options.value_scale,
+        return neural_detail::evaluate_position(model.get(), options.evaluation_scale(),
             std::move(position), stop);
     }
 
     template<class Node, class Observer>
     std::optional<result_type> evaluate_ceiling(Node &node, std::stop_token stop, Observer &)
     {
-        return neural_detail::evaluate_ceiling(node, model.get(), options.value_scale,
+        return neural_detail::evaluate_ceiling(node, model.get(), options.evaluation_scale(),
             options.cache_evaluations, stop, diagnostics.get());
     }
 };
@@ -179,15 +213,16 @@ struct neural_child_selection
 {
     neural_guidance_options options;
     std::shared_ptr<neural_diagnostics> diagnostics;
+    solid_child_selection exploration;
     template<class Node>
     Node *operator()(Node *node) const
     {
-        if(!options.prior_only || options.strength == 0 || options.horizon == 0)
-            return uct_detail::best_uct_child(node);
+        if(!options.prior_only || options.evaluation_scale() == 0)
+            return exploration(node);
         const auto &parent = node->get_info();
         const auto &prior = parent.tree_policy_data;
         const double center = prior.prior_count ? prior.prior_sum / prior.prior_count : 0;
-        auto *best = uct_detail::best_uct_child(node, [](const Node *) { return 1.0f; },
+        auto *best = exploration(node,
             [&](const Node *child) {
                 const auto &info = child->get_info();
                 const auto &data = info.tree_policy_data;
@@ -197,7 +232,7 @@ struct neural_child_selection
         if(diagnostics)
         {
             ++diagnostics->prior_choices;
-            diagnostics->changed_choices += best != uct_detail::best_uct_child(node);
+            diagnostics->changed_choices += best != exploration(node);
         }
         return best;
     }
@@ -220,7 +255,7 @@ struct neural_backpropagation
         if(nonterminal) direct.score = 0;
         sum_backpropagation{}.backpropagate(node, direct, observer);
         auto &leaf = node->get_info().tree_policy_data;
-        if(!nonterminal) return;
+        if(!nonterminal || options.evaluation_scale() == 0) return;
         if(leaf.prior_evidence_recorded)
         {
             if(diagnostics) ++diagnostics->repeated_skips;
@@ -240,7 +275,7 @@ struct neural_backpropagation
 };
 
 using neural_tree_policy = progressive_widening_tree_policy<
-    scored_HC_ordering, neural_child_selection, neural_node_data>;
+    solid_HC_ordering, neural_child_selection, neural_node_data>;
 
 using neural_pw_mcts_engine = basic_mcts_engine<
     neural_tree_policy, neural_leaf_policy,
@@ -251,20 +286,22 @@ class neural_pw_engine final : public neural_pw_mcts_engine
     neural_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed, double constant, double alpha,
         std::shared_ptr<const neural_model> model, neural_guidance_options options,
-        std::size_t prefix_budget, std::shared_ptr<neural_diagnostics> diagnostics)
+        std::size_t prefix_budget, bool weighted_exploration, bool prune_optional_moves,
+        std::shared_ptr<neural_diagnostics> diagnostics)
         : neural_pw_mcts_engine(neural_leaf_policy{std::move(model), options, diagnostics},
             neural_tree_policy{seed, constant, alpha,
-                solid_scores, neural_child_selection{options, diagnostics},
-                HC_build_options{.remove_check = true, .prune_optional_moves = true},
+                solid_scores, neural_child_selection{options, diagnostics, {weighted_exploration}},
+                HC_build_options{.remove_check = true, .prune_optional_moves = prune_optional_moves},
                 prefix_budget},
             neural_backpropagation{options, diagnostics}, {}, neural_observer{diagnostics}, std::move(io)) {}
 public:
     neural_pw_engine(std::unique_ptr<io_handler> io,
         std::optional<std::uint32_t> seed, double constant, double alpha,
         std::shared_ptr<const neural_model> model, neural_guidance_options options = {},
-        std::size_t prefix_budget = default_fine_prefix_budget)
+        std::size_t prefix_budget = default_fine_prefix_budget,
+        bool weighted_exploration = true, bool prune_optional_moves = false)
         : neural_pw_engine(std::move(io), seed, constant, alpha, std::move(model), options, prefix_budget,
-            std::make_shared<neural_diagnostics>()) {}
+            weighted_exploration, prune_optional_moves, std::make_shared<neural_diagnostics>()) {}
 };
 
 static_assert(neural_model::input_count == linear_cutoff_evaluation::features_count);

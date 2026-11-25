@@ -38,6 +38,7 @@ struct command_line_options
     bool weighted_exploration = false;
     bool prune_optional_moves = false;
     amaf_options amaf;
+    amaf_final_selection final_selection;
     neural_guidance_options neural;
     float value_scale = 1.0f;
     bool cache_evaluations = false;
@@ -126,23 +127,26 @@ void print_usage(std::ostream &out)
            " progressive widening engines (default 0.5)\n"
         << "  --fine-prefix-budget <n>       fine-tree work budget (default "
         << default_fine_prefix_budget << ", 0 for strict ordering)\n"
-        << "  --ordinary-uct                solid: use unweighted exploration\n"
-        << "  --prune-optional-moves         solid: prune optional timeline moves\n"
+        << "  --ordinary-uct                Solid and neural-pw: use unweighted exploration\n"
+        << "  --prune-optional-moves         Solid and neural-pw: prune optional timeline moves\n"
         << "  --evaluation-features <subset> linear PW leaf features (default all):\n"
         << "      all, none, mandatory-material, material, material-timeline,\n"
         << "      material-volume, material-safety, safety, timeline, volume, timeline-volume\n"
         << "  --model <path>                  required portable model for neural-pw\n"
-        << "                                  optional for amaf-pw (otherwise zero leaves)\n"
-        << "  --amaf-strength <n>             AMAF mixing strength in [0,1] (default 1)\n"
+        << "                                  optional for AMAF engines (otherwise zero leaves)\n"
+        << "  --mean-reward-selection         Select prefixes by mover-relative mean reward (AMAF engines)\n"
+        << "  --completion-aware-v0           Experimental final move selection (AMAF engines)\n"
+        << "  --amaf-strength <n>             AMAF mixing strength in [0,1] (preset default)\n"
         << "  --amaf-horizon <n>              AMAF decay visit scale (default 32)\n"
         << "  --amaf-decay <name>             inverse, sqrt, exponential (default inverse)\n"
         << "  --amaf-credit <name>            blend, centered or outside (default blend)\n"
         << "  --amaf-application <name>       selection, admission, children, both\n"
         << "                                  (default selection)\n"
         << "  --amaf-evidence <name>          visits (default) or unique-leaves\n"
+        << "  --quiescence-depth <1..4>       tactical neural leaf search (AMAF, requires --model)\n"
         << "  --value-scale <n>               nonterminal neural scale in [0,1]\n"
-        << "  --neural-usage <name>           neural-pw: leaf or prior; amaf-pw: leaf or amaf-prior\n"
-        << "  --cache-evaluations            amaf-pw: reuse immutable node evaluations\n"
+        << "  --neural-usage <name>           with a model: prior (neural-pw) or amaf-prior (AMAF); leaf also available\n"
+        << "  --cache-evaluations            AMAF engines: reuse immutable node evaluations\n"
         << "  --neural-strength <n>           neural-pw prior strength in [0,1]\n"
         << "  --neural-horizon <n>            neural-pw prior decay visit scale\n"
         << "  --neural-decay <name>           neural-pw: inverse, sqrt, exponential\n"
@@ -178,7 +182,8 @@ command_line_options parse_options(
     int argc, const char *argv[], const std::string &engine_name)
 {
     command_line_options options;
-    options.weighted_exploration = engine_name == "solid" || is_solid_amaf_engine(engine_name);
+    options.weighted_exploration = engine_name == "solid" || engine_name == "neural-pw"
+        || is_solid_amaf_engine(engine_name);
     options.prune_optional_moves = engine_name == "mvvlva-solid" || engine_name == "mvvlva-pruned";
     if(engine_name == "solid-amaf1" || engine_name == "solid-amaf2") options.amaf.strength = 0.5;
     if(engine_name == "solid-amaf2") options.amaf.credit = amaf_credit::outside;
@@ -286,6 +291,13 @@ command_line_options parse_options(
             else throw std::invalid_argument("unknown neural decay");
             neural_decay_seen = true;
         }
+        else if(option == "--completion-aware-v0" || option == "--mean-reward-selection")
+        {
+            if(!is_amaf_engine(engine_name) || options.final_selection.policy != amaf_final_selection::method::most_visited)
+                throw std::invalid_argument("invalid final selection option");
+            options.final_selection.policy = option == "--completion-aware-v0"
+                ? amaf_final_selection::method::completion_aware_v0 : amaf_final_selection::method::mean_reward;
+        }
         else if(option == "--cache-evaluations")
         {
             if(!is_amaf_engine(engine_name) || options.cache_evaluations)
@@ -347,6 +359,14 @@ command_line_options parse_options(
             else throw std::invalid_argument("unknown AMAF credit");
             amaf_credit_seen = true;
         }
+        else if(option == "--quiescence-depth")
+        {
+            if(!is_amaf_engine(engine_name) || options.amaf.quiescence_depth || ++i >= argc)
+                throw std::invalid_argument("invalid quiescence depth option");
+            const auto depth = parse_unsigned(argv[i]);
+            if(depth < 1 || depth > 4) throw std::invalid_argument("quiescence depth must be 1..4");
+            options.amaf.quiescence_depth = static_cast<unsigned>(depth);
+        }
         else if(option == "--neural-usage")
         {
             if((!is_amaf_engine(engine_name) && engine_name != "neural-pw")
@@ -406,7 +426,7 @@ command_line_options parse_options(
         }
         else if(option == "--prune-optional-moves")
         {
-            if((engine_name != "solid" && !is_solid_alias(engine_name)
+            if((engine_name != "solid" && engine_name != "neural-pw" && !is_solid_alias(engine_name)
                 && !is_solid_amaf_engine(engine_name)) || options.prune_optional_moves)
                 throw std::invalid_argument("invalid optional move pruning option");
             options.prune_optional_moves = true;
@@ -438,6 +458,13 @@ command_line_options parse_options(
         {
             throw std::invalid_argument("unknown option");
         }
+    }
+    if(options.amaf.quiescence_depth && options.model_path.empty())
+        throw std::invalid_argument("quiescence requires --model");
+    if(!neural_usage_seen)
+    {
+        options.neural.prior_only = engine_name == "neural-pw";
+        options.amaf.neural_prior_only = is_amaf_engine(engine_name) && !options.model_path.empty() && !options.amaf.quiescence_depth;
     }
     return options;
 }
@@ -523,10 +550,11 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
         selected_engine = std::make_unique<amaf_pw_engine>(
             std::move(io), options.seed, options.progressive_widening_constant,
             options.progressive_widening_alpha, options.amaf,
-            std::move(model), options.value_scale, options.cache_evaluations,
+            std::move(model), (options.amaf.neural_prior_only && !options.amaf.quiescence_depth && !options.amaf.enabled())
+                ? 0.0f : options.value_scale, options.cache_evaluations,
             HC_build_options{.remove_check = is_solid_amaf_engine(engine_name),
                 .prune_optional_moves = options.prune_optional_moves},
-            options.fine_prefix_budget, options.weighted_exploration);
+            options.fine_prefix_budget, options.weighted_exploration, options.final_selection);
     }
     else if(engine_name == "neural-pw")
     {
@@ -534,7 +562,8 @@ std::unique_ptr<engine> make_engine(int argc, const char *argv[],
         selected_engine = std::make_unique<neural_pw_engine>(
             std::move(io), options.seed, options.progressive_widening_constant,
             options.progressive_widening_alpha,
-            std::make_shared<const neural_model>(neural_model::load(options.model_path)), options.neural, options.fine_prefix_budget);
+            std::make_shared<const neural_model>(neural_model::load(options.model_path)), options.neural,
+            options.fine_prefix_budget, options.weighted_exploration, options.prune_optional_moves);
     }
     else if(engine_name == "linear-pw" || engine_name == "linear-safety-pw"
             || engine_name == "linear-trained-pw")
