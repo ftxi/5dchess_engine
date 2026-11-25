@@ -133,12 +133,19 @@ std::optional<reward_t<rollout_details>> evaluate_zero_position(
     state s, std::stop_token stop, move_space_data *move_space)
 {
     if(stop.stop_requested()) return std::nullopt;
-    auto [info, space] = [&] {
+    const auto info = [&] {
         search_trace_phase phase("build_HC", &s);
-        return HC_info::build_HC(s);
+        return HC_info::build_info(s, {});
     }();
-    auto moves = mixed_search(
-        info, std::move(space), natural_HC_ordering{}, stop).first();
+    return evaluate_zero_position(info, stop, move_space);
+}
+
+std::optional<reward_t<rollout_details>> evaluate_zero_position(
+    const HC_info &info, std::stop_token stop, move_space_data *move_space)
+{
+    if(stop.stop_requested()) return std::nullopt;
+    const auto &s = info.get_state();
+    auto moves = first_position_action(info, info.partition_by_branches(info.get_universe()), stop);
     if(stop.stop_requested()) return std::nullopt;
 
     rollout_cutoff_evaluation evaluation;
@@ -153,7 +160,7 @@ std::optional<reward_t<rollout_details>> evaluate_zero_position(
         return evaluation.mate_reward(winner, 0);
     }
     if(move_space) *move_space = count_move_space(info);
-    return evaluation.cutoff_reward(std::move(s), 0, stop, nullptr);
+    return evaluation.cutoff_reward(s, 0, stop, nullptr);
 }
 
 void weighted_action_selection::set_temperature(float value)

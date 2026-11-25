@@ -33,8 +33,9 @@ public:
     static constexpr std::size_t log_new_volume_offset = 63;
     static neural_model load(const std::filesystem::path &path);
     float evaluate_features(std::span<const float> features) const;
-    // The export and inference paths share the same solid-pruned construction.
+    // Existing Solid schemas use optional-pruned volumes for inputs 62 and 63.
     static features_t extract_solid_features(const state &position);
+    // The caller supplies the feature schema's volume domain in info.get_universe().
     static features_t extract_solid_features(const state &position, const HC_info &info);
     static ray_features_t extract_ray_features(const state &position);
     static protection_features_t extract_protection_features(const state &position);

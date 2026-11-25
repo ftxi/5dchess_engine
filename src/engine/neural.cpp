@@ -274,9 +274,10 @@ neural_model neural_model::load(const std::filesystem::path &path)
 
 neural_model::features_t neural_model::extract_solid_features(const state &position)
 {
-    const auto info = HC_info::build_info(position,
-        {.remove_check = true, .prune_optional_moves = true});
-    return extract_solid_features(position, info);
+    std::optional<HC> volume_domain;
+    const auto info = HC_info::build_info(position, {.remove_check = true}, &volume_domain);
+    return solid_features(position, volume_domain ? *volume_domain : info.get_universe(),
+        info.first_branch_axis());
 }
 
 neural_model::features_t neural_model::extract_solid_features(
@@ -320,25 +321,14 @@ std::optional<reward_t<rollout_details>> neural_model::evaluate_position(
     std::optional<float> mover;
     if(uses_solid_features)
     {
-        const bool needs_candidates = model_inputs >= local_check_input_count;
-        std::optional<HC> pruned;
-        const auto info = HC_info::build_info(position,
-            {.remove_check = true, .prune_optional_moves = !needs_candidates},
-            needs_candidates ? &pruned : nullptr);
-        const auto &domain = pruned ? *pruned : info.get_universe();
-        if(stop.stop_requested()) return std::nullopt;
-        const auto witness = first_position_action(info, info.partition_by_branches(domain), stop);
-        if(stop.stop_requested()) return std::nullopt;
-        if(witness)
-            outcome = rollout_cutoff_evaluation{}.cutoff_reward(position, 0, stop, nullptr);
-        else
-            // Optional pruning is heuristic: only the complete space can prove
-            // that no action exists. It may instead supply a fallback witness.
-            outcome = evaluate_zero_position(position, stop);
+        std::optional<HC> volume_domain;
+        const auto info = HC_info::build_info(position, {.remove_check = true}, &volume_domain);
+        outcome = evaluate_zero_position(info, stop);
         if(!outcome || outcome->data.end != rollout_details::termination::ACTION_LIMIT)
             return outcome;
         mover = [&]() -> std::optional<float> {
-            const auto solid = solid_features(position, domain, info.first_branch_axis());
+            const auto solid = solid_features(position, volume_domain ? *volume_domain : info.get_universe(),
+                info.first_branch_axis());
             if(model_inputs == input_count) return evaluate_features(solid);
             const auto rays = add_royal_rays(position, solid);
             if(model_inputs == ray_input_count) return evaluate_features(rays);

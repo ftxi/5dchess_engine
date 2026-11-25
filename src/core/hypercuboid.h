@@ -130,8 +130,8 @@ struct HC_build_options
     // Pre-remove unavoidable royal checks and unsupported departures.
     // This preserves the set of legal actions.
     bool remove_check = false;
-    // Omit optional physical moves and optional-to-optional nonbranching arrivals.
-    // This heuristic may reduce the number of legal actions generated.
+    // Deprecated: this heuristic can remove legal actions. Retained for legacy
+    // comparisons. It omits optional physical moves and optional-to-optional nonbranching arrivals.
     bool prune_optional_moves = false;
 };
 

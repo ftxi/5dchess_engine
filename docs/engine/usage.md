@@ -80,10 +80,10 @@ The model predicts the side-to-move value; the search converts it to its
 White-relative reward convention. The network never changes move ordering.
 
 Deterministic completed-leaf evaluations are cached for the duration of one
-search. Repeated visits retain ordinary visit/backpropagation updates. A
-solid-pruned legal witness also supplies the volume features without rebuilding
-an unpruned HC; if pruning supplies no witness, the complete action space is
-searched before deciding whether the position is terminal. Use
+search. Repeated visits retain ordinary visit/backpropagation updates. With a
+Solid-schema model, leaf evaluation searches for a legal action with optional
+moves included. If that search finds no action, it classifies the position as
+checkmate or stalemate. The same HC supplies the model's volume inputs. Use
 `--no-evaluation-cache` to disable the cache for comparisons.
 
 The default `--neural-usage prior` mode keeps ordinary nonterminal backups at
@@ -130,13 +130,12 @@ negative scales and trailing content are rejected.
 The `solid70-v2-mover` schema retains the material, timeline and royal-safety
 inputs described in [evaluation features](linear-features.md). Its input 62 is
 the log candidate volume of existing playable-timeline axes; input 63 is the log
-candidate volume of possible new-timeline axes. Both are computed directly from
-an HC with solid-check and optional-move pruning enabled, including null
-coordinates that survive pruning. Optional physical moves and optional-to-optional
+candidate volume of possible new-timeline axes. Both use the historical
+optional-pruned view of the check-pruned HC, including null coordinates that
+survive pruning. For these two inputs, optional physical moves and optional-to-optional
 nonbranching arrivals are omitted. These are candidate factors, not legal-action
 counts. Each factor uses the natural logarithm `log(max(1, volume))`, so an empty factor, a unit factor,
-or an absent group of axes gives zero. Exhaustive terminal detection still uses
-the complete rules action space.
+or an absent group of axes gives zero.
 
 `solid80-rays-v3-mover` appends ten features to the solid 70 inputs. In order,
 columns 70–74 describe orthogonal rays (rank and file combined), and columns
@@ -173,7 +172,7 @@ qualify. The check-pruned hypercuboid includes optional moves for these two
 counts. Each underlying move with its configured promotion counts once,
 including when several branch axes represent it. These are candidate moves
 and can still require compatible moves on other timelines. The earlier volume
-inputs continue to use the optional-pruned hypercuboid.
+inputs continue to use the optional-pruned view.
 
 `solid87-capture-gain-v6-mover` appends the mover's best physical capture
 gain and best jump capture gain, in pawn units. For each candidate capture of

@@ -55,7 +55,7 @@ struct rollout_cutoff_evaluation
                       : result_type{0.0f, {end::STALEMATE, length}};
     }
     std::optional<result_type> cutoff_reward(
-        state, std::size_t length, std::stop_token stop, std::mt19937 *) const
+        const state &, std::size_t length, std::stop_token stop, std::mt19937 *) const
     {
         if(stop.stop_requested()) return std::nullopt;
         return result_type{0.0f, {rollout_details::termination::ACTION_LIMIT, length}};
@@ -73,6 +73,9 @@ std::optional<moveseq> first_position_action(
     const HC_info &info, search_space space, std::stop_token stop);
 std::optional<reward_t<rollout_details>> evaluate_zero_position(
     state s, std::stop_token stop, move_space_data *move_space = nullptr);
+// The supplied universe must preserve every legal action, including optional moves.
+std::optional<reward_t<rollout_details>> evaluate_zero_position(
+    const HC_info &info, std::stop_token stop, move_space_data *move_space = nullptr);
 
 // No simulated actions, but terminal positions retain their actual outcome.
 struct zero_default_policy

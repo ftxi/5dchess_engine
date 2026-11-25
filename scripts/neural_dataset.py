@@ -219,8 +219,9 @@ def refresh(args):
         duplicate_feature_rate=1-len(feature_counts)/len(kept) if kept else 0,
         refresh_policy='revalidate original sources and replay identical full-history states; '
             'preserve source-family assignments and labels; no resampling or added games',
-        feature_policy='solid HC remove_check=true, prune_optional_moves=true; '
-            'columns 62/63 log(max(1, product(axis sizes))) for playable/new axes separately'
+        feature_policy='solid HC remove_check=true, optional moves included; '
+            'columns 62/63 use optional-pruned axis sizes for log(max(1, product(axis sizes))) '
+            'for playable/new axes separately'
             + ('; columns 70–79 orthogonal and diagonal royal rays' if args.schema != BASE_SCHEMA else '')
             + ('; columns 80–82 same-board protection tiers'
                if INPUT_COUNTS[args.schema] >= INPUT_COUNTS[PROTECTION_SCHEMA] else '')
